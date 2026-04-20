@@ -1,0 +1,17 @@
+# Unity line ending normalization
+* text=auto
+
+# Unity YAML files — keep as-is to avoid merge conflicts
+*.unity        merge=unityyamlmerge eol=lf
+*.prefab       merge=unityyamlmerge eol=lf
+*.asset        merge=unityyamlmerge eol=lf
+*.meta         merge=unityyamlmerge eol=lf
+*.controller   merge=unityyamlmerge eol=lf
+
+# Binary assets — never diff or convert
+*.png  binary
+*.jpg  binary
+*.psd  binary
+*.fbx  binary
+*.wav  binary
+*.mp3  binary
