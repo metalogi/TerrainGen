@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 using Sonoma.Core.Rendering;
 
@@ -14,6 +13,11 @@ namespace Sonoma.Core.Quadtree
         public QuadtreeNode[] Children; // null when leaf
         public NodeState State = NodeState.Inactive;
         public TerrainChunk Chunk;
+
+        // Cached edge heights and normals (set after mesh generation, read by fine neighbors for seam stitching).
+        // Index conventions: N/S arrays are indexed by x (West→East); E/W arrays by y (South→North).
+        public float[]   EdgeN,       EdgeS,       EdgeE,       EdgeW;
+        public Vector3[] EdgeNormalN, EdgeNormalS, EdgeNormalE, EdgeNormalW;
 
         public bool IsLeaf => Children == null || Children.Length == 0;
 

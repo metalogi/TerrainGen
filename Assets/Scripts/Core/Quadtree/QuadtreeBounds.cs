@@ -1,9 +1,10 @@
+using System;
 using UnityEngine;
 
 namespace Sonoma.Core.Quadtree
 {
     [System.Serializable]
-    public struct QuadtreeBounds
+    public struct QuadtreeBounds : IEquatable<QuadtreeBounds>
     {
         public Vector2 Min;
         public Vector2 Max;
@@ -25,5 +26,19 @@ namespace Sonoma.Core.Quadtree
                 new QuadtreeBounds { Min = new Vector2(mx, Min.y), Max = new Vector2(Max.x, my), QuadIndex = QuadIndex }, // SE
             };
         }
+
+        public bool Equals(QuadtreeBounds other)
+            => QuadIndex == other.QuadIndex
+            && Min.x == other.Min.x && Min.y == other.Min.y
+            && Max.x == other.Max.x && Max.y == other.Max.y;
+
+        public override bool Equals(object obj) => obj is QuadtreeBounds b && Equals(b);
+
+        public override int GetHashCode() => HashCode.Combine(
+            QuadIndex,
+            BitConverter.SingleToInt32Bits(Min.x),
+            BitConverter.SingleToInt32Bits(Min.y),
+            BitConverter.SingleToInt32Bits(Max.x),
+            BitConverter.SingleToInt32Bits(Max.y));
     }
 }

@@ -6,7 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Sonoma is a Unity 6 (6000.3.5f2) project implementing a procedural terrain generation system using hierarchical heightmap-based terrain with quadtree LOD management. The system generates realistic natural landscapes from continent-scale down to third-person game scale with seamless LOD transitions.
 
-**Current Status:** Foundation phase - `Assets/Scripts/` directory tree exists but all folders are empty. The only existing C# code is `Assets/TutorialInfo/Scripts/` (Unity boilerplate that can be deleted). All core terrain systems need to be built from scratch.
+**Current Status:** Phase 1 (Foundation) is substantially complete. All core Phase 1 systems are implemented and functional. Phase 2 (LOD seam stitching, streaming, memory budgeting) is the next target.
+
+**Implemented systems:**
+- `Core/CoordinateSpace/`: `BaseMeshQuad`, `BaseMeshFactory`, `CoordinateTransform`, `WorldOriginSystem`
+- `Core/Quadtree/`: `QuadtreeBounds`, `QuadtreeNode`, `QuadtreeManager` (MonoBehaviour)
+- `Core/Generation/`: `HeightmapGenerator` (CPU Perlin, world-space sampling)
+- `Core/Rendering/`: `TerrainChunk`
+- `Systems/Configuration/`: `TerrainSettings` (ScriptableObject)
+- `Tools/`: `DemoTerrainSpawner` (single-chunk test), `FlyCamera`
 
 ## Unity Development Commands
 
@@ -148,20 +156,20 @@ When loaded chunk count exceeds budget: sort by camera distance, unload furthest
 
 ## Implementation Phases (5-Phase Roadmap)
 
-### Phase 1: Foundation (Current Target)
-- [ ] Base Mesh system and coordinate transformation matrices
-- [ ] Quadtree data structure (QuadtreeNode, bounds, children)
-- [ ] Camera distance queries for LOD decisions
-- [ ] Basic single-level heightmap generation
-- [ ] Origin rebasing system for large worlds
+### Phase 1: Foundation (Complete)
+- [x] Base Mesh system and coordinate transformation matrices
+- [x] Quadtree data structure (QuadtreeNode, bounds, children)
+- [x] Camera distance queries for LOD decisions
+- [x] Basic single-level heightmap generation
+- [x] Origin rebasing system for large worlds
 
-### Phase 2: LOD and Streaming
-- [ ] Multi-level quadtree with distance-based subdivision/collapse
-- [ ] T-junction seam stitching implementation
-- [ ] Chunk loading/unloading based on camera distance
-- [ ] Memory budget tracking (target: 500-2000 active chunks)
+### Phase 2: LOD and Streaming (Complete)
+- [x] Multi-level quadtree with distance-based subdivision/collapse
+- [x] T-junction seam stitching implementation
+- [x] Chunk loading/unloading based on camera distance
+- [x] Memory budget tracking (`MaxActiveChunks`, default 500)
 
-### Phase 3: Generation Pipeline
+### Phase 3: Generation Pipeline (Current Target)
 - [ ] Hierarchical generation with parent→child dependencies
 - [ ] Multi-threaded generation using Jobs/Burst
 - [ ] Biome system with feature placement
@@ -179,23 +187,24 @@ When loaded chunk count exceeds budget: sort by camera distance, unload furthest
 - [ ] Shader parameter generation (splat maps, normal maps)
 - [ ] Biome definition library (ScriptableObjects)
 
-## Planned Code Organization
-
-Expected folder structure as systems are implemented:
+## Code Organization
 
 ```
 Assets/Scripts/
 ├── Core/
-│   ├── Quadtree/           # QuadtreeNode, LODSystem, QuadtreeManager
-│   ├── Generation/         # HeightmapGenerator, MeshGenerator, BiomeSystem
-│   ├── Rendering/          # TerrainChunk, ChunkMeshRenderer, MaterialGenerator
-│   └── CoordinateSpace/    # BaseGeometry, CoordinateTransform, OriginRebasing
+│   ├── Quadtree/           # QuadtreeBounds, QuadtreeNode, QuadtreeManager
+│   ├── Generation/         # HeightmapGenerator (+ future MeshGenerator, BiomeSystem)
+│   ├── Rendering/          # TerrainChunk (+ future ChunkMeshRenderer, MaterialGenerator)
+│   └── CoordinateSpace/    # BaseMeshQuad, BaseMeshFactory, CoordinateTransform, WorldOriginSystem
 ├── Systems/
-│   ├── Streaming/          # ChunkLoader, MemoryManager
-│   ├── Performance/        # ProfilingSystem, PerformanceMonitor
-│   └── Configuration/      # GenerationProfile, BiomeDefinition (ScriptableObjects)
-└── Editor/                 # Custom inspectors, debug tools, visualization
+│   ├── Streaming/          # (Phase 2: ChunkLoader, MemoryManager)
+│   ├── Performance/        # (Phase 4: ProfilingSystem, PerformanceMonitor)
+│   └── Configuration/      # TerrainSettings ScriptableObject
+├── Tools/                  # DemoTerrainSpawner, FlyCamera (not in Sonoma namespace)
+└── Editor/                 # (Phase 4: custom inspectors, debug tools)
 ```
+
+All runtime systems use the `Sonoma.Core.*` or `Sonoma.Systems.*` namespace. Tool scripts in `Assets/Scripts/Tools/` are excluded from this convention.
 
 ## Technical Specifications
 
@@ -223,6 +232,17 @@ All generation parameters should be ScriptableObjects:
 3. **Collision Meshes**: Use simplified versions of visual mesh (separate LOD chain)
 4. **Water Bodies**: Separate system, not integrated into heightmap
 5. **Static Terrain**: No runtime deformation or destruction in initial implementation
+
+## Non-Obvious Implementation Details
+
+- **`TerrainChunk` has two static sets**: `AllChunks` (every chunk, including `SetActive(false)` ones) and `AllActive` (only enabled). `WorldOriginSystem` iterates `AllChunks` so hidden parent chunks aren't missed during an origin rebase.
+- **Atomic parent swap**: `QuadtreeManager.TryHideParent` waits until all four children have chunks before hiding the parent and showing children — prevents a frame where overlapping meshes are both visible.
+- **`QuadtreeManager.BuildMesh` is synchronous CPU code** (inline in the manager). The comment marks it for replacement with a Burst job in Phase 3. `DemoTerrainSpawner` has a duplicate of this logic; both should be consolidated when the Burst path is built.
+- **`HeightmapGenerator` samples at world-space positions** (calls `CoordinateTransform.ToWorldPosition` before computing Perlin noise). This is the correct Level 0 approach so adjacent root quads on spheres/cylinders share noise space.
+- **`FlyCamera` uses the legacy `Input` API** despite the project guideline to use the new Input System. Don't add new controls that mix both APIs without consolidating.
+- **Spatial index lifecycle**: nodes are registered at the END of `SpawnChunk` (after edge heights are cached), deregistered in `TryHideParent` when children take over, re-registered in `CollapseNode` when children are disposed. Always stitch-then-cache: `ApplySeamStitching` modifies the heightmap before `CacheEdgeHeights` stores it, so fine neighbors stitching to this node read the final mesh heights, not raw noise.
+- **Seam stitching only stitches to coarser neighbors** (depth < node.depth). Same-depth and finer neighbors are skipped — finer nodes stitch to us when they're generated. Cross-quad stitching is not implemented; mesh skirts on all four edges cover those cracks.
+- **Memory eviction collapses sibling groups**: `EnforceMemoryBudget` only evicts complete sets of 4 siblings (via `CollectCollapsibleParents`) — evicting a single node would leave its region uncovered. It reuses `CollapseNode`, which re-registers the parent and re-activates its chunk. The West skirt winding may appear reversed on plane topology; use a two-sided material if this is visible.
 
 ## Unity-Specific Best Practices for This Project
 

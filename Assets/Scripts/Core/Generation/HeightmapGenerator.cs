@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Mathematics;
 using Sonoma.Core.CoordinateSpace;
 
 namespace Sonoma.Core.Generation
@@ -23,7 +24,8 @@ namespace Sonoma.Core.Generation
                     float freq = baseFreq;
                     for (int o = 0; o < octaves; o++)
                     {
-                        sample += amp * Mathf.PerlinNoise((float)(w.x * freq), (float)(w.z * freq));
+                        var p = new float3((float)(w.x * freq), (float)(w.y * freq), (float)(w.z * freq));
+                        sample += amp * (noise.snoise(p) * 0.5f + 0.5f);
                         amp *= 0.5f;
                         freq *= 2f;
                     }

@@ -15,6 +15,14 @@ namespace Sonoma.Systems.Configuration
         [Tooltip("Distance per LOD level indexed by depth (0 = root)")]
         public float[] LodDistances = new float[] { 1000f, 500f, 250f, 125f, 60f, 30f, 15f, 7f, 3f };
 
+        [Header("Memory Budget")]
+        [Tooltip("Maximum number of simultaneously active (visible) chunks. 0 = unlimited.")]
+        public int MaxActiveChunks = 500;
+
+        [Header("Seam Stitching")]
+        [Tooltip("World-space depth of the skirt geometry hanging below each chunk edge to hide cross-quad cracks.")]
+        public float SkirtDepth = 10f;
+
         [Header("Noise - Level 0")]
         public float BaseFrequency = 0.5f;
         public int Octaves = 6;
