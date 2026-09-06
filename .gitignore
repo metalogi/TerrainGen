@@ -61,3 +61,4 @@ crashlytics-build.properties
 # Claude Code: local overrides and reviewer state (workflow config itself is tracked)
 .claude/settings.local.json
 .claude/review/
+.claude/scheduled_tasks.lock

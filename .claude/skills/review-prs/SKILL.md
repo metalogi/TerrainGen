@@ -14,10 +14,27 @@ a reviewer that just wrote the patch is not a reviewer.
 
 ## Preconditions
 
-`gh auth status` must succeed. If it does not, say so once and stop; do not retry
-in a loop.
+`gh` is installed but is **not on PATH** in the agent's shell. Put it there before
+anything else, or every step below fails with `gh: command not found` — and because
+this skill stops on a failed precondition, a `/loop` reviewer would then go silently
+idle, which looks exactly like "nothing to review":
+
+```bash
+command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
+```
+
+`gh auth status` must then succeed. If it does not, say so once and stop; do not
+retry in a loop.
 
 ## Pass
+
+0. **Make sure the findings directory exists.** It is gitignored, so it does not
+   come with a fresh clone, and step 6 cannot post a `--body-file` that was written
+   under a missing directory:
+
+   ```bash
+   mkdir -p .claude/review
+   ```
 
 1. **List open PRs and their head commits:**
 

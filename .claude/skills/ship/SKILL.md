@@ -11,6 +11,13 @@ yourself blocked by it, you skipped a step below.
 
 ## Preconditions
 
+- `gh` is installed but is **not on PATH** in the agent's shell. Put it there first,
+  or step 6 fails with `gh: command not found`:
+
+  ```bash
+  command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
+  ```
+
 - `gh` must be authenticated (`gh auth status`). If it is not, stop and tell the
   user to run `gh auth login` — never handle their credentials yourself.
 - `GH_REPO=metalogi/TerrainGen` is pinned in `.claude/settings.json` so repository

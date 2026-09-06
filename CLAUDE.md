@@ -60,6 +60,20 @@ inference is the part that gets shaky when it does.
 **There is no `jq` on this machine** (and `node` is v0.12, too old to script
 against). Use `gh --jq`, which is gh's own embedded jq, or `perl -MJSON::PP`.
 
+**`gh` is not on PATH in the agent's shell**, though it is in the user's terminal.
+It lives at `C:\Program Files\GitHub CLI\gh.exe`. Every skill above starts by
+putting it on PATH; do the same in any ad-hoc command:
+
+```bash
+command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
+```
+
+**The guard treats a newline as a command separator**, so it inspects every line of
+a multi-line command rather than just the first. One consequence worth knowing: a
+heredoc whose *content* contains a line like a trunk push will be denied even though
+nothing would execute. Assemble such strings from pieces, or write the file with the
+Write tool instead of a shell heredoc.
+
 ## Unity Development Commands
 
 ### Opening the Project

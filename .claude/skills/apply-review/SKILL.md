@@ -23,7 +23,12 @@ never skip it.
    and ask which to apply. Accept "all", a subset, or "none". Do not start editing
    before the user answers; this is the approval gate.
 
-4. **Check out the PR branch:**
+4. **Check out the PR branch.** `gh` is not on PATH in the agent's shell, so put it
+   there first:
+
+   ```bash
+   command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
+   ```
 
    ```bash
    gh pr checkout <number>
