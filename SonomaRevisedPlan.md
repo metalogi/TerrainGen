@@ -31,7 +31,7 @@ Status correction: `CLAUDE.md` marks Phases 1 and 2 complete. Phase 1 is complet
 - Vertex spacing in the u direction shrinks by `cos(lat)`, so the LOD metric, noise frequency per level and normal quality all vary with latitude and break entirely near the poles.
 - 8×4 = 32 root quads instead of 6 multiplies the amount of cross-quad boundary.
 
-Every production planetary renderer uses a cube-sphere: six root faces, each point on the face projected to the sphere by normalisation, with a tangent adjustment (`tan(s·π/4)`) that reduces the worst-case spacing ratio from roughly 3:1 to under 1.5:1. Face adjacency is a fixed 24-entry table.
+Every production planetary renderer uses a cube-sphere: six root faces, each point on the face projected to the sphere by normalisation, with a tangent adjustment (`tan(s·π/4)`) that reduces the worst-case spacing ratio from 2.73:1 to 1.62:1 (measured over 16×16 cells on a face). Face adjacency is a fixed 24-entry table.
 
 The design's "arbitrary quad base mesh" should be narrowed to surfaces whose vertices are all 4-valent: plane grid, cube-sphere, cylinder (and, for free, torus). Extraordinary vertices make neighbour lookup and seam handling far harder and buy nothing the project needs.
 

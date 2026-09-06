@@ -271,7 +271,7 @@ Human-readable form, for review:
 | 4 (+Z) | 3 (−Y) North | 0 (+X) West | 2 (+Y) South | 1 (−X) East |
 | 5 (−Z) | 3 (−Y) South **rev** | 1 (−X) West | 2 (+Y) North **rev** | 0 (+X) East |
 
-Six of the 24 links are reversed. That is correct, not a transcription error.
+Eight of the 24 links are reversed. That is correct, not a transcription error.
 
 ### Neighbour arithmetic
 
@@ -352,20 +352,21 @@ Create these files under `Assets/Tests/EditMode/`. Every threshold below is a **
 5. **`CubeNeighbourRoundTripAllDepths`** — for depths 0–4, all 6 faces, every `(x, y)`, all 4 edges: `Neighbour(Neighbour(n, e).Node, arrivalEdge).Node == n`. That is **8,184 cases and all must pass** (this exact count was verified before writing this plan; if your count differs, the loop bounds are wrong).
 6. **`CylinderWrapsInColumnsNotRows`** — East/West from any column returns a node with `Exists == true` and wraps at the seam; North/South at `row 0` / `row Rows-1` returns `Exists == false`.
 7. **`PlaneGridDoesNotWrap`** — boundary tiles return `Exists == false`; interior neighbours round-trip.
-8. **`NeighbourIsAlwaysSameDepth`** — across all topologies, `Neighbour(...).Node.Depth == n.Depth` whenever `Exists`.
+8. **`NeighboursAreGeometricallyAdjacent`** — for each node and edge, the returned neighbour's arrival edge must be the *same world-space segment* as the edge we crossed (endpoints coincide, in either orientation). **This test is load-bearing:** `CubeNeighbourRoundTripAllDepths` cannot catch a reversal that is dropped consistently, because the return hop repeats the same mistake and lands back at the start. Verified by mutation: removing the `Reversed` handling in `CrossQuad` passes every other test and fails only this one.
+9. **`NeighbourIsAlwaysSameDepth`** — across all topologies, `Neighbour(...).Node.Depth == n.Depth` whenever `Exists`.
 
 ### `NodeIdTests.cs`
 
-9. **`ChildParentRoundTrip`** — for depths 0–8 and a spread of `(x, y)`, `n.Child(i).Parent == n` for all four `i`.
-10. **`ChildUvRangesTileParent`** — the four children's `[UMin,UMax] × [VMin,VMax]` exactly tile the parent's range with no gap or overlap.
-11. **`EqualityAndHashing`** — equal `NodeId`s hash equally; a `HashSet<NodeId>` de-duplicates as expected. (M2's scheduler will key dictionaries on this.)
+10. **`ChildParentRoundTrip`** — for depths 0–8 and a spread of `(x, y)`, `n.Child(i).Parent == n` for all four `i`.
+11. **`ChildUvRangesTileParent`** — the four children's `[UMin,UMax] × [VMin,VMax]` exactly tile the parent's range with no gap or overlap.
+12. **`EqualityAndHashing`** — equal `NodeId`s hash equally; a `HashSet<NodeId>` de-duplicates as expected. (M2's scheduler will key dictionaries on this.)
 
 ### `SurfaceGeometryTests.cs`
 
-12. **`CubeSpherePointsLieOnSphere`** — random `(face, u, v)`, assert `|SurfacePoint| == Radius` within `1e-9 * Radius`, with `TangentAdjust` on and off.
-13. **`TangentAdjustmentImprovesSpacing`** — 16×16 cells on one face, ratio of largest to smallest cell diagonal. Assert **`< 1.7` with adjustment** (measured 1.621) and **`> 2.5` without** (measured 2.733). Asserting both directions documents the intent and fails loudly if the adjustment is silently disabled.
-14. **`NodeWorldSizeHalvesWithDepth`** — a child's `NodeWorldSize` is between 0.4× and 0.6× its parent's, across topologies and several depths.
-15. **`CylinderNormalsPointInward`** — `dot(normal, radialDirection) < 0` for sampled points, matching the interior-viewing convention the prototype already uses.
+13. **`CubeSpherePointsLieOnSphere`** — random `(face, u, v)`, assert `|SurfacePoint| == Radius` within `1e-9 * Radius`, with `TangentAdjust` on and off.
+14. **`TangentAdjustmentImprovesSpacing`** — 16×16 cells on one face, ratio of largest to smallest cell diagonal. Assert **`< 1.7` with adjustment** (measured 1.621) and **`> 2.5` without** (measured 2.733). Asserting both directions documents the intent and fails loudly if the adjustment is silently disabled.
+15. **`NodeWorldSizeHalvesWithDepth`** — a child's `NodeWorldSize` is between 0.45× and 0.65× its parent's (measured range over depths 0-5 is 0.467..0.633; the tighter 0.4-0.6 window first written here would fail), across topologies and several depths.
+16. **`CylinderNormalsPointInward`** — `dot(normal, radialDirection) < 0` for sampled points, matching the interior-viewing convention the prototype already uses.
 
 **Determinism note:** where a test uses randomness, seed it with a fixed constant so failures reproduce.
 
@@ -417,7 +418,7 @@ That last command **must print nothing**. If it does not, rule 1 has been broken
 ### Human-side, in the Editor
 
 1. Console is free of compile errors.
-2. Test Runner → EditMode: all 15 tests pass. Confirm `CubeNeighbourRoundTripAllDepths` reports 8,184 checked cases.
+2. Test Runner → EditMode: all 16 tests pass. Confirm `CubeNeighbourRoundTripAllDepths` reports 8,184 checked cases.
 3. Drop `SurfaceDebugDrawer` on an empty GameObject, set `CubeSphere`, `DrawDepth = 2`: the sphere is fully covered with no gaps or overlaps at face boundaries, normals point outward, and moving `NeighbourProbe` across a seam highlights the geometrically adjacent node on the next face.
 4. `SampleScene` still plays exactly as before M1.
 
@@ -426,9 +427,9 @@ That last command **must print nothing**. If it does not, rule 1 has been broken
 ## Definition of done
 
 - [ ] `Sonoma.Core.Surface` provides `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, and a static `Surface` with `BuildRoots`, `SurfaceFrame`, `SurfacePoint`, `SurfaceNormal`, `NodeWorldSize`, `Neighbour`, `Opposite`.
-- [ ] Cube-sphere, plane grid and cylinder all evaluate and support neighbour queries; cube-sphere handles all 24 cross-face links including the six reversed ones.
+- [ ] Cube-sphere, plane grid and cylinder all evaluate and support neighbour queries; cube-sphere handles all 24 cross-face links including the eight reversed ones.
 - [ ] No interfaces or virtual dispatch in the surface layer; `double3` positions, `float3` normals.
-- [ ] All 15 EditMode tests pass, including the independent geometric re-derivation of the adjacency table.
+- [ ] All 16 EditMode tests pass, including the independent geometric re-derivation of the adjacency table.
 - [ ] `SurfaceDebugDrawer` renders roots and nodes in the Editor without entering Play mode.
 - [ ] The prototype rendering path is byte-for-byte unmodified and `SampleScene` still plays.
 - [ ] `SonomaRevisedPlan.md` spacing-ratio figure corrected; `CLAUDE.md` updated.
