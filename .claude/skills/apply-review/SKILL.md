@@ -30,6 +30,12 @@ never skip it.
    command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
    ```
 
+   Under the PowerShell tool, use its equivalent instead:
+
+   ```powershell
+   if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { $env:PATH = "C:\Program Files\GitHub CLI;$env:PATH" }
+   ```
+
    ```bash
    gh pr checkout <number>
    ```

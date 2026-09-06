@@ -23,6 +23,15 @@ idle, which looks exactly like "nothing to review":
 command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
 ```
 
+The PowerShell tool needs its own equivalent — the line above does nothing there:
+
+```powershell
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { $env:PATH = "C:\Program Files\GitHub CLI;$env:PATH" }
+```
+
+If `gh` is somewhere else on this machine, both lines silently do nothing useful;
+find it with `where.exe gh` and use that directory instead.
+
 `gh auth status` must then succeed. If it does not, say so once and stop; do not
 retry in a loop.
 

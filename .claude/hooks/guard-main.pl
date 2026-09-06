@@ -45,12 +45,29 @@ unless (defined $cmd && $cmd =~ /\S/) {
 $line =~ s/\s+/ /g;
 $line =~ s/^\s+//;   # a single leading space would otherwise defeat /^/
 
+# A program can be named in more ways than a bare word: with a directory prefix
+# (`/usr/bin/git`), a .exe suffix (`git.exe`, this being Windows), a quoted path
+# for the PowerShell call operator (`& "C:/.../git.exe"`), or an escaped space
+# (`/c/Program\ Files/GitHub\ CLI/gh`). Matching only the bare token let every
+# one of those walk past the guard.
+sub prog {
+    my ($name) = @_;
+    return qr/(?:"[^"]*[\\\/]|(?:\\ |\S)*[\\\/])?(?:$name)(?:\.exe)?"?/i;
+}
+
+# Prefixes that run a program without being one: `env git push`, `command git
+# push`, `FOO=1 git push`.
+my $PRE = qr/(?:(?:env|command|exec|nohup)\s+|\w+=\S*\s+)*/;
+
+my $SH  = prog('(?:ba|da|z|k|tc|c|fi)?sh');
+my $PS  = prog('(?:pwsh|powershell)');
+
 # `bash -c "..."` puts the real command inside quotes, where the anchoring
 # below would never see it. Anything carrying a -c shell wrapper is scanned
-# unanchored.
+# unanchored. `-\S*c` rather than `-c` so combined flags like `-lc` count.
 $unanchored = 1
-  if $line =~ /(?:^|[;&|(]\s*)(?:ba|da|z|k)?sh\s+(?:-\S+\s+)*-c\b/
-  || $line =~ /(?:^|[;&|(]\s*)(?:pwsh|powershell)(?:\.exe)?\s+.*-(?:c|Command)\b/i;
+  if $line =~ /(?:^|[;&|(]\s*)$PRE$SH\s+(?:-\S+\s+)*-\S*c\b/
+  || $line =~ /(?:^|[;&|(]\s*)$PRE$PS\s+.*-(?:c|Command)\b/i;
 
 sub deny {
     my ($reason) = @_;
@@ -75,9 +92,10 @@ sub invokes {
 
 # `git` accepts global options before the subcommand, so `git -C . push` and
 # `git --no-pager push` must be recognised as pushes too.
-my $GIT = qr/git(?:\s+-\S+(?:\s+\S+)?)*/;
+my $GIT = qr/$PRE@{[prog('git')]}(?:\s+-\S+(?:\s+\S+)?)*/;
+my $GH  = qr/$PRE@{[prog('gh')]}/;
 
-if (invokes(qr/gh\s+pr\s+merge\b/)) {
+if (invokes(qr/$GH\s+pr\s+merge\b/)) {
     deny(
         "Blocked by .claude/hooks/guard-main.pl. Merging a PR is the reviewer's "
       . "decision, not an agent's. Leave the PR open and tell the user it is ready to merge."

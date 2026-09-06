@@ -18,6 +18,12 @@ yourself blocked by it, you skipped a step below.
   command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
   ```
 
+  The PowerShell tool needs its own equivalent — the line above does nothing there:
+
+  ```powershell
+  if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { $env:PATH = "C:\Program Files\GitHub CLI;$env:PATH" }
+  ```
+
 - `gh` must be authenticated (`gh auth status`). If it is not, stop and tell the
   user to run `gh auth login` — never handle their credentials yourself.
 - `GH_REPO=metalogi/TerrainGen` is pinned in `.claude/settings.json` so repository

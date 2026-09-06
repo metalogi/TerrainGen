@@ -68,6 +68,12 @@ putting it on PATH; do the same in any ad-hoc command:
 command -v gh >/dev/null || export PATH="/c/Program Files/GitHub CLI:$PATH"
 ```
 
+The PowerShell tool needs its own version — the bash line does nothing there:
+
+```powershell
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { $env:PATH = "C:\Program Files\GitHub CLI;$env:PATH" }
+```
+
 **The guard treats a newline as a command separator**, so it inspects every line of
 a multi-line command rather than just the first. One consequence worth knowing: a
 heredoc whose *content* contains a line like a trunk push will be denied even though
