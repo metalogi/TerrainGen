@@ -256,6 +256,7 @@ All generation parameters should be ScriptableObjects:
 
 ## Key References
 
+- **Design Review & Revised Plan (2026-09-05)**: See `SonomaRevisedPlan.md` — flags structural flaws in the prototype (UV-sphere poles, generation-time stitching, float noise precision, synchronous generation) and lays out milestones M0–M7 built on cube-sphere topology, geomorphing, and a pure double-precision height function in Burst. Supersedes the phase status above until adopted or rejected.
 - **Design Document**: See `SonomaOverview_Expanded.md` for complete technical specification
 - **Unity Jobs Documentation**: https://docs.unity3d.com/Manual/JobSystem.html
 - **Burst Compiler**: https://docs.unity3d.com/Packages/com.unity.burst@latest

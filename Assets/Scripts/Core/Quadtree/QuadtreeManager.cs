@@ -13,6 +13,14 @@ namespace Sonoma.Core.Quadtree
     public enum WorldTopology { Plane, UVSphere, Cylinder }
     public enum EdgeDirection  { North, South, East, West }
 
+    // Off-edge height samples for proper two-sided central-difference normals at edge vertices.
+    // Each array has length `resolution` and represents the heightmap row/column one step beyond
+    // the chunk's edge in UV space (raw noise, no stitching).
+    public struct EdgeBorderHeights
+    {
+        public float[] N, S, E, W;
+    }
+
     public class QuadtreeManager : MonoBehaviour
     {
         [Header("Settings")]
@@ -113,7 +121,13 @@ namespace Sonoma.Core.Quadtree
             ApplySeamStitching(hm, res, node); // modifies edge rows of hm in-place
             CacheEdgeHeights(node, hm, res);   // stores the stitched edges for fine neighbors to read
 
-            var mesh = BuildMesh(hm, res, node, quad, heightScale);
+            // Off-edge border samples: pure noise one step beyond each edge. Used for
+            // two-sided central-difference normals at edge vertices, which lets adjacent
+            // same-depth chunks agree on edge normals (they sample the same UV positions
+            // and noise function on either side of the seam).
+            var borders = SampleEdgeBorders(node.Bounds, res, quad, baseFreq, octaves);
+
+            var mesh = BuildMesh(hm, res, node, quad, heightScale, borders);
 
             var go    = new GameObject($"Chunk_Q{node.Bounds.QuadIndex}_D{node.Depth}_{node.Bounds.Centre.x:F2}_{node.Bounds.Centre.y:F2}");
             var chunk = go.AddComponent<TerrainChunk>();
@@ -435,9 +449,36 @@ namespace Sonoma.Core.Quadtree
             }
         }
 
+        // Samples raw noise one step beyond each chunk edge. The same UV positions are
+        // sampled by adjacent same-depth chunks (one chunk's "border-east" coincides with
+        // its east neighbor's "interior column 1" in UV/world space), so the noise function
+        // returns identical values on both sides — central-difference normals at the seam
+        // therefore match without any explicit cross-chunk synchronisation.
+        EdgeBorderHeights SampleEdgeBorders(QuadtreeBounds bounds, int res, BaseMeshQuad quad, float baseFreq, int octaves)
+        {
+            float stepU = (bounds.Max.x - bounds.Min.x) / (res - 1);
+            float stepV = (bounds.Max.y - bounds.Min.y) / (res - 1);
+
+            var b = new EdgeBorderHeights
+            {
+                N = new float[res], S = new float[res], E = new float[res], W = new float[res]
+            };
+
+            for (int i = 0; i < res; i++)
+            {
+                float u = Mathf.Lerp(bounds.Min.x, bounds.Max.x, i / (float)(res - 1));
+                float v = Mathf.Lerp(bounds.Min.y, bounds.Max.y, i / (float)(res - 1));
+                b.N[i] = HeightmapGenerator.SampleAt(u,                bounds.Max.y + stepV, quad, baseFreq, octaves);
+                b.S[i] = HeightmapGenerator.SampleAt(u,                bounds.Min.y - stepV, quad, baseFreq, octaves);
+                b.E[i] = HeightmapGenerator.SampleAt(bounds.Max.x + stepU, v,                quad, baseFreq, octaves);
+                b.W[i] = HeightmapGenerator.SampleAt(bounds.Min.x - stepU, v,                quad, baseFreq, octaves);
+            }
+            return b;
+        }
+
         // ── Mesh building (CPU, synchronous — replaced by Burst job in Phase 3) ──
 
-        Mesh BuildMesh(float[,] hm, int res, QuadtreeNode node, BaseMeshQuad quad, float heightScale)
+        Mesh BuildMesh(float[,] hm, int res, QuadtreeNode node, BaseMeshQuad quad, float heightScale, EdgeBorderHeights borders)
         {
             var bounds = node.Bounds;
             float skirtDepth = Settings != null ? Settings.SkirtDepth : 10f;
@@ -453,6 +494,9 @@ namespace Sonoma.Core.Quadtree
             Vector3[] verts   = new Vector3[totalVerts];
             Vector3[] normals = new Vector3[totalVerts];
             Vector2[] uvs     = new Vector2[totalVerts];
+            // UV2: xyz = topology-up unit vector at h=0 (world space), w = elevation scalar.
+            // Read by the terrain shader to drive elevation/slope blending in a topology-aware way.
+            Vector4[] uv2     = new Vector4[totalVerts];
             int[]     tris    = new int[totalIdx];
 
             // Main mesh vertices
@@ -461,24 +505,51 @@ namespace Sonoma.Core.Quadtree
                 float v = Mathf.Lerp(bounds.Min.y, bounds.Max.y, y / (float)(res - 1));
                 for (int x = 0; x < res; x++)
                 {
-                    float   u     = Mathf.Lerp(bounds.Min.x, bounds.Max.x, x / (float)(res - 1));
-                    int     i     = y * res + x;
-                    double3 world = CoordinateTransform.ToWorldPosition(u, v, hm[x, y] * heightScale, quad);
-                    double3 local = world - WorldOriginSystem.WorldOrigin;
+                    float u = Mathf.Lerp(bounds.Min.x, bounds.Max.x, x / (float)(res - 1));
+                    int   i = y * res + x;
+                    CoordinateTransform.GetBaseSurface(u, v, quad, out var basePos, out var baseNormal);
+                    float   elevation = hm[x, y] * heightScale;
+                    double3 world     = basePos + (double3)(baseNormal * elevation);
+                    double3 local     = world - WorldOriginSystem.WorldOrigin;
                     verts[i] = new Vector3((float)local.x, (float)local.y, (float)local.z);
                     uvs[i]   = new Vector2(u, v);
+                    uv2[i]   = new Vector4(baseNormal.x, baseNormal.y, baseNormal.z, elevation);
                 }
             }
 
-            // Normals via central differences
+            // Off-edge phantom vertex positions, used only for central-difference normals at
+            // edge vertices. Built from the border heights sampled at the same UV positions an
+            // adjacent same-depth chunk would use for its first interior row → seam normals
+            // match by construction.
+            float stepU = (bounds.Max.x - bounds.Min.x) / (res - 1);
+            float stepV = (bounds.Max.y - bounds.Min.y) / (res - 1);
+            var origin = WorldOriginSystem.WorldOrigin;
+
+            Vector3[] bvN = new Vector3[res], bvS = new Vector3[res], bvE = new Vector3[res], bvW = new Vector3[res];
+            for (int x = 0; x < res; x++)
+            {
+                float u = Mathf.Lerp(bounds.Min.x, bounds.Max.x, x / (float)(res - 1));
+                bvN[x] = ToRenderPos(CoordinateTransform.ToWorldPosition(u, bounds.Max.y + stepV, borders.N[x] * heightScale, quad), origin);
+                bvS[x] = ToRenderPos(CoordinateTransform.ToWorldPosition(u, bounds.Min.y - stepV, borders.S[x] * heightScale, quad), origin);
+            }
+            for (int y = 0; y < res; y++)
+            {
+                float v = Mathf.Lerp(bounds.Min.y, bounds.Max.y, y / (float)(res - 1));
+                bvE[y] = ToRenderPos(CoordinateTransform.ToWorldPosition(bounds.Max.x + stepU, v, borders.E[y] * heightScale, quad), origin);
+                bvW[y] = ToRenderPos(CoordinateTransform.ToWorldPosition(bounds.Min.x - stepU, v, borders.W[y] * heightScale, quad), origin);
+            }
+
+            // Normals via central differences. Edge vertices use phantom border positions
+            // instead of clamping, so two-sided differences are taken everywhere — the
+            // shared-seam normal is identical from both sides at any same-depth boundary.
             for (int y = 0; y < res; y++)
             for (int x = 0; x < res; x++)
             {
                 int     i = y * res + x;
-                Vector3 L = verts[y * res + Mathf.Max(0, x - 1)];
-                Vector3 R = verts[y * res + Mathf.Min(res - 1, x + 1)];
-                Vector3 D = verts[Mathf.Max(0, y - 1) * res + x];
-                Vector3 U = verts[Mathf.Min(res - 1, y + 1) * res + x];
+                Vector3 L = (x == 0)       ? bvW[y] : verts[y * res + (x - 1)];
+                Vector3 R = (x == res - 1) ? bvE[y] : verts[y * res + (x + 1)];
+                Vector3 D = (y == 0)       ? bvS[x] : verts[(y - 1) * res + x];
+                Vector3 U = (y == res - 1) ? bvN[x] : verts[(y + 1) * res + x];
                 Vector3 n = Vector3.Cross(U - D, R - L);
                 normals[i] = n.sqrMagnitude > 1e-6f ? n.normalized : Vector3.up;
             }
@@ -510,6 +581,7 @@ namespace Sonoma.Core.Quadtree
                 verts  [sN + x] = verts[vi] + SkirtDir(verts[vi], quad) * skirtDepth;
                 normals[sN + x] = normals[vi];
                 uvs    [sN + x] = uvs[vi];
+                uv2    [sN + x] = uv2[vi];
             }
             for (int x = 0; x < res; x++) // South edge: y = 0
             {
@@ -517,6 +589,7 @@ namespace Sonoma.Core.Quadtree
                 verts  [sS + x] = verts[vi] + SkirtDir(verts[vi], quad) * skirtDepth;
                 normals[sS + x] = normals[vi];
                 uvs    [sS + x] = uvs[vi];
+                uv2    [sS + x] = uv2[vi];
             }
             for (int y = 0; y < res; y++) // East edge: x = res-1
             {
@@ -524,6 +597,7 @@ namespace Sonoma.Core.Quadtree
                 verts  [sE + y] = verts[vi] + SkirtDir(verts[vi], quad) * skirtDepth;
                 normals[sE + y] = normals[vi];
                 uvs    [sE + y] = uvs[vi];
+                uv2    [sE + y] = uv2[vi];
             }
             for (int y = 0; y < res; y++) // West edge: x = 0
             {
@@ -531,6 +605,7 @@ namespace Sonoma.Core.Quadtree
                 verts  [sW + y] = verts[vi] + SkirtDir(verts[vi], quad) * skirtDepth;
                 normals[sW + y] = normals[vi];
                 uvs    [sW + y] = uvs[vi];
+                uv2    [sW + y] = uv2[vi];
             }
 
             // Skirt triangles — winding: top[i], top[i+1], bot[i+1]; top[i], bot[i+1], bot[i]
@@ -565,6 +640,7 @@ namespace Sonoma.Core.Quadtree
             mesh.vertices  = verts;
             mesh.normals   = normals;
             mesh.uv        = uvs;
+            mesh.SetUVs(1, uv2);
             mesh.triangles = tris;
             mesh.RecalculateBounds();
             return mesh;
@@ -634,13 +710,15 @@ namespace Sonoma.Core.Quadtree
                 }
                 case SurfaceType.Cylinder:
                 {
-                    // Cylinder axis is world Z. Nearest axis point in render space = (-WorldOrigin.xy, vert.z).
-                    // Skirt goes toward the axis — project into XY plane and normalize.
-                    var orig  = WorldOriginSystem.WorldOrigin;
-                    var toAxis = new Vector3(-(float)orig.x - vertRenderPos.x,
-                                             -(float)orig.y - vertRenderPos.y,
-                                             0f);
-                    return toAxis.normalized;
+                    // Cylinder axis is world Z and terrain is on the INSIDE wall (height pushes inward
+                    // toward the axis). Skirts must extend outward — through the cylinder wall — to
+                    // cover cracks below the chunk edge. Project the position onto the XY plane,
+                    // remove the axis component, and head away from the axis.
+                    var orig    = WorldOriginSystem.WorldOrigin;
+                    var fromAxis = new Vector3(vertRenderPos.x + (float)orig.x,
+                                               vertRenderPos.y + (float)orig.y,
+                                               0f);
+                    return fromAxis.sqrMagnitude > 1e-6f ? fromAxis.normalized : Vector3.right;
                 }
                 default: // Plane
                     return Vector3.down;

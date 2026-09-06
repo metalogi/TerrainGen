@@ -266,12 +266,20 @@ MonoBehaviour:
   m_GameObject: {fileID: 330585543}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c8b9c5446ceaa6a4ea44a2aef4a1f0ab, type: 3}
+  m_Script: {fileID: 11500000, guid: 7625b4d692193be45a65551212353587, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::FlyCamera
-  MoveSpeed: 50
-  LookSpeed: 2
-  ShiftMultiplier: 3
+  m_EditorClassIdentifier: Assembly-CSharp::TopologyFlyCamera
+  TerrainManager: {fileID: 1981064310}
+  BaseSpeed: 1
+  SpeedPerMetre: 1
+  MinSpeed: 4
+  MaxSpeed: 3000
+  SprintMultiplier: 3
+  WheelMultMin: 0.25
+  WheelMultMax: 4
+  WheelStep: 1.15
+  LookSensitivity: 0.15
+  RequireRightMouseToLook: 1
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -298,7 +306,7 @@ Light:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   m_Enabled: 1
-  serializedVersion: 12
+  serializedVersion: 13
   m_Type: 1
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_Intensity: 2
@@ -350,7 +358,7 @@ Light:
   m_UseBoundingSphereOverride: 0
   m_UseViewFrustumForShadowCasterCull: 1
   m_ForceVisible: 0
-  m_ShadowRadius: 0
+  m_ShapeRadius: 0
   m_ShadowAngle: 0
   m_LightUnit: 1
   m_LuxAtDistance: 1
@@ -526,7 +534,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Core.Quadtree.QuadtreeManager
   Settings: {fileID: 11400000, guid: 53e9baa3033f64d49beeb587c4b9fe9a, type: 2}
-  ChunkMaterial: {fileID: 2100000, guid: 897b3ba29f76ede4cbf051f14c4c05f6, type: 2}
+  ChunkMaterial: {fileID: 2100000, guid: 011c216fef1872648b9826af582db113, type: 2}
   Topology: 1
   PlaneSize: 1000
   SphereRadius: 300

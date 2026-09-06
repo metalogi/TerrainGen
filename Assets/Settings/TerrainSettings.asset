@@ -27,7 +27,9 @@ MonoBehaviour:
   - 15
   - 7
   - 3
-  BaseFrequency: 0.1
+  MaxActiveChunks: 500
+  SkirtDepth: 2
+  BaseFrequency: 0.003
   Octaves: 6
   Persistence: 0.5
   Seed: 42

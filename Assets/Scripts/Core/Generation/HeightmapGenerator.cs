@@ -17,24 +17,30 @@ namespace Sonoma.Core.Generation
                 for (int x = 0; x < resolution; x++)
                 {
                     float u = Mathf.Lerp(minUV.x, maxUV.x, x / (float)(resolution - 1));
-
-                    var w = CoordinateTransform.ToWorldPosition(u, v, 0.0, quad);
-                    float sample = 0f;
-                    float amp = 1f;
-                    float freq = baseFreq;
-                    for (int o = 0; o < octaves; o++)
-                    {
-                        var p = new float3((float)(w.x * freq), (float)(w.y * freq), (float)(w.z * freq));
-                        sample += amp * (noise.snoise(p) * 0.5f + 0.5f);
-                        amp *= 0.5f;
-                        freq *= 2f;
-                    }
-
-                    outHM[x, y] = sample;
+                    outHM[x, y] = SampleAt(u, v, quad, baseFreq, octaves);
                 }
             }
 
             return outHM;
+        }
+
+        // Single-point height sample. Two adjacent chunks calling this with the same (u, v)
+        // and the same noise parameters get the same height — this is the property that makes
+        // off-edge "border" sampling produce matching normals at same-depth seams.
+        public static float SampleAt(double u, double v, BaseMeshQuad quad, float baseFreq, int octaves)
+        {
+            var w = CoordinateTransform.ToWorldPosition(u, v, 0.0, quad);
+            float sample = 0f;
+            float amp = 1f;
+            float freq = baseFreq;
+            for (int o = 0; o < octaves; o++)
+            {
+                var p = new float3((float)(w.x * freq), (float)(w.y * freq), (float)(w.z * freq));
+                sample += amp * (noise.snoise(p) * 0.5f + 0.5f);
+                amp *= 0.5f;
+                freq *= 2f;
+            }
+            return sample;
         }
     }
 }

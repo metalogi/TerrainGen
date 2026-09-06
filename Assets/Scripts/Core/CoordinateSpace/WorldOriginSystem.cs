@@ -11,6 +11,17 @@ namespace Sonoma.Core.CoordinateSpace
         public static double3 WorldOrigin = new double3(0, 0, 0);
         public float RebaseThreshold = 1000f;
 
+        // Triplanar texturing samples on true world position; mesh vertices are stored in
+        // render space (world − origin). The shader adds this back to recover continuous
+        // sample coordinates across origin rebases. All chunks share one origin per frame,
+        // so seams stay aligned.
+        const string ShaderOriginGlobal = "_SonomaWorldOrigin";
+
+        void Awake()
+        {
+            PushOriginToShader();
+        }
+
         void LateUpdate()
         {
             var cam = Camera.main;
@@ -31,8 +42,15 @@ namespace Sonoma.Core.CoordinateSpace
             }
 
             cam.transform.position = Vector3.zero;
+            PushOriginToShader();
 
             Debug.Log($"[WorldOriginSystem] Rebase fired. Shift={shift}, WorldOrigin now={WorldOrigin}, chunks shifted={TerrainChunk.AllChunks.Count}");
+        }
+
+        static void PushOriginToShader()
+        {
+            Shader.SetGlobalVector(ShaderOriginGlobal,
+                new Vector4((float)WorldOrigin.x, (float)WorldOrigin.y, (float)WorldOrigin.z, 0f));
         }
     }
 }

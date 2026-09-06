@@ -39,6 +39,7 @@ public class DemoTerrainSpawner : MonoBehaviour
         Vector3[] verts = new Vector3[vertCount];
         Vector3[] normals = new Vector3[vertCount];
         Vector2[] uvs = new Vector2[vertCount];
+        Vector4[] uv2 = new Vector4[vertCount]; // (topoUp.xyz, elevation) — terrain shader input
         int[] tris = new int[(res - 1) * (res - 1) * 6];
 
         // positions
@@ -50,10 +51,13 @@ public class DemoTerrainSpawner : MonoBehaviour
                 float u = Mathf.Lerp(0f, 1f, x / (float)(res - 1));
                 int i = y * res + x;
 
-                double3 world = CoordinateTransform.ToWorldPosition(u, v, hm[x, y] * heightScale, quad);
+                CoordinateTransform.GetBaseSurface(u, v, quad, out var basePos, out var baseNormal);
+                float elevation = hm[x, y] * heightScale;
+                double3 world = basePos + (double3)(baseNormal * elevation);
                 double3 local = world - WorldOriginSystem.WorldOrigin;
                 verts[i] = new Vector3((float)local.x, (float)local.y, (float)local.z);
                 uvs[i] = new Vector2(u, v);
+                uv2[i] = new Vector4(baseNormal.x, baseNormal.y, baseNormal.z, elevation);
             }
         }
 
@@ -99,6 +103,7 @@ public class DemoTerrainSpawner : MonoBehaviour
         mesh.vertices = verts;
         mesh.normals = normals;
         mesh.uv = uvs;
+        mesh.SetUVs(1, uv2);
         mesh.triangles = tris;
         mesh.RecalculateBounds();
         return mesh;
