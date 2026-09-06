@@ -7,14 +7,20 @@ namespace Sonoma.Core.Surface
     // One root quad of the base mesh. Which fields are meaningful depends on SurfaceType.
     public struct RootQuad
     {
-        public int     Face;            // CubeSphere: 0..5. Unused otherwise.
+        // Position in the array returned by BuildRoots, and therefore the value a NodeId
+        // addressing this quad must carry in its Quad field. For CubeSphere it is also the
+        // cube face, 0..5. Set by BuildRoots for every topology; SurfaceMath.NodeWorldSize
+        // checks it against the NodeId so a root and a node from different quads cannot be
+        // paired silently.
+        public int     Index;
         public double3 Origin;          // PlaneGrid: tile min corner in world space.
         public double  Angle0, Angle1;  // Cylinder: angular range swept by u.
         public double  Z0, Z1;          // Cylinder: axial range swept by v.
     }
 
     // Where a root quad edge leads. Reversed means the along-edge parameter runs
-    // opposite on the neighbour, which happens on 6 of the cube's 24 edge links.
+    // opposite on the neighbour, which happens on 8 of the cube's 24 edge links
+    // (CubeAdjacencyTests.EdgeLinksRoundTrip asserts that count).
     public readonly struct EdgeLink
     {
         public readonly int  Face;

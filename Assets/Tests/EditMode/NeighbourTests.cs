@@ -1,3 +1,4 @@
+using System;
 using NUnit.Framework;
 using Unity.Mathematics;
 using Sonoma.Core.Surface;
@@ -169,6 +170,42 @@ namespace Sonoma.Tests
             var back = SurfaceMath.Neighbour(s, hop.Node, hop.ArrivalEdge);
             Assert.IsTrue(back.Exists);
             Assert.AreEqual(interior, back.Node);
+        }
+
+        // A malformed address used to answer with a plausible-looking neighbour instead of
+        // failing: an out-of-range Quad fell through the face switches' catch-all and got
+        // face 5's basis paired with face 0's adjacency.
+        [Test]
+        public void NeighbourRejectsMalformedNodeIds()
+        {
+            var cube  = SurfaceDef.CubeSphere(1000.0);
+            var plane = SurfaceDef.PlaneGrid(1000.0, 4, 3);   // 12 root quads
+
+            // Quad outside the surface's root count.
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(cube, new NodeId(6, 0, 0, 0), Edge.South),
+                "quad 6 does not exist on a six-face cube-sphere");
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(cube, new NodeId(-1, 0, 0, 0), Edge.South));
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(plane, new NodeId(12, 0, 0, 0), Edge.East),
+                "quad 12 is one past the last tile of a 4x3 grid");
+
+            // X or Y outside the node grid at this depth (span 2 at depth 1).
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(cube, new NodeId(0, 1, 2, 0), Edge.East));
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(cube, new NodeId(0, 1, 0, -1), Edge.North));
+
+            // Depth past 30, where C# shift masking would wrap Span negative.
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(cube, new NodeId(0, 31, 0, 0), Edge.South));
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.Neighbour(cube, new NodeId(0, -1, 0, 0), Edge.South));
+
+            // Well-formed addresses are untouched.
+            Assert.DoesNotThrow(() => SurfaceMath.Neighbour(cube, new NodeId(5, 3, 7, 7), Edge.North));
+            Assert.DoesNotThrow(() => SurfaceMath.Neighbour(plane, new NodeId(11, 2, 3, 3), Edge.West));
         }
 
         [Test]

@@ -1,3 +1,4 @@
+using System;
 using NUnit.Framework;
 using Unity.Mathematics;
 using Sonoma.Core.Surface;
@@ -114,6 +115,38 @@ namespace Sonoma.Tests
             // Eight of the 24 links reverse the along-edge parameter. This is a property of
             // the cube, not an accident of the table; if it changes, the basis changed too.
             Assert.AreEqual(8, reversedCount, "expected exactly 8 reversed links out of 24");
+        }
+
+        // The face basis and the adjacency table are switch expressions over an index. Both
+        // used to fold every out-of-range index into their last entry, so a bad quad
+        // silently produced face 5's geometry and face 0's adjacency instead of failing.
+        [Test]
+        public void FaceBasisAndEdgeLinkRejectOutOfRangeIndices()
+        {
+            foreach (int bad in new[] { -1, 6, 7, int.MaxValue })
+            {
+                Assert.Throws<ArgumentOutOfRangeException>(() => SurfaceMath.FaceCentre(bad),
+                    $"FaceCentre({bad}) should throw, not fall through to face 5");
+                Assert.Throws<ArgumentOutOfRangeException>(() => SurfaceMath.FaceRight(bad),
+                    $"FaceRight({bad}) should throw, not fall through to face 5");
+                Assert.Throws<ArgumentOutOfRangeException>(() => SurfaceMath.FaceUp(bad),
+                    $"FaceUp({bad}) should throw, not fall through to face 5");
+                Assert.Throws<ArgumentOutOfRangeException>(
+                    () => SurfaceMath.CubeEdgeLink(bad, Edge.South),
+                    $"CubeEdgeLink({bad}, South) should throw");
+            }
+
+            // The index is flattened as face * 4 + edge, so an out-of-range edge lands on the
+            // next face's row rather than off the end. Face 0 with edge 4 would return face
+            // 1's South link and look entirely plausible.
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => SurfaceMath.CubeEdgeLink(0, (Edge)4),
+                "an out-of-range edge must not alias into the next face's row");
+
+            // Every valid combination still resolves.
+            for (int f = 0; f < 6; f++)
+            foreach (Edge e in AllEdges)
+                Assert.DoesNotThrow(() => SurfaceMath.CubeEdgeLink(f, e), $"face {f} edge {e}");
         }
 
         [Test]
