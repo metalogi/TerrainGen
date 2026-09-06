@@ -8,7 +8,7 @@ namespace Sonoma.Core.Surface
     public enum Edge : byte { South = 0, East = 1, North = 2, West = 3 }
 
     // Addresses any quadtree node without walking the tree.
-    // Quad indexes into the root array returned by Surface.BuildRoots.
+    // Quad indexes into the root array returned by SurfaceMath.BuildRoots.
     // The node covers u in [X/Span, (X+1)/Span] and v in [Y/Span, (Y+1)/Span].
     public readonly struct NodeId : IEquatable<NodeId>
     {
@@ -22,7 +22,27 @@ namespace Sonoma.Core.Surface
         public int  Span   => 1 << Depth;   // nodes per axis at this depth
         public bool IsRoot => Depth == 0;
 
-        public NodeId Parent => new NodeId(Quad, Depth - 1, X >> 1, Y >> 1);
+        // Guarded because C# masks the shift count to 5 bits: a Depth of -1 makes Span
+        // evaluate 1 << 31 == int.MinValue, and UMin/UMax/VMin/VMax then return small
+        // negative values instead of failing. Test IsRoot (or use TryGetParent) first.
+        // The message is a constant so this stays Burst-compilable.
+        public NodeId Parent
+        {
+            get
+            {
+                if (Depth <= 0)
+                    throw new InvalidOperationException(
+                        "NodeId.Parent: node is a root (Depth 0); check IsRoot before ascending.");
+                return new NodeId(Quad, Depth - 1, X >> 1, Y >> 1);
+            }
+        }
+
+        // Non-throwing form, for tree walks that ascend until they run out of parents.
+        public bool TryGetParent(out NodeId parent)
+        {
+            parent = Depth > 0 ? new NodeId(Quad, Depth - 1, X >> 1, Y >> 1) : default;
+            return Depth > 0;
+        }
 
         // i: bit 0 = +u, bit 1 = +v.  0 = SW, 1 = SE, 2 = NW, 3 = NE
         public NodeId Child(int i)

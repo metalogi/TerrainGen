@@ -12,7 +12,13 @@ namespace Sonoma.Core.Surface
     //
     // Positions are double3 (planetary scale); normals are float3 (direction only).
     // Height is added along the normal, matching CoordinateTransform.GetBaseSurface.
-    public static class Surface
+    //
+    // Named SurfaceMath, not Surface, on purpose. A type may not share the name of its
+    // own namespace: from a sibling namespace such as Sonoma.Core.Generation, with the
+    // house style of putting usings above the namespace, the simple name `Surface` binds
+    // to the namespace Sonoma.Core.Surface found in the enclosing Sonoma.Core scope, and
+    // `Surface.SurfacePoint(...)` fails to compile with CS0234. Do not rename it back.
+    public static class SurfaceMath
     {
         const double QuarterPi = 0.7853981633974483096;  // pi/4
         const double TwoPi     = 6.2831853071795864769;

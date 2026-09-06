@@ -162,7 +162,7 @@ namespace Sonoma.Core.Surface
 
 ## Task 2 — Surface evaluation
 
-Create `Assets/Scripts/Core/Surface/Surface.cs`. Static class, `switch` dispatch, no allocation.
+Create `Assets/Scripts/Core/Surface/SurfaceMath.cs`. Static class, `switch` dispatch, no allocation. (Named `SurfaceMath`, not `Surface`: a type may not share the name of its own namespace, or sibling `Sonoma.Core.*` callers hit CS0234.)
 
 ### Required API
 
@@ -325,7 +325,7 @@ Inspector fields: `SurfaceType`, `Radius`, `TileSize`, `Cols`, `Rows`, `TangentA
 
 In `OnDrawGizmos`:
 
-- Build roots via `Surface.BuildRoots` and draw every node at `DrawDepth`, sampling each edge at 8 points through `SurfacePoint` so curvature is visible.
+- Build roots via `SurfaceMath.BuildRoots` and draw every node at `DrawDepth`, sampling each edge at 8 points through `SurfacePoint` so curvature is visible.
 - Colour by root quad index so face boundaries are obvious.
 - With `DrawNormals`, draw a short line along `SurfaceNormal` at each node centre — this catches an inward/outward sign error immediately.
 - With `NeighbourProbe` set, draw that node in white and its four neighbours in red/green/blue/yellow. Dragging the probe across a cube seam is the fastest way for a human to sanity-check the adjacency table.
@@ -426,7 +426,7 @@ That last command **must print nothing**. If it does not, rule 1 has been broken
 
 ## Definition of done
 
-- [ ] `Sonoma.Core.Surface` provides `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, and a static `Surface` with `BuildRoots`, `SurfaceFrame`, `SurfacePoint`, `SurfaceNormal`, `NodeWorldSize`, `Neighbour`, `Opposite`.
+- [ ] `Sonoma.Core.Surface` provides `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, and a static `SurfaceMath` with `BuildRoots`, `SurfaceFrame`, `SurfacePoint`, `SurfaceNormal`, `NodeWorldSize`, `Neighbour`, `Opposite`.
 - [ ] Cube-sphere, plane grid and cylinder all evaluate and support neighbour queries; cube-sphere handles all 24 cross-face links including the eight reversed ones.
 - [ ] No interfaces or virtual dispatch in the surface layer; `double3` positions, `float3` normals.
 - [ ] All 16 EditMode tests pass, including the independent geometric re-derivation of the adjacency table.

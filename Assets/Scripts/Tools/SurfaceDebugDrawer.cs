@@ -51,7 +51,7 @@ public class SurfaceDebugDrawer : MonoBehaviour
         var s = BuildDef();
         if (s.QuadCount < 1) return;
 
-        var roots = Surface.BuildRoots(s);
+        var roots = SurfaceMath.BuildRoots(s);
         int span  = 1 << DrawDepth;
 
         for (int quad = 0; quad < roots.Length; quad++)
@@ -68,7 +68,7 @@ public class SurfaceDebugDrawer : MonoBehaviour
 
                 if (DrawNormals)
                 {
-                    Surface.SurfaceFrame(s, roots[quad],
+                    SurfaceMath.SurfaceFrame(s, roots[quad],
                         (n.UMin + n.UMax) * 0.5, (n.VMin + n.VMax) * 0.5,
                         out double3 p, out float3 nrm);
                     Vector3 a = ToVec(p);
@@ -96,7 +96,7 @@ public class SurfaceDebugDrawer : MonoBehaviour
 
         for (int i = 0; i < 4; i++)
         {
-            var hop = Surface.Neighbour(s, probe, edges[i]);
+            var hop = SurfaceMath.Neighbour(s, probe, edges[i]);
             if (!hop.Exists) continue;
 
             Gizmos.color = colours[i];
@@ -124,12 +124,12 @@ public class SurfaceDebugDrawer : MonoBehaviour
     void DrawArc(in SurfaceDef s, in RootQuad q, double u0, double v0, double u1, double v1)
     {
         int steps = Mathf.Max(2, EdgeSegments);
-        Vector3 prev = ToVec(Surface.SurfacePoint(s, q, u0, v0));
+        Vector3 prev = ToVec(SurfaceMath.SurfacePoint(s, q, u0, v0));
 
         for (int i = 1; i <= steps; i++)
         {
             double t = i / (double)steps;
-            Vector3 next = ToVec(Surface.SurfacePoint(s, q,
+            Vector3 next = ToVec(SurfaceMath.SurfacePoint(s, q,
                 u0 + (u1 - u0) * t, v0 + (v1 - v0) * t));
             Gizmos.DrawLine(prev, next);
             prev = next;

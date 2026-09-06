@@ -5,7 +5,7 @@ using Sonoma.Core.Surface;
 namespace Sonoma.Tests
 {
     // Guards the cube-sphere face basis and the 24-entry edge adjacency table.
-    // The table is hand-entered in Surface.CubeEdgeLink; these tests re-derive it
+    // The table is hand-entered in SurfaceMath.CubeEdgeLink; these tests re-derive it
     // from geometry so a transcription error cannot survive.
     public class CubeAdjacencyTests
     {
@@ -15,7 +15,7 @@ namespace Sonoma.Tests
         // tan(+-pi/4) == +-1, so face corners are cube corners with or without
         // the tangent adjustment, which is what lets us match edges exactly.
         static double3 Corner(int face, double a, double b)
-            => Surface.FaceCentre(face) + a * Surface.FaceRight(face) + b * Surface.FaceUp(face);
+            => SurfaceMath.FaceCentre(face) + a * SurfaceMath.FaceRight(face) + b * SurfaceMath.FaceUp(face);
 
         // Edge endpoints ordered by increasing along-edge parameter.
         static void EdgeEnds(int face, Edge e, out double3 start, out double3 end)
@@ -48,8 +48,8 @@ namespace Sonoma.Tests
         {
             for (int f = 0; f < 6; f++)
             {
-                double3 expected = Surface.FaceCentre(f);
-                double3 actual   = math.cross(Surface.FaceRight(f), Surface.FaceUp(f));
+                double3 expected = SurfaceMath.FaceCentre(f);
+                double3 actual   = math.cross(SurfaceMath.FaceRight(f), SurfaceMath.FaceUp(f));
                 Assert.IsTrue(Same(expected, actual),
                     $"face {f}: right x up == {actual}, expected centre {expected}");
             }
@@ -86,7 +86,7 @@ namespace Sonoma.Tests
 
                 Assert.AreEqual(1, matches, $"face {f} edge {e} matched {matches} candidate edges, expected exactly 1");
 
-                EdgeLink link = Surface.CubeEdgeLink(f, e);
+                EdgeLink link = SurfaceMath.CubeEdgeLink(f, e);
                 Assert.AreEqual(foundFace,     link.Face,     $"face {f} edge {e}: wrong neighbour face");
                 Assert.AreEqual(foundEdge,     link.Edge,     $"face {f} edge {e}: wrong neighbour edge");
                 Assert.AreEqual(foundReversed, link.Reversed, $"face {f} edge {e}: wrong reversed flag");
@@ -101,8 +101,8 @@ namespace Sonoma.Tests
             for (int f = 0; f < 6; f++)
             foreach (Edge e in AllEdges)
             {
-                EdgeLink a = Surface.CubeEdgeLink(f, e);
-                EdgeLink b = Surface.CubeEdgeLink(a.Face, a.Edge);
+                EdgeLink a = SurfaceMath.CubeEdgeLink(f, e);
+                EdgeLink b = SurfaceMath.CubeEdgeLink(a.Face, a.Edge);
 
                 Assert.AreEqual(f, b.Face, $"face {f} edge {e}: return link lands on face {b.Face}");
                 Assert.AreEqual(e, b.Edge, $"face {f} edge {e}: return link arrives on edge {b.Edge}");
@@ -125,23 +125,23 @@ namespace Sonoma.Tests
             foreach (bool tangentAdjust in new[] { true, false })
             {
                 var s     = SurfaceDef.CubeSphere(radius, tangentAdjust);
-                var roots = Surface.BuildRoots(s);
+                var roots = SurfaceMath.BuildRoots(s);
                 double worst = 0.0;
 
                 for (int f = 0; f < 6; f++)
                 foreach (Edge e in AllEdges)
                 {
-                    EdgeLink link = Surface.CubeEdgeLink(f, e);
+                    EdgeLink link = SurfaceMath.CubeEdgeLink(f, e);
 
                     for (int i = 0; i < samples; i++)
                     {
                         double t = i / (double)(samples - 1);
                         EdgeUv(e, t, out double u, out double v);
-                        double3 p = Surface.SurfacePoint(s, roots[f], u, v);
+                        double3 p = SurfaceMath.SurfacePoint(s, roots[f], u, v);
 
                         double t2 = link.Reversed ? 1.0 - t : t;
                         EdgeUv(link.Edge, t2, out double u2, out double v2);
-                        double3 q = Surface.SurfacePoint(s, roots[link.Face], u2, v2);
+                        double3 q = SurfaceMath.SurfacePoint(s, roots[link.Face], u2, v2);
 
                         worst = math.max(worst, math.distance(p, q));
                     }
