@@ -7,7 +7,7 @@ namespace Sonoma.Core.CoordinateSpace
     {
         // ── Plane ────────────────────────────────────────────────────────────
 
-        // Single quad on XZ plane centered at origin. Kept for DemoTerrainSpawner.
+        // Single quad on XZ plane centered at origin. Used by CreatePlane.
         public static BaseMeshQuad CreatePlaneQuad(float size)
         {
             float half = size * 0.5f;

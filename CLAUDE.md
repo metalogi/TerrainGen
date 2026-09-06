@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sonoma is a Unity 6 (6000.3.5f2) project implementing a procedural terrain generation system using hierarchical heightmap-based terrain with quadtree LOD management. The system generates realistic natural landscapes from continent-scale down to third-person game scale with seamless LOD transitions.
+Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain generation system using hierarchical heightmap-based terrain with quadtree LOD management. The system generates realistic natural landscapes from continent-scale down to third-person game scale with seamless LOD transitions.
 
-**Current Status:** Phase 1 (Foundation) is substantially complete. All core Phase 1 systems are implemented and functional. Phase 2 (LOD seam stitching, streaming, memory budgeting) is the next target.
+**Current Status:** A working synchronous prototype. Original Phase 1 is complete; Phase 2 is only partly done (seam stitching is order-dependent and cracks are covered by skirts; generation is neither threaded nor budgeted). A design review on 2026-09-05 produced `SonomaRevisedPlan.md`, which supersedes the 5-phase roadmap below with milestones M0–M7. Work against that plan.
 
 **Implemented systems:**
 - `Core/CoordinateSpace/`: `BaseMeshQuad`, `BaseMeshFactory`, `CoordinateTransform`, `WorldOriginSystem`
@@ -14,13 +14,13 @@ Sonoma is a Unity 6 (6000.3.5f2) project implementing a procedural terrain gener
 - `Core/Generation/`: `HeightmapGenerator` (CPU Perlin, world-space sampling)
 - `Core/Rendering/`: `TerrainChunk`
 - `Systems/Configuration/`: `TerrainSettings` (ScriptableObject)
-- `Tools/`: `DemoTerrainSpawner` (single-chunk test), `FlyCamera`
+- `Tools/`: `TopologyFlyCamera`
 
 ## Unity Development Commands
 
 ### Opening the Project
 - Open Unity Hub and add this project directory
-- Unity Editor Version: 6000.3.5f2
+- Unity Editor Version: 6000.4.4f1
 - The project uses Universal Render Pipeline (URP)
 
 ### Building
@@ -31,7 +31,8 @@ Sonoma is a Unity 6 (6000.3.5f2) project implementing a procedural terrain gener
 ### Testing
 - Unity Test Runner: Window → General → Test Runner
 - Run tests via Test Framework package (com.unity.test-framework@1.6.0)
-- No tests currently implemented - tests should be created alongside core systems
+- An EditMode test assembly exists at `Assets/Tests/EditMode/` (`Sonoma.Tests.EditMode`); run it from Window → General → Test Runner
+- Coverage is a single placeholder smoke test; real tests are written alongside core systems from M1 onward
 
 ### Editor Scripts
 - Editor scripts go in `Assets/Editor/` or `Assets/*/Editor/` folders
@@ -200,9 +201,10 @@ Assets/Scripts/
 │   ├── Streaming/          # (Phase 2: ChunkLoader, MemoryManager)
 │   ├── Performance/        # (Phase 4: ProfilingSystem, PerformanceMonitor)
 │   └── Configuration/      # TerrainSettings ScriptableObject
-├── Tools/                  # DemoTerrainSpawner, FlyCamera (not in Sonoma namespace)
-└── Editor/                 # (Phase 4: custom inspectors, debug tools)
+└── Tools/                  # TopologyFlyCamera (not in Sonoma namespace)
 ```
+
+Editor scripts live in `Assets/Editor/` (assembly `Sonoma.Editor`); EditMode tests live in `Assets/Tests/EditMode/` (assembly `Sonoma.Tests.EditMode`). There is deliberately no `Assets/Scripts/Editor/` — under the `Sonoma.Core` asmdef that folder name loses its magic and would be compiled into the runtime assembly.
 
 All runtime systems use the `Sonoma.Core.*` or `Sonoma.Systems.*` namespace. Tool scripts in `Assets/Scripts/Tools/` are excluded from this convention.
 
@@ -237,9 +239,8 @@ All generation parameters should be ScriptableObjects:
 
 - **`TerrainChunk` has two static sets**: `AllChunks` (every chunk, including `SetActive(false)` ones) and `AllActive` (only enabled). `WorldOriginSystem` iterates `AllChunks` so hidden parent chunks aren't missed during an origin rebase.
 - **Atomic parent swap**: `QuadtreeManager.TryHideParent` waits until all four children have chunks before hiding the parent and showing children — prevents a frame where overlapping meshes are both visible.
-- **`QuadtreeManager.BuildMesh` is synchronous CPU code** (inline in the manager). The comment marks it for replacement with a Burst job in Phase 3. `DemoTerrainSpawner` has a duplicate of this logic; both should be consolidated when the Burst path is built.
+- **`QuadtreeManager.BuildMesh` is synchronous CPU code** (inline in the manager). The comment marks it for replacement with a Burst job.
 - **`HeightmapGenerator` samples at world-space positions** (calls `CoordinateTransform.ToWorldPosition` before computing Perlin noise). This is the correct Level 0 approach so adjacent root quads on spheres/cylinders share noise space.
-- **`FlyCamera` uses the legacy `Input` API** despite the project guideline to use the new Input System. Don't add new controls that mix both APIs without consolidating.
 - **Spatial index lifecycle**: nodes are registered at the END of `SpawnChunk` (after edge heights are cached), deregistered in `TryHideParent` when children take over, re-registered in `CollapseNode` when children are disposed. Always stitch-then-cache: `ApplySeamStitching` modifies the heightmap before `CacheEdgeHeights` stores it, so fine neighbors stitching to this node read the final mesh heights, not raw noise.
 - **Seam stitching only stitches to coarser neighbors** (depth < node.depth). Same-depth and finer neighbors are skipped — finer nodes stitch to us when they're generated. Cross-quad stitching is not implemented; mesh skirts on all four edges cover those cracks.
 - **Memory eviction collapses sibling groups**: `EnforceMemoryBudget` only evicts complete sets of 4 siblings (via `CollectCollapsibleParents`) — evicting a single node would leave its region uncovered. It reuses `CollapseNode`, which re-registers the parent and re-activates its chunk. The West skirt winding may appear reversed on plane topology; use a two-sided material if this is visible.
