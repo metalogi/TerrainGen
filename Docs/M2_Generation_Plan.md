@@ -540,6 +540,43 @@ that every `.cs` under `Assets/Scripts` and `Assets/Tests` has a `.meta` alongsi
 - [ ] `SampleScene` plays, showing root chunks only, with terrain generation off the main thread.
 - [ ] `SonomaRevisedPlan.md` corrected on all three points; `CLAUDE.md` updated.
 
+## Amendments from implementing M2a
+
+The plan above is the plan as written. Building M2a changed seven things; they are recorded here
+rather than edited into the tasks, so the plan still reads as what was decided up front.
+
+1. **`HeightParams.FromSettings` is deferred to M2b.** Task 2 put it in M2a, but it needs
+   `OctaveWavelength0`, `OctaveCount` and `Lacunarity` on `TerrainSettings`, which Task 5 adds in M2b —
+   and ground rule 1 says M2a touches no existing script. M2a ships `HeightParams.Create(...)` taking
+   the values explicitly; M2b adds `FromSettings` on top of it. Ground rule 1 wins over Task 2 here.
+2. **`ChunkGrid` exists.** The C4 rule needed one concrete home that both jobs and the seam test call.
+   `Core/Generation/ChunkGrid.VertexUV` is it. The plan described the rule but named no owner.
+3. **The band-limit hazard does not reproduce at the reference config.** C2 argues `MaxOctave` must
+   take a depth because node size varies 1.33:1 within a depth. That is true, and the rule stands — but
+   at `λ₀ = S0` exactly, the spread happens to sit inside one power-of-two band at *every* depth 0–10,
+   so a size-derived limit would not actually differ there. It differs for **13 of 32** sampled `λ₀`
+   multipliers; `BandLimitIsDepthOnly` uses `λ₀ = 1.25 · S0`, where the split appears at depth 3, so the
+   test demonstrates a real hazard rather than a hypothetical one.
+4. **Nominal `S_d` runs about 0.65 of an octave past strict Nyquist on the largest cells.** `S_d = S0/2^d`
+   halves exactly; actual node size does not, and `max actual / nominal` converges to 1.568 (measured
+   1.5196 at depth 4, 1.5676 at depth 8). So the largest cells on a face admit octaves slightly finer
+   than Nyquist would allow. This is accepted, not overlooked: it is under one octave, and the lever if
+   aliasing ever shows is `K0 − 1`, which stays depth-only. Do not "fix" it by reintroducing a
+   size-derived limit.
+5. **Test 9 was statistically unsound and is replaced.** `HeightIsZeroMeanOverASphere` at `λ₀ = S0` puts
+   only a handful of independent octave-0 cells on the whole planet, so the sphere mean is dominated by
+   low-frequency structure and a 0.02 threshold would fail for reasons unrelated to bias.
+   `HeightHasNoConstantBias` uses `λ₀ = Radius/1000` so 50k samples span millions of cells.
+6. **The cross-quad height tolerance is `HeightScale × 1e-5`, not `× 1e-9`.** Positions agree to
+   2.067e-16 relative, but the noise accumulates in float, so inputs differing in their last double bits
+   round differently at ~1e-7 relative per octave. 1e-9 is below float rounding and would fail for
+   reasons that have nothing to do with the seam. 1e-5 of `HeightScale` is 2 mm at the reference
+   settings.
+7. **No `[BurstCompile]` attribute on `TerrainHeightFunction`.** Task 2's listing shows one. Plain static
+   methods are compiled as part of whichever job calls them; the attribute would only matter for a
+   function pointer, so it is noise that implies a guarantee it does not provide. The M2b test
+   `JobsCompileWithoutManagedFallback` is what actually checks this.
+
 ## Out of scope for M2
 
 Do not start these:
