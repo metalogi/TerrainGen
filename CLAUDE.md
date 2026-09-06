@@ -14,7 +14,7 @@ Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain gener
 - `Core/Generation/`: `HeightmapGenerator` (CPU Perlin, world-space sampling)
 - `Core/Rendering/`: `TerrainChunk`
 - `Systems/Configuration/`: `TerrainSettings` (ScriptableObject)
-- `Core/Surface/`: `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, `EdgeLink`, `Surface` (M1 topology layer: cube-sphere, plane grid, cylinder)
+- `Core/Surface/`: `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, `EdgeLink`, `SurfaceMath` (M1 topology layer: cube-sphere, plane grid, cylinder)
 - `Tools/`: `TopologyFlyCamera`, `SurfaceDebugDrawer`
 
 ## Unity Development Commands
@@ -33,7 +33,7 @@ Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain gener
 - Unity Test Runner: Window → General → Test Runner
 - Run tests via Test Framework package (com.unity.test-framework@1.6.0)
 - An EditMode test assembly exists at `Assets/Tests/EditMode/` (`Sonoma.Tests.EditMode`); run it from Window → General → Test Runner
-- 16 EditMode tests cover the M1 surface layer: cube face basis, the 24-entry adjacency table (re-derived geometrically in the test), neighbour round-trips, node addressing and surface geometry
+- 17 EditMode tests cover the M1 surface layer: cube face basis, the 24-entry adjacency table (re-derived geometrically in the test), neighbour round-trips, node addressing and surface geometry
 
 ### Editor Scripts
 - Editor scripts go in `Assets/Editor/` or `Assets/*/Editor/` folders
@@ -239,8 +239,10 @@ All generation parameters should be ScriptableObjects:
 ## Non-Obvious Implementation Details
 
 - **Two edge enums exist and are NOT interchangeable.** `Sonoma.Core.Surface.Edge` is ordered `South, East, North, West` so that `Opposite(e) == (e + 2) & 3`; the older `Sonoma.Core.Quadtree.EdgeDirection` is ordered `North, South, East, West`. Never cast between them. The old one dies with `QuadtreeManager` in M2.
-- **The cube adjacency table is hand-entered but test-guarded.** `Surface.CubeEdgeLink` holds 24 entries, 8 of which reverse the along-edge parameter. `CubeAdjacencyTests` re-derives the whole table from the face basis and compares, so edit the basis or the table only with that test running.
+- **The cube adjacency table is hand-entered but test-guarded.** `SurfaceMath.CubeEdgeLink` holds 24 entries, 8 of which reverse the along-edge parameter. `CubeAdjacencyTests` re-derives the whole table from the face basis and compares, so edit the basis or the table only with that test running.
 - **Cube face basis for +Y and -Y looks wrong but isn't.** Faces 2 and 3 use `up = (0,0,-1)` and `(0,0,1)` respectively; those are what make `right x up == centre` hold for every face. "Tidying" them silently invalidates the adjacency table.
+- **The topology class is `SurfaceMath`, not `Surface`.** A type may not share the name of its own namespace: from a sibling namespace such as `Sonoma.Core.Generation`, with usings above the namespace (the house style), the simple name `Surface` binds to the namespace `Sonoma.Core.Surface` and `Surface.SurfacePoint(...)` fails with CS0234. Renaming it back breaks every M2 caller.
+- **`NodeId.Parent` throws on a root.** C# masks shift counts, so a `Depth` of -1 would make `Span` evaluate `1 << 31` == `int.MinValue` and the UV accessors return small negative values instead of failing. Use `IsRoot` or `TryGetParent` when ascending.
 - **M1's surface layer is additive, not a replacement.** `Core/Surface/` and `Core/CoordinateSpace/` coexist: the running prototype still uses `BaseMeshQuad`/`CoordinateTransform`, and nothing calls the new layer yet. M2 does the switchover in one deliberate step.
 - **`TerrainChunk` has two static sets**: `AllChunks` (every chunk, including `SetActive(false)` ones) and `AllActive` (only enabled). `WorldOriginSystem` iterates `AllChunks` so hidden parent chunks aren't missed during an origin rebase.
 - **Atomic parent swap**: `QuadtreeManager.TryHideParent` waits until all four children have chunks before hiding the parent and showing children — prevents a frame where overlapping meshes are both visible.

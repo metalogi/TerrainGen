@@ -4,7 +4,7 @@ using Sonoma.Core.Surface;
 
 namespace Sonoma.Tests
 {
-    // Guards Surface.Neighbour across all three topologies, including the cross-quad
+    // Guards SurfaceMath.Neighbour across all three topologies, including the cross-quad
     // cases where the cube reverses the along-edge parameter.
     public class NeighbourTests
     {
@@ -17,17 +17,17 @@ namespace Sonoma.Tests
             switch (e)
             {
                 case Edge.South:
-                    a = Surface.SurfacePoint(s, q, n.UMin, n.VMin);
-                    b = Surface.SurfacePoint(s, q, n.UMax, n.VMin); return;
+                    a = SurfaceMath.SurfacePoint(s, q, n.UMin, n.VMin);
+                    b = SurfaceMath.SurfacePoint(s, q, n.UMax, n.VMin); return;
                 case Edge.East:
-                    a = Surface.SurfacePoint(s, q, n.UMax, n.VMin);
-                    b = Surface.SurfacePoint(s, q, n.UMax, n.VMax); return;
+                    a = SurfaceMath.SurfacePoint(s, q, n.UMax, n.VMin);
+                    b = SurfaceMath.SurfacePoint(s, q, n.UMax, n.VMax); return;
                 case Edge.North:
-                    a = Surface.SurfacePoint(s, q, n.UMin, n.VMax);
-                    b = Surface.SurfacePoint(s, q, n.UMax, n.VMax); return;
+                    a = SurfaceMath.SurfacePoint(s, q, n.UMin, n.VMax);
+                    b = SurfaceMath.SurfacePoint(s, q, n.UMax, n.VMax); return;
                 default:
-                    a = Surface.SurfacePoint(s, q, n.UMin, n.VMin);
-                    b = Surface.SurfacePoint(s, q, n.UMin, n.VMax); return;
+                    a = SurfaceMath.SurfacePoint(s, q, n.UMin, n.VMin);
+                    b = SurfaceMath.SurfacePoint(s, q, n.UMin, n.VMax); return;
             }
         }
 
@@ -46,12 +46,12 @@ namespace Sonoma.Tests
                 foreach (Edge e in AllEdges)
                 {
                     var n   = new NodeId(face, depth, x, y);
-                    var hop = Surface.Neighbour(s, n, e);
+                    var hop = SurfaceMath.Neighbour(s, n, e);
 
                     // A closed surface has a neighbour across every edge.
                     Assert.IsTrue(hop.Exists, $"{n} edge {e}: no neighbour on a closed cube-sphere");
 
-                    var back = Surface.Neighbour(s, hop.Node, hop.ArrivalEdge);
+                    var back = SurfaceMath.Neighbour(s, hop.Node, hop.ArrivalEdge);
                     Assert.IsTrue(back.Exists, $"{n} edge {e}: return hop missing");
                     Assert.AreEqual(n, back.Node,
                         $"{n} edge {e} -> {hop.Node} (arrived {hop.ArrivalEdge}) -> {back.Node}");
@@ -82,7 +82,7 @@ namespace Sonoma.Tests
 
             foreach (var (s, tol) in cases)
             {
-                var roots = Surface.BuildRoots(s);
+                var roots = SurfaceMath.BuildRoots(s);
 
                 for (int depth = 1; depth <= 3; depth++)
                 {
@@ -93,7 +93,7 @@ namespace Sonoma.Tests
                     foreach (Edge e in AllEdges)
                     {
                         var n   = new NodeId(quad, depth, x, y);
-                        var hop = Surface.Neighbour(s, n, e);
+                        var hop = SurfaceMath.Neighbour(s, n, e);
                         if (!hop.Exists) continue;
 
                         NodeEdgeEnds(s, roots[quad],          n,        e,               out double3 a0, out double3 a1);
@@ -122,26 +122,26 @@ namespace Sonoma.Tests
             for (int col = 0; col < cols; col++)
             {
                 var n = new NodeId(col * rows + 1, depth, span - 1, 0);
-                var east = Surface.Neighbour(s, n, Edge.East);
+                var east = SurfaceMath.Neighbour(s, n, Edge.East);
                 Assert.IsTrue(east.Exists, $"column {col}: east neighbour missing");
                 Assert.AreEqual(Edge.West, east.ArrivalEdge);
                 Assert.AreEqual(0, east.Node.X, "east crossing should land on the neighbour's west column");
             }
 
             // The seam specifically: last column east wraps to column 0.
-            var seam = Surface.Neighbour(s, new NodeId((cols - 1) * rows + 0, depth, span - 1, 0), Edge.East);
+            var seam = SurfaceMath.Neighbour(s, new NodeId((cols - 1) * rows + 0, depth, span - 1, 0), Edge.East);
             Assert.IsTrue(seam.Exists);
             Assert.AreEqual(0, seam.Node.Quad / rows, "east from the last column should wrap to column 0");
 
-            var seamBack = Surface.Neighbour(s, new NodeId(0 * rows + 0, depth, 0, 0), Edge.West);
+            var seamBack = SurfaceMath.Neighbour(s, new NodeId(0 * rows + 0, depth, 0, 0), Edge.West);
             Assert.IsTrue(seamBack.Exists);
             Assert.AreEqual(cols - 1, seamBack.Node.Quad / rows, "west from column 0 should wrap to the last column");
 
             // The ends are open: no caps, so no neighbour beyond the first and last row.
-            var offBottom = Surface.Neighbour(s, new NodeId(0 * rows + 0, depth, 0, 0), Edge.South);
+            var offBottom = SurfaceMath.Neighbour(s, new NodeId(0 * rows + 0, depth, 0, 0), Edge.South);
             Assert.IsFalse(offBottom.Exists, "south of row 0 should not exist on an open cylinder");
 
-            var offTop = Surface.Neighbour(s, new NodeId(0 * rows + (rows - 1), depth, 0, span - 1), Edge.North);
+            var offTop = SurfaceMath.Neighbour(s, new NodeId(0 * rows + (rows - 1), depth, 0, span - 1), Edge.North);
             Assert.IsFalse(offTop.Exists, "north of the last row should not exist on an open cylinder");
         }
 
@@ -154,19 +154,19 @@ namespace Sonoma.Tests
 
             // Corner tile (col 0, row 0): west and south leave the grid.
             var sw = new NodeId(0, depth, 0, 0);
-            Assert.IsFalse(Surface.Neighbour(s, sw, Edge.West).Exists,  "plane grid must not wrap west");
-            Assert.IsFalse(Surface.Neighbour(s, sw, Edge.South).Exists, "plane grid must not wrap south");
+            Assert.IsFalse(SurfaceMath.Neighbour(s, sw, Edge.West).Exists,  "plane grid must not wrap west");
+            Assert.IsFalse(SurfaceMath.Neighbour(s, sw, Edge.South).Exists, "plane grid must not wrap south");
 
             // Opposite corner: east and north leave the grid.
             var ne = new NodeId((cols - 1) * rows + (rows - 1), depth, span - 1, span - 1);
-            Assert.IsFalse(Surface.Neighbour(s, ne, Edge.East).Exists,  "plane grid must not wrap east");
-            Assert.IsFalse(Surface.Neighbour(s, ne, Edge.North).Exists, "plane grid must not wrap north");
+            Assert.IsFalse(SurfaceMath.Neighbour(s, ne, Edge.East).Exists,  "plane grid must not wrap east");
+            Assert.IsFalse(SurfaceMath.Neighbour(s, ne, Edge.North).Exists, "plane grid must not wrap north");
 
             // An interior crossing still round-trips.
             var interior = new NodeId(1 * rows + 1, depth, span - 1, 0);
-            var hop = Surface.Neighbour(s, interior, Edge.East);
+            var hop = SurfaceMath.Neighbour(s, interior, Edge.East);
             Assert.IsTrue(hop.Exists);
-            var back = Surface.Neighbour(s, hop.Node, hop.ArrivalEdge);
+            var back = SurfaceMath.Neighbour(s, hop.Node, hop.ArrivalEdge);
             Assert.IsTrue(back.Exists);
             Assert.AreEqual(interior, back.Node);
         }
@@ -191,7 +191,7 @@ namespace Sonoma.Tests
                 foreach (Edge e in AllEdges)
                 {
                     var n   = new NodeId(quad, depth, x, y);
-                    var hop = Surface.Neighbour(s, n, e);
+                    var hop = SurfaceMath.Neighbour(s, n, e);
                     if (!hop.Exists) continue;
 
                     Assert.AreEqual(depth, hop.Node.Depth, $"{s.Type} {n} edge {e}: depth changed");

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Sonoma.Core.Surface;
@@ -65,6 +66,28 @@ namespace Sonoma.Tests
             Assert.AreEqual(n.UMax, n.Child(3).UMax, eps);
             Assert.AreEqual(n.Child(0).UMax, n.Child(1).UMin, eps, "u gap between SW and SE");
             Assert.AreEqual(n.Child(0).VMax, n.Child(2).VMin, eps, "v gap between SW and NW");
+        }
+
+        // Regression: Parent used to be unguarded, so a root's Parent had Depth -1 and
+        // Span 1 << 31 == int.MinValue, making UMax -4.66e-10 instead of raising. Silent
+        // garbage UVs would have reached SurfaceMath.SurfacePoint as a near-corner point.
+        [Test]
+        public void RootHasNoParent()
+        {
+            var root = new NodeId(2, 0, 0, 0);
+
+            Assert.IsTrue(root.IsRoot, "depth 0 node should report IsRoot");
+            Assert.Throws<InvalidOperationException>(() => { var _ = root.Parent; },
+                "ascending past a root must throw, not return a Depth -1 node");
+
+            Assert.IsFalse(root.TryGetParent(out _), "TryGetParent must fail at a root");
+
+            // One level down still works, and lands back on the root.
+            var child = root.Child(3);
+            Assert.IsFalse(child.IsRoot);
+            Assert.IsTrue(child.TryGetParent(out NodeId back), "TryGetParent should succeed at depth 1");
+            Assert.AreEqual(root, back);
+            Assert.AreEqual(root, child.Parent);
         }
 
         [Test]

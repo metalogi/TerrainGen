@@ -16,7 +16,7 @@ namespace Sonoma.Tests
             foreach (bool tangentAdjust in new[] { true, false })
             {
                 var s     = SurfaceDef.CubeSphere(radius, tangentAdjust);
-                var roots = Surface.BuildRoots(s);
+                var roots = SurfaceMath.BuildRoots(s);
                 var rng   = new Unity.Mathematics.Random(12345);   // fixed seed: failures reproduce
 
                 for (int i = 0; i < 2000; i++)
@@ -25,7 +25,7 @@ namespace Sonoma.Tests
                     double u    = rng.NextDouble();
                     double v    = rng.NextDouble();
 
-                    Surface.SurfaceFrame(s, roots[face], u, v, out double3 p, out float3 n);
+                    SurfaceMath.SurfaceFrame(s, roots[face], u, v, out double3 p, out float3 n);
 
                     Assert.AreEqual(radius, math.length(p), 1e-9 * radius,
                         $"tangentAdjust={tangentAdjust} face {face} ({u:F4},{v:F4}) is off the sphere");
@@ -46,14 +46,14 @@ namespace Sonoma.Tests
             double Ratio(bool tangentAdjust)
             {
                 var s    = SurfaceDef.CubeSphere(1000.0, tangentAdjust);
-                var root = Surface.BuildRoots(s)[4];      // +Z face
+                var root = SurfaceMath.BuildRoots(s)[4];      // +Z face
                 double lo = double.MaxValue, hi = 0.0;
 
                 for (int i = 0; i < cells; i++)
                 for (int j = 0; j < cells; j++)
                 {
-                    double3 a = Surface.SurfacePoint(s, root, i       / (double)cells, j       / (double)cells);
-                    double3 b = Surface.SurfacePoint(s, root, (i + 1) / (double)cells, (j + 1) / (double)cells);
+                    double3 a = SurfaceMath.SurfacePoint(s, root, i       / (double)cells, j       / (double)cells);
+                    double3 b = SurfaceMath.SurfacePoint(s, root, (i + 1) / (double)cells, (j + 1) / (double)cells);
                     double d = math.distance(a, b);
                     lo = math.min(lo, d);
                     hi = math.max(hi, d);
@@ -86,7 +86,7 @@ namespace Sonoma.Tests
 
             foreach (var (s, quad) in cases)
             {
-                var root = Surface.BuildRoots(s)[quad];
+                var root = SurfaceMath.BuildRoots(s)[quad];
 
                 for (int depth = 0; depth <= 4; depth++)
                 {
@@ -95,11 +95,11 @@ namespace Sonoma.Tests
                     for (int y = 0; y < span; y++)
                     {
                         var parent     = new NodeId(quad, depth, x, y);
-                        double parentSize = Surface.NodeWorldSize(s, root, parent);
+                        double parentSize = SurfaceMath.NodeWorldSize(s, root, parent);
 
                         for (int i = 0; i < 4; i++)
                         {
-                            double childSize = Surface.NodeWorldSize(s, root, parent.Child(i));
+                            double childSize = SurfaceMath.NodeWorldSize(s, root, parent.Child(i));
                             double ratio     = childSize / parentSize;
 
                             // Exactly 0.5 on a plane. Curvature plus the tangent adjustment
@@ -116,7 +116,7 @@ namespace Sonoma.Tests
         public void CylinderNormalsPointInward()
         {
             var s     = SurfaceDef.Cylinder(400.0, 1000.0, 8, 4);
-            var roots = Surface.BuildRoots(s);
+            var roots = SurfaceMath.BuildRoots(s);
             var rng   = new Unity.Mathematics.Random(99);
 
             for (int i = 0; i < 500; i++)
@@ -125,7 +125,7 @@ namespace Sonoma.Tests
                 double u = rng.NextDouble();
                 double v = rng.NextDouble();
 
-                Surface.SurfaceFrame(s, roots[quad], u, v, out double3 p, out float3 n);
+                SurfaceMath.SurfaceFrame(s, roots[quad], u, v, out double3 p, out float3 n);
 
                 // Radial component of the position, with the axial (Z) part removed.
                 double3 radial = new double3(p.x, p.y, 0.0);
