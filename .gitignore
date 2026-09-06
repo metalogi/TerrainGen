@@ -57,3 +57,7 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/
+
+# Claude Code: local overrides and reviewer state (workflow config itself is tracked)
+.claude/settings.local.json
+.claude/review/

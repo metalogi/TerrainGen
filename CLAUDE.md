@@ -16,6 +16,50 @@ Sonoma is a Unity 6 (6000.3.5f2) project implementing a procedural terrain gener
 - `Systems/Configuration/`: `TerrainSettings` (ScriptableObject)
 - `Tools/`: `DemoTerrainSpawner` (single-chunk test), `FlyCamera`
 
+## Contribution Workflow (Read This Before Committing)
+
+**Nothing lands on `main` except through a reviewed pull request.** Agents open PRs;
+a separate reviewer agent posts findings; the user decides what gets fixed and when
+the PR merges.
+
+The three roles are separate skills, and each refuses the next one's job:
+
+| Skill | Run by | Does | Never does |
+|---|---|---|---|
+| `/ship` | the agent that wrote the code | branch, commit, push, open a **draft** PR | merge, mark ready, push to `main` |
+| `/review-prs` | a second session, on a loop | review new commits, post findings to the PR | edit, commit, push, merge |
+| `/apply-review` | after the user picks findings | apply approved fixes, push to the PR branch | apply unapproved findings, merge |
+
+Start the reviewer in its own Claude Code window — a reviewer that just wrote the
+patch is not a reviewer:
+
+```bash
+claude
+```
+
+then `/loop 15m /review-prs`. It reviews only PRs whose head commit is not yet in
+`.claude/review/reviewed.txt`, so idle passes are silent and cost nothing.
+
+**Enforcement is a hook, not a convention.** `.claude/hooks/guard-main.pl` runs
+`PreToolUse` on every Bash and PowerShell call and hard-denies:
+
+- `gh pr merge` — merging is the user's decision
+- any push aimed at trunk (`git push origin main`, `... HEAD:main`)
+- `git commit` or `git push` while HEAD is on `main`
+
+Being blocked by it means a step was skipped, not that the guard is wrong. The user
+can merge from their own terminal, or disable the hook via `/hooks`.
+
+**`GH_REPO` is set, but not because gh needs rescuing.** The remote uses the SSH
+alias `github-personal`; `gh` resolves `metalogi/TerrainGen` through it correctly
+(verified). `.claude/settings.json` pins `GH_REPO` anyway so resolution cannot drift
+if the remote or working directory changes. Still pass `--head <branch>` explicitly
+to `gh pr create`: an explicit `GH_REPO` overrides repository detection, and head-branch
+inference is the part that gets shaky when it does.
+
+**There is no `jq` on this machine** (and `node` is v0.12, too old to script
+against). Use `gh --jq`, which is gh's own embedded jq, or `perl -MJSON::PP`.
+
 ## Unity Development Commands
 
 ### Opening the Project

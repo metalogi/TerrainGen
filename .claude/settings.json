@@ -1,0 +1,36 @@
+{
+  "env": {
+    "GH_REPO": "metalogi/TerrainGen"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr status:*)",
+      "Bash(gh pr comment:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "perl \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-main.pl\"",
+            "timeout": 10,
+            "statusMessage": "Branch guard"
+          }
+        ]
+      }
+    ]
+  }
+}
