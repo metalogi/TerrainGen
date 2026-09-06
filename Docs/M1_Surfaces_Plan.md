@@ -418,8 +418,8 @@ That last command **must print nothing**. If it does not, rule 1 has been broken
 ### Human-side, in the Editor
 
 1. Console is free of compile errors.
-2. Test Runner → EditMode: all 16 tests pass. Confirm `CubeNeighbourRoundTripAllDepths` reports 8,184 checked cases.
-3. Drop `SurfaceDebugDrawer` on an empty GameObject, set `CubeSphere`, `DrawDepth = 2`: the sphere is fully covered with no gaps or overlaps at face boundaries, normals point outward, and moving `NeighbourProbe` across a seam highlights the geometrically adjacent node on the next face.
+2. Test Runner → EditMode: all 21 tests pass. Confirm `CubeNeighbourRoundTripAllDepths` reports 8,184 checked cases.
+3. Drop `SurfaceDebugDrawer` on an empty GameObject, set `CubeSphere`, `DrawDepth = 2` (the maximum is 4; see `MaxGizmoLines`): the sphere is fully covered with no gaps or overlaps at face boundaries, normals point outward, and moving `NeighbourProbe` across a seam highlights the geometrically adjacent node on the next face.
 4. `SampleScene` still plays exactly as before M1.
 
 ---
@@ -429,10 +429,19 @@ That last command **must print nothing**. If it does not, rule 1 has been broken
 - [ ] `Sonoma.Core.Surface` provides `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, and a static `SurfaceMath` with `BuildRoots`, `SurfaceFrame`, `SurfacePoint`, `SurfaceNormal`, `NodeWorldSize`, `Neighbour`, `Opposite`.
 - [ ] Cube-sphere, plane grid and cylinder all evaluate and support neighbour queries; cube-sphere handles all 24 cross-face links including the eight reversed ones.
 - [ ] No interfaces or virtual dispatch in the surface layer; `double3` positions, `float3` normals.
-- [ ] All 16 EditMode tests pass, including the independent geometric re-derivation of the adjacency table.
+- [ ] All 21 EditMode tests pass, including the independent geometric re-derivation of the adjacency table and the guard tests added in review.
 - [ ] `SurfaceDebugDrawer` renders roots and nodes in the Editor without entering Play mode.
 - [ ] The prototype rendering path is byte-for-byte unmodified and `SampleScene` still plays.
 - [ ] `SonomaRevisedPlan.md` spacing-ratio figure corrected; `CLAUDE.md` updated.
+
+### Amendments from code review
+
+The plan above is the plan as written. Review of the implementation changed four things; they are recorded here rather than edited into the tasks, so the plan still reads as what was decided up front.
+
+1. **Test count is 21, not 16.** `RootHasNoParent` came from the first review pass; `FaceBasisAndEdgeLinkRejectOutOfRangeIndices`, `NeighbourRejectsMalformedNodeIds`, `BuildRootsStampsQuadIndex` and `NodeWorldSizeRejectsMismatchedRoot` from the second.
+2. **`RootQuad.Face` is now `RootQuad.Index`.** It is the quad's position in the `BuildRoots` array for every topology, and for a cube-sphere it is also the face. That is what lets `NodeWorldSize` reject a root paired with a node from a different quad.
+3. **The face basis and adjacency switches validate their index.** Task 2's listing leaves face 5 to the `_ =>` arm, which silently absorbed every out-of-range index. Face 5 is now explicit and out-of-range throws, matching the reasoning already applied to `NodeId.Parent`. `Neighbour` validates `NodeId.Quad`, `X`, `Y` and `Depth` at the entry point.
+4. **`SurfaceDebugDrawer` bounds its own cost.** `DrawDepth` is capped at 4 and the segment count scales down to hold the total near `MaxGizmoLines`; unbounded, depth 5 issued ~393k gizmo lines per repaint and locked the Editor.
 
 ## Out of scope for M1
 

@@ -1,3 +1,4 @@
+using System;
 using Unity.Mathematics;
 
 namespace Sonoma.Core.Surface
@@ -23,6 +24,9 @@ namespace Sonoma.Core.Surface
         const double QuarterPi = 0.7853981633974483096;  // pi/4
         const double TwoPi     = 6.2831853071795864769;
 
+        // Guard messages are compile-time constants so the throw sites stay Burst-compilable.
+        const string FaceRangeMessage = "SurfaceMath: cube face index must be in 0..5.";
+
         // ── Root construction ────────────────────────────────────────────────
 
         public static RootQuad[] BuildRoots(in SurfaceDef s)
@@ -32,7 +36,7 @@ namespace Sonoma.Core.Surface
                 case SurfaceType.CubeSphere:
                 {
                     var roots = new RootQuad[6];
-                    for (int f = 0; f < 6; f++) roots[f] = new RootQuad { Face = f };
+                    for (int f = 0; f < 6; f++) roots[f] = new RootQuad { Index = f };
                     return roots;
                 }
 
@@ -44,8 +48,10 @@ namespace Sonoma.Core.Surface
                     for (int col = 0; col < s.Cols; col++)
                     for (int row = 0; row < s.Rows; row++)
                     {
-                        roots[col * s.Rows + row] = new RootQuad
+                        int i = col * s.Rows + row;
+                        roots[i] = new RootQuad
                         {
+                            Index  = i,
                             Angle0 = col * dAngle, Angle1 = (col + 1) * dAngle,
                             Z0     = row * dZ,     Z1     = (row + 1) * dZ,
                         };
@@ -61,8 +67,10 @@ namespace Sonoma.Core.Surface
                     for (int col = 0; col < s.Cols; col++)
                     for (int row = 0; row < s.Rows; row++)
                     {
-                        roots[col * s.Rows + row] = new RootQuad
+                        int i = col * s.Rows + row;
+                        roots[i] = new RootQuad
                         {
+                            Index  = i,
                             Origin = new double3(col * s.TileSize - halfX, 0.0,
                                                  row * s.TileSize - halfZ),
                         };
@@ -79,7 +87,7 @@ namespace Sonoma.Core.Surface
         {
             switch (s.Type)
             {
-                case SurfaceType.CubeSphere: CubeSphereFrame(s, q.Face, u, v, out point, out normal); return;
+                case SurfaceType.CubeSphere: CubeSphereFrame(s, q.Index, u, v, out point, out normal); return;
                 case SurfaceType.Cylinder:   CylinderFrame  (s, q,      u, v, out point, out normal); return;
                 default:                     PlaneFrame     (s, q,      u, v, out point, out normal); return;
             }
@@ -138,6 +146,15 @@ namespace Sonoma.Core.Surface
         // under the tangent adjustment, which an analytic per-topology formula is not.
         public static double NodeWorldSize(in SurfaceDef s, in RootQuad q, NodeId n)
         {
+            // NodeId already carries its quad, so the RootQuad argument is redundant and can
+            // disagree with it. A mismatch evaluates the node's UV range against another
+            // quad's basis and returns a wrong-but-plausible size, which would bias LOD
+            // decisions with nothing asserting. Fail instead.
+            if (q.Index != n.Quad)
+                throw new ArgumentException(
+                    "SurfaceMath.NodeWorldSize: RootQuad.Index does not match NodeId.Quad; " +
+                    "the root and the node describe different quads.", nameof(q));
+
             double3 p00 = SurfacePoint(s, q, n.UMin, n.VMin);
             double3 p11 = SurfacePoint(s, q, n.UMax, n.VMax);
             double3 p10 = SurfacePoint(s, q, n.UMax, n.VMin);
@@ -150,6 +167,11 @@ namespace Sonoma.Core.Surface
         // right x up == centre for every face (right-handed). Faces 2 (+Y) and 3 (-Y)
         // have deliberately non-obvious `up` vectors; that is what makes them
         // right-handed. Changing them invalidates the adjacency table below.
+        //
+        // Face 5 is spelled out rather than left to the catch-all, so an out-of-range index
+        // throws instead of quietly evaluating face 5's geometry. Same reasoning as the
+        // NodeId.Parent guard: a bad quad index should fail here, not surface later as
+        // terrain in the wrong place.
 
         public static double3 FaceCentre(int face) => face switch
         {
@@ -158,7 +180,8 @@ namespace Sonoma.Core.Surface
             2 => new double3( 0,  1,  0),
             3 => new double3( 0, -1,  0),
             4 => new double3( 0,  0,  1),
-            _ => new double3( 0,  0, -1),
+            5 => new double3( 0,  0, -1),
+            _ => throw new ArgumentOutOfRangeException(nameof(face), FaceRangeMessage),
         };
 
         public static double3 FaceRight(int face) => face switch
@@ -168,7 +191,8 @@ namespace Sonoma.Core.Surface
             2 => new double3( 1,  0,  0),
             3 => new double3( 1,  0,  0),
             4 => new double3( 1,  0,  0),
-            _ => new double3(-1,  0,  0),
+            5 => new double3(-1,  0,  0),
+            _ => throw new ArgumentOutOfRangeException(nameof(face), FaceRangeMessage),
         };
 
         public static double3 FaceUp(int face) => face switch
@@ -178,7 +202,8 @@ namespace Sonoma.Core.Surface
             2 => new double3( 0,  0, -1),
             3 => new double3( 0,  0,  1),
             4 => new double3( 0,  1,  0),
-            _ => new double3( 0,  1,  0),
+            5 => new double3( 0,  1,  0),
+            _ => throw new ArgumentOutOfRangeException(nameof(face), FaceRangeMessage),
         };
 
         // ── Cube adjacency ───────────────────────────────────────────────────
@@ -186,39 +211,53 @@ namespace Sonoma.Core.Surface
         // Derived geometrically and verified: all 24 links round-trip and the Reversed
         // flag is symmetric. CubeAdjacencyTests re-derives this from the face basis and
         // compares, so a mis-typed entry cannot survive. Eight of the 24 links are reversed.
-        public static EdgeLink CubeEdgeLink(int face, Edge edge) => (face * 4 + (int)edge) switch
+        public static EdgeLink CubeEdgeLink(int face, Edge edge)
         {
-            //                                     face 0 (+X)
-            0  => new EdgeLink(3, Edge.East,  true),
-            1  => new EdgeLink(5, Edge.West,  false),
-            2  => new EdgeLink(2, Edge.East,  false),
-            3  => new EdgeLink(4, Edge.East,  false),
-            //                                     face 1 (-X)
-            4  => new EdgeLink(3, Edge.West,  false),
-            5  => new EdgeLink(4, Edge.West,  false),
-            6  => new EdgeLink(2, Edge.West,  true),
-            7  => new EdgeLink(5, Edge.East,  false),
-            //                                     face 2 (+Y)
-            8  => new EdgeLink(4, Edge.North, false),
-            9  => new EdgeLink(0, Edge.North, false),
-            10 => new EdgeLink(5, Edge.North, true),
-            11 => new EdgeLink(1, Edge.North, true),
-            //                                     face 3 (-Y)
-            12 => new EdgeLink(5, Edge.South, true),
-            13 => new EdgeLink(0, Edge.South, true),
-            14 => new EdgeLink(4, Edge.South, false),
-            15 => new EdgeLink(1, Edge.South, false),
-            //                                     face 4 (+Z)
-            16 => new EdgeLink(3, Edge.North, false),
-            17 => new EdgeLink(0, Edge.West,  false),
-            18 => new EdgeLink(2, Edge.South, false),
-            19 => new EdgeLink(1, Edge.East,  false),
-            //                                     face 5 (-Z)
-            20 => new EdgeLink(3, Edge.South, true),
-            21 => new EdgeLink(1, Edge.West,  false),
-            22 => new EdgeLink(2, Edge.North, true),
-            _  => new EdgeLink(0, Edge.East,  false),
-        };
+            // The index is flattened, so an out-of-range face or edge does not overflow into
+            // nothing -- it lands on another face's row and returns a valid-looking link.
+            // Validate both before flattening.
+            if ((uint)face > 5u)
+                throw new ArgumentOutOfRangeException(nameof(face), FaceRangeMessage);
+            if ((uint)edge > 3u)
+                throw new ArgumentOutOfRangeException(nameof(edge),
+                    "SurfaceMath.CubeEdgeLink: edge must be South, East, North or West.");
+
+            return (face * 4 + (int)edge) switch
+            {
+                //                                     face 0 (+X)
+                0  => new EdgeLink(3, Edge.East,  true),
+                1  => new EdgeLink(5, Edge.West,  false),
+                2  => new EdgeLink(2, Edge.East,  false),
+                3  => new EdgeLink(4, Edge.East,  false),
+                //                                     face 1 (-X)
+                4  => new EdgeLink(3, Edge.West,  false),
+                5  => new EdgeLink(4, Edge.West,  false),
+                6  => new EdgeLink(2, Edge.West,  true),
+                7  => new EdgeLink(5, Edge.East,  false),
+                //                                     face 2 (+Y)
+                8  => new EdgeLink(4, Edge.North, false),
+                9  => new EdgeLink(0, Edge.North, false),
+                10 => new EdgeLink(5, Edge.North, true),
+                11 => new EdgeLink(1, Edge.North, true),
+                //                                     face 3 (-Y)
+                12 => new EdgeLink(5, Edge.South, true),
+                13 => new EdgeLink(0, Edge.South, true),
+                14 => new EdgeLink(4, Edge.South, false),
+                15 => new EdgeLink(1, Edge.South, false),
+                //                                     face 4 (+Z)
+                16 => new EdgeLink(3, Edge.North, false),
+                17 => new EdgeLink(0, Edge.West,  false),
+                18 => new EdgeLink(2, Edge.South, false),
+                19 => new EdgeLink(1, Edge.East,  false),
+                //                                     face 5 (-Z)
+                20 => new EdgeLink(3, Edge.South, true),
+                21 => new EdgeLink(1, Edge.West,  false),
+                22 => new EdgeLink(2, Edge.North, true),
+                23 => new EdgeLink(0, Edge.East,  false),
+                _  => throw new InvalidOperationException(
+                          "SurfaceMath.CubeEdgeLink: unreachable; face and edge are validated above."),
+            };
+        }
 
         public static Edge Opposite(Edge e) => (Edge)(((int)e + 2) & 3);
 
@@ -226,7 +265,21 @@ namespace Sonoma.Core.Surface
 
         public static NeighbourResult Neighbour(in SurfaceDef s, NodeId n, Edge e)
         {
+            // A malformed address used to answer with a plausible-looking neighbour rather
+            // than fail: an out-of-range Quad fell through the face switches' catch-all and
+            // got face 5's basis with face 0's adjacency. Depth is bounded because C# masks
+            // shift counts, so Span would wrap negative past 30.
+            if ((uint)n.Depth >= 31u)
+                throw new ArgumentOutOfRangeException(nameof(n),
+                    "SurfaceMath.Neighbour: NodeId.Depth must be in 0..30.");
+            if ((uint)n.Quad >= (uint)s.QuadCount)
+                throw new ArgumentOutOfRangeException(nameof(n),
+                    "SurfaceMath.Neighbour: NodeId.Quad is outside this surface's root quad count.");
+
             int N = n.Span;
+            if ((uint)n.X >= (uint)N || (uint)n.Y >= (uint)N)
+                throw new ArgumentOutOfRangeException(nameof(n),
+                    "SurfaceMath.Neighbour: NodeId.X/Y are outside the node grid at this depth.");
 
             // Same root quad: pure integer arithmetic.
             switch (e)

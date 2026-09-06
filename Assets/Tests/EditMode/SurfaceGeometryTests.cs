@@ -1,3 +1,4 @@
+using System;
 using NUnit.Framework;
 using Unity.Mathematics;
 using Sonoma.Core.Surface;
@@ -110,6 +111,48 @@ namespace Sonoma.Tests
                     }
                 }
             }
+        }
+
+        // NodeWorldSize takes both a RootQuad and a NodeId that already carries its quad, so
+        // the two can disagree. BuildRoots stamps Index on every topology to make the
+        // mismatch detectable.
+        [Test]
+        public void BuildRootsStampsQuadIndex()
+        {
+            var surfaces = new[]
+            {
+                SurfaceDef.CubeSphere(1000.0),
+                SurfaceDef.Cylinder(400.0, 1000.0, 8, 4),
+                SurfaceDef.PlaneGrid(1000.0, 4, 3),
+            };
+
+            foreach (var s in surfaces)
+            {
+                var roots = SurfaceMath.BuildRoots(s);
+                Assert.AreEqual(s.QuadCount, roots.Length, $"{s.Type}: QuadCount disagrees with BuildRoots");
+
+                for (int i = 0; i < roots.Length; i++)
+                    Assert.AreEqual(i, roots[i].Index,
+                        $"{s.Type}: roots[{i}].Index must equal its position in the array");
+            }
+        }
+
+        [Test]
+        public void NodeWorldSizeRejectsMismatchedRoot()
+        {
+            var s     = SurfaceDef.CubeSphere(1000.0);
+            var roots = SurfaceMath.BuildRoots(s);
+
+            // Pairing a root with a node from another quad evaluates the node's UV range
+            // against the wrong basis and returns a wrong-but-plausible size, which would
+            // bias LOD decisions with nothing asserting.
+            Assert.Throws<ArgumentException>(
+                () => SurfaceMath.NodeWorldSize(s, roots[0], new NodeId(1, 2, 0, 0)),
+                "root of quad 0 paired with a node on quad 1 must throw");
+
+            Assert.DoesNotThrow(
+                () => SurfaceMath.NodeWorldSize(s, roots[1], new NodeId(1, 2, 0, 0)),
+                "the matching root must still be accepted");
         }
 
         [Test]
