@@ -75,7 +75,10 @@ namespace Sonoma.Core.Generation
                     Uv            = new float2(i / (float)(R - 1), j / (float)(R - 1)),
                     TopoElevation = new float4(baseN, h),
                     MorphPosition = new float4(CoarseLocal(cs), Depth),
-                    MorphNormal   = CoarseNormal(ci, cj, cg),
+                    // The coarse height, not the fine one: this is what the shader blends
+                    // TEXCOORD1.w towards, so the shading follows the geometry through the
+                    // morph instead of staying on the unmorphed elevation.
+                    MorphNormalElevation = new float4(CoarseNormal(ci, cj, cg), CoarseHeights[cs]),
                 };
             }
 
