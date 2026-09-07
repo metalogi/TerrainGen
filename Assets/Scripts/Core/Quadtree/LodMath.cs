@@ -1,6 +1,7 @@
 using System;
 using Unity.Mathematics;
 using Sonoma.Core.Generation;
+using Sonoma.Core.Surface;
 
 namespace Sonoma.Core.Quadtree
 {
@@ -15,15 +16,39 @@ namespace Sonoma.Core.Quadtree
     public partial struct LodMath
     {
         public double S0;                  // nominal size of a depth-0 node, in world metres
+        public double SizeSpread;          // SurfaceMath.MaxNodeSizeSpread for this surface
         public float  SplitFactor;         // split when distance < SplitFactor * S_d
-        public float  MorphStartFraction;  // morph begins this fraction back from the split distance
+        public float  MorphStartFraction;  // morph begins this fraction back from the morph end
         public float  Hysteresis;          // collapse at SplitDistance * this; >= 1
         public float  PreloadFactor;       // request children this much further out than the split
         public int    MaxDepth;
 
-        // The largest MorphStartFraction that still lets the two sides of a depth boundary
-        // agree. See Create for the derivation; it is not a taste value.
-        public const float MaxMorphStartFraction = 0.5f;
+        // The ceiling that follows from the ranges having to nest: see Create. It is the
+        // weaker of the two bounds; MaxMorphStartFraction is the one that actually binds.
+        public const float NestingMorphStartFraction = 0.5f;
+
+        // The largest MorphStartFraction that keeps every LOD boundary closed.
+        //
+        // A depth-d chunk reaches k = 1 at end_d = SplitDistance(d-1). At a boundary the
+        // coarse side must still be at k = 0 there, i.e. every point of a coarse leaf must
+        // be nearer than its own start. A coarse leaf's finer neighbour exists because their
+        // shared parent-level node split, so that node's bounding-sphere distance is under
+        // SplitDistance(d) * Hysteresis -- and a point of it can be a whole sphere diameter
+        // further again, which is SizeSpread nominal node sizes. Hence
+        //
+        //     max(distance / SplitDistance(d)) <= Hysteresis + SizeSpread / SplitFactor
+        //     start_d >= that, and start_d = 2 * SplitDistance(d) * (1 - frac), so
+        //     frac <= 1 - (Hysteresis + SizeSpread / SplitFactor) / 2
+        //
+        // Measured against a simulated selection this is correct and slightly conservative
+        // (predicted 0.204 against 0.224 measured at SplitFactor 4 on a cube sphere).
+        //
+        // The practical consequence is that SplitFactor 2 is not usable with a per-vertex
+        // morph: on a cube sphere with any hysteresis at all it allows a morph window under
+        // 1% wide, which is a pop by another name. LodBoundaryAgreement pins all of this.
+        public static float MaxMorphStartFraction(float splitFactor, float hysteresis, double sizeSpread)
+            => (float)math.min(NestingMorphStartFraction,
+                               1.0 - (hysteresis + sizeSpread / splitFactor) / 2.0);
 
         // Nominal node size at a depth: S0 / 2^depth.
         //
@@ -50,11 +75,26 @@ namespace Sonoma.Core.Quadtree
         // before the camera crosses the split distance and the swap has nothing to wait for.
         public double PreloadDistance(int depth) => PreloadFactor * SplitDistance(depth);
 
-        // Distances over which a depth-`depth` chunk morphs towards its parent. `end` is the
-        // split distance, so a chunk is fully morphed exactly where its parent takes over.
+        // Distances over which a depth-`depth` chunk morphs towards its parent.
+        //
+        // `end` is the distance at which this node is REPLACED BY ITS PARENT, which is the
+        // parent's split distance -- not the node's own. That distinction is the whole
+        // mechanism. A node's own split distance is where it hands over to its *children*,
+        // and a chunk fully morphed there would be drawing its parent's geometry while its
+        // coarser neighbour, also fully morphed, draws its grandparent's: every boundary in
+        // the world one LOD level apart, and every swap a full level of pop.
+        //
+        // SonomaRevisedPlan.md section 4.4 and the M3 plan both say "end_d is the split
+        // distance of depth d"; measured, that puts 100% of cross-depth boundary samples
+        // exactly 1.0 effective LOD apart. Corrected during M3b, and pinned by
+        // LodMathTests.MorphCompletesWhereTheParentTakesOver.
+        //
+        // Written as 2 * SplitDistance(depth) rather than SplitDistance(depth - 1) so depth 0
+        // needs no special case: a root has no parent, and morphing it is harmless because
+        // nothing ever replaces it.
         public void MorphRange(int depth, out double start, out double end)
         {
-            end   = SplitDistance(depth);
+            end   = 2.0 * SplitDistance(depth);
             start = end * (1.0 - MorphStartFraction);
         }
 
@@ -82,12 +122,15 @@ namespace Sonoma.Core.Quadtree
 
         public double CollapseDistance(int depth) => SplitDistance(depth) * Hysteresis;
 
-        public static LodMath Create(in HeightParams p, float splitFactor, float morphStartFraction,
-                                     float hysteresis, float preloadFactor, int maxDepth)
-            => Create(p.S0, splitFactor, morphStartFraction, hysteresis, preloadFactor, maxDepth);
+        public static LodMath Create(in SurfaceDef surface, in HeightParams p, float splitFactor,
+                                     float morphStartFraction, float hysteresis,
+                                     float preloadFactor, int maxDepth)
+            => Create(p.S0, SurfaceMath.MaxNodeSizeSpread(surface), splitFactor, morphStartFraction,
+                      hysteresis, preloadFactor, maxDepth);
 
-        public static LodMath Create(double s0, float splitFactor, float morphStartFraction,
-                                     float hysteresis, float preloadFactor, int maxDepth)
+        public static LodMath Create(double s0, double sizeSpread, float splitFactor,
+                                     float morphStartFraction, float hysteresis,
+                                     float preloadFactor, int maxDepth)
         {
             if (!(s0 > 0.0) || double.IsInfinity(s0))
                 throw new ArgumentOutOfRangeException(nameof(s0),
@@ -106,20 +149,30 @@ namespace Sonoma.Core.Quadtree
                 throw new ArgumentOutOfRangeException(nameof(preloadFactor),
                     "LodMath: preload factor must be at least 1, or children are requested " +
                     "only after the split has already been decided.");
-            // At a depth boundary the fine side must reach k = 1 exactly where the coarse
-            // side is still at k = 0. Fine reaches k = 1 at end_d; coarse stays at 0 until
-            // start_{d-1} = 2*end_d*(1 - frac). So 1 <= 2(1 - frac), i.e. frac <= 0.5.
-            // Anything above that cracks at every LOD boundary in the world, so it is
-            // refused here rather than shipped.
-            if (!(morphStartFraction > 0f) || morphStartFraction > MaxMorphStartFraction)
+            if (!(sizeSpread >= 1.0) || double.IsInfinity(sizeSpread))
+                throw new ArgumentOutOfRangeException(nameof(sizeSpread),
+                    "LodMath: node size spread must be at least 1; see SurfaceMath.MaxNodeSizeSpread.");
+
+            // Two bounds, and the tighter one wins. Nesting alone requires frac <= 0.5: the
+            // fine side reaches k = 1 at end_d while the coarse side stays at 0 until
+            // start_{d-1} = 2*end_d*(1 - frac). Node extent then tightens it further, because
+            // a coarse leaf's own patch reaches past its bounding-sphere distance -- see
+            // MaxMorphStartFraction. Refused here rather than shipped, because the symptom is
+            // a hairline seam along every LOD boundary that is very easy to blame on
+            // something else.
+            float ceiling = MaxMorphStartFraction(splitFactor, hysteresis, sizeSpread);
+            if (!(morphStartFraction > 0f) || morphStartFraction > ceiling)
                 throw new ArgumentOutOfRangeException(nameof(morphStartFraction),
-                    "LodMath: morph start fraction must be in (0, 0.5]. Above 0.5 the fine " +
-                    "side of a depth boundary reaches full morph before the coarse side has " +
-                    "started, and every LOD boundary cracks.");
+                    "LodMath: morph start fraction is above what this split factor, hysteresis " +
+                    "and surface allow, so the coarse side of a LOD boundary would start " +
+                    "morphing before the fine side has finished. Raise SplitFactor, lower " +
+                    "HysteresisFactor, or lower MorphStartFraction; see " +
+                    "LodMath.MaxMorphStartFraction for the ceiling.");
 
             return new LodMath
             {
                 S0                 = s0,
+                SizeSpread         = sizeSpread,
                 SplitFactor        = splitFactor,
                 MorphStartFraction = morphStartFraction,
                 Hysteresis         = hysteresis,

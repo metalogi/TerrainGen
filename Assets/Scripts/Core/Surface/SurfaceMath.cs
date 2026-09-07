@@ -162,6 +162,30 @@ namespace Sonoma.Core.Surface
             return math.max(math.distance(p00, p11), math.distance(p10, p01));
         }
 
+        // The largest ratio of measured NodeWorldSize to nominal size (S0 / 2^depth) any
+        // node of this surface can reach.
+        //
+        // A cube face is not uniformly parameterised, so nodes at one depth are not all the
+        // same size. LodMath needs this number: the morph range of a coarse node has to
+        // start beyond every point of its own patch, and how far a patch reaches past its
+        // own bounding-sphere distance is exactly this spread. Feed it too small a value and
+        // the coarse side of a LOD boundary begins morphing while the fine side has already
+        // finished, which is a crack.
+        //
+        // Measured, converging with depth: pi/2 for a tangent-adjusted cube sphere (1.56999
+        // at depth 10), sqrt(3) without the adjustment (1.73205), exactly 1 for a plane grid
+        // whose nodes are all similar, and 1.01259 for a cylinder -- rounded up to 1.02 so
+        // the constant is an upper bound rather than a sample.
+        // SurfaceGeometryTests.NodeSizeSpreadMatchesTheTable re-derives all four numerically.
+        public static double MaxNodeSizeSpread(in SurfaceDef s) => s.Type switch
+        {
+            SurfaceType.CubeSphere => s.TangentAdjust ? math.PI_DBL / 2.0 : math.sqrt(3.0),
+            SurfaceType.PlaneGrid  => 1.0,
+            SurfaceType.Cylinder   => 1.02,
+            _ => throw new ArgumentOutOfRangeException(nameof(s),
+                     "SurfaceMath.MaxNodeSizeSpread: unknown surface type."),
+        };
+
         // Whether (du, dv, normal) is a right-handed frame, i.e. dot(cross(du, dv), n) > 0.
         //
         // The topologies do not agree, and nothing before M2 cared. A cube-sphere is
