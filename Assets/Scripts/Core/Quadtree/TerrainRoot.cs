@@ -42,6 +42,18 @@ namespace Sonoma.Core.Quadtree
         HeightParams        _params;
         LodMath             _lod;
 
+        // The morph ranges the vertex shader reads, one entry per depth. A global array
+        // rather than a per-chunk MaterialPropertyBlock: a property block would break SRP
+        // batching, which is the whole reason the chunk's depth travels in TEXCOORD2.w
+        // instead of as a material property.
+        //
+        // The size matches SONOMA_MAX_MORPH_DEPTH + 1 in SonomaTerrainTriplanar.shader. The
+        // shader clamps its index into it, so a chunk deeper than this is drawn unmorphed
+        // rather than reading off the end.
+        const  int              MorphRangeCount = 32;
+        static readonly int     MorphRangesId   = Shader.PropertyToID("_SonomaMorphRanges");
+        readonly        Vector4[] _morphRanges  = new Vector4[MorphRangeCount];
+
         public int ResidentChunks => _selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
         public int InFlightJobs   => _scheduler != null ? _scheduler.InFlightCount : 0;
@@ -73,6 +85,22 @@ namespace Sonoma.Core.Quadtree
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
+
+            PushMorphRanges();
+        }
+
+        // (start_d, end_d) per depth, in world metres. Constant for a given configuration,
+        // but pushed every frame: shader globals are process-wide, and anything else that
+        // sets this name -- another TerrainRoot, a domain reload, an editor script -- would
+        // otherwise leave the terrain morphing against someone else's ranges.
+        void PushMorphRanges()
+        {
+            for (int d = 0; d < MorphRangeCount; d++)
+            {
+                _lod.MorphRange(d, out double start, out double end);
+                _morphRanges[d] = new Vector4((float)start, (float)end, 0f, 0f);
+            }
+            Shader.SetGlobalVectorArray(MorphRangesId, _morphRanges);
         }
 
         SurfaceDef BuildSurface() => Topology switch
@@ -86,6 +114,7 @@ namespace Sonoma.Core.Quadtree
         {
             if (_selector == null) return;
 
+            PushMorphRanges();
             _selector.Run(CameraWorldPosition());
             _scheduler.Update();
         }
