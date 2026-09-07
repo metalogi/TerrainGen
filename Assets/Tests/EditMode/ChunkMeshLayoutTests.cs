@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -42,6 +43,31 @@ namespace Sonoma.Tests
             Assert.LessOrEqual(ChunkMeshLayout.VertexCount(253), 65536, "R = 253 should fit 16-bit indices");
             Assert.Greater(ChunkMeshLayout.VertexCount(255), 65536,     "R = 255 should not");
             Assert.AreEqual(253, ChunkMeshLayout.MaxResolutionFor16BitIndices);
+        }
+
+        // The ceiling has to be enforced where configuration is validated, not where the index
+        // buffer is finally built. BuildIndices only runs at the first upload, by which point
+        // the jobs have allocated their persistent buffers and the scheduler has already
+        // dropped the Pending that owns them -- so the throw leaks rather than reports.
+        [Test]
+        public void HeightParamsRejectsResolutionsThatNeed32BitIndices()
+        {
+            var s = SurfaceDef.CubeSphere(6371000.0);
+
+            HeightParams Create(int resolution) =>
+                HeightParams.Create(s, resolution, 0.0, 20, 200f, 0.5f, 2f, 42u);
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => Create(255),
+                "a resolution past the 16-bit index ceiling must be refused at setup");
+            Assert.Throws<ArgumentOutOfRangeException>(() => Create(1001));
+
+            // The largest legal resolution still goes through, so the bound is the real one
+            // and not an off-by-one that quietly costs a usable configuration.
+            Assert.DoesNotThrow(() => Create(ChunkMeshLayout.MaxResolutionFor16BitIndices),
+                "resolution 253 is within the 16-bit ceiling and must be accepted");
+            Assert.DoesNotThrow(() => ChunkMeshLayout.BuildIndices(
+                ChunkMeshLayout.MaxResolutionFor16BitIndices, false),
+                "HeightParams and BuildIndices must agree on where the ceiling is");
         }
 
         [Test]
