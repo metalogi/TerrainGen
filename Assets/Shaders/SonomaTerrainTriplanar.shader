@@ -1,12 +1,26 @@
-// Triplanar terrain shader with topology-aware elevation/slope blending.
+// Triplanar terrain shader with topology-aware elevation/slope blending, and the LOD
+// geomorph.
 //
-// Per-vertex inputs from QuadtreeManager.BuildMesh:
-//   uv2.xyz = topology-up unit vector (the surface normal at h=0, in world space)
-//   uv2.w   = elevation scalar (height value × HeightScale, in world units)
+// Per-vertex inputs from ChunkMeshJob:
+//   TEXCOORD1.xyz = topology-up unit vector (the surface normal at h=0, in world space)
+//   TEXCOORD1.w   = elevation scalar (height value × HeightScale, in world units)
+//   TEXCOORD2.xyz = geomorph target position, chunk-local like POSITION
+//   TEXCOORD2.w   = the chunk quadtree depth, which indexes the morph range array
+//   TEXCOORD3     = geomorph target normal
 //
-// Per-frame global from WorldOriginSystem.PushOriginToShader:
-//   _SonomaWorldOrigin (float3) — added to positionWS so triplanar samples on true world
-//   coordinates and stays continuous through floating-origin rebases.
+// Per-frame globals:
+//   _SonomaWorldOrigin (float3), from WorldOriginSystem.PushOriginToShader — added to
+//   positionWS so triplanar samples on true world coordinates and stays continuous
+//   through floating-origin rebases.
+//
+//   _SonomaMorphRanges (float4[32]), from TerrainRoot.PushMorphRanges — (start, end) per
+//   depth. A global array rather than a per-chunk MaterialPropertyBlock, because a
+//   property block breaks SRP batching; that is the whole reason depth travels in a
+//   vertex attribute instead of a material property.
+//
+// The morph runs in ALL FOUR passes. Morphing only ForwardLit leaves shadows and the
+// depth prepass on unmorphed geometry, which presents as shadow acne and depth-test
+// dropouts — symptoms that look nothing like the cause.
 //
 // Layer model: 3 elevation bands (Low/Mid/High) blended by elevation thresholds, plus a
 // Cliff overlay driven by slope = 1 − dot(worldNormal, topologyUp). Each layer is
@@ -88,8 +102,51 @@ Shader "Sonoma/TerrainTriplanar"
             float  _TriplanarSharpness;
         CBUFFER_END
 
-        // Per-frame global (NOT in UnityPerMaterial — set via Shader.SetGlobalVector).
+        // Per-frame globals (NOT in UnityPerMaterial -- set via Shader.SetGlobal*).
         float3 _SonomaWorldOrigin;
+
+        // (start_d, end_d, 0, 0): the distances over which a depth-d chunk morphs onto its
+        // parent. Ranges nest exactly (end_{d-1} == 2*end_d), so at any boundary between
+        // depths d and d-1 the fine side is at k = 1 where the coarse side is still at
+        // k = 0. See LodMath, and SonomaRevisedPlan.md section 4.4.
+        #define SONOMA_MAX_MORPH_DEPTH 31
+        float4 _SonomaMorphRanges[SONOMA_MAX_MORPH_DEPTH + 1];
+
+        // Distance is measured from the UNMORPHED position. That matters twice over: it is
+        // what lets every pass arrive at the same k for the same vertex, and it is what
+        // makes two chunks sharing a vertex agree -- they compute the same world position
+        // for it, so they compute the same distance and the same k. Per vertex, never per
+        // chunk.
+        //
+        // Both positions are render space (world - origin), so their difference is true
+        // world metres and needs no _SonomaWorldOrigin correction, unlike the triplanar
+        // sampling in the fragment stage.
+        float SonomaMorphFactor(float3 positionOS, float depth)
+        {
+            float3 wp   = TransformObjectToWorld(positionOS);
+            float  dist = distance(wp, _WorldSpaceCameraPos);
+            float2 r    = _SonomaMorphRanges[clamp((int)depth, 0, SONOMA_MAX_MORPH_DEPTH)].xy;
+            return saturate((dist - r.x) / max(r.y - r.x, 1e-5));
+        }
+
+        void SonomaMorph(inout float3 positionOS, inout float3 normalOS,
+                         float4 morphPosition, float3 morphNormal)
+        {
+            float k    = SonomaMorphFactor(positionOS, morphPosition.w);
+            positionOS = lerp(positionOS, morphPosition.xyz, k);
+            normalOS   = lerp(normalOS,   morphNormal,       k);
+            // Deliberately not normalized here: the fragment stages normalize what they
+            // receive, and a lerp of two unit normals is only short, never wrong.
+        }
+
+        // Position only, for the depth prepass, which has no normal to morph. Its position
+        // must still match the other passes exactly, or the depth test rejects the lit
+        // geometry it is supposed to accept.
+        void SonomaMorphPosition(inout float3 positionOS, float4 morphPosition)
+        {
+            positionOS = lerp(positionOS, morphPosition.xyz,
+                              SonomaMorphFactor(positionOS, morphPosition.w));
+        }
         ENDHLSL
 
         Pass
@@ -112,6 +169,8 @@ Shader "Sonoma/TerrainTriplanar"
                 float3 normalOS   : NORMAL;
                 float2 uv         : TEXCOORD0;
                 float4 uv2        : TEXCOORD1; // (topoUp.xyz, elevation)
+                float4 morphPos   : TEXCOORD2; // (geomorph target position.xyz, node depth)
+                float3 morphNrm   : TEXCOORD3; // geomorph target normal
             };
 
             struct Varyings
@@ -137,14 +196,25 @@ Shader "Sonoma/TerrainTriplanar"
             Varyings Vert(Attributes input)
             {
                 Varyings o;
-                VertexPositionInputs vpi = GetVertexPositionInputs(input.positionOS.xyz);
-                VertexNormalInputs   vni = GetVertexNormalInputs(input.normalOS);
+
+                float3 positionOS = input.positionOS.xyz;
+                float3 normalOS   = input.normalOS;
+                SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm);
+
+                VertexPositionInputs vpi = GetVertexPositionInputs(positionOS);
+                VertexNormalInputs   vni = GetVertexNormalInputs(normalOS);
                 o.positionCS  = vpi.positionCS;
                 o.positionWS  = vpi.positionWS;
                 o.normalWS    = vni.normalWS;
                 // Chunk transforms are unrotated in this project, but TransformObjectToWorldDir
                 // is the safe form if a parent ever introduces rotation.
                 o.topoUp      = TransformObjectToWorldDir(input.uv2.xyz);
+                // Elevation is NOT morphed: there is no coarse elevation in the vertex
+                // layout to morph towards, and adding one would widen TEXCOORD3 to a
+                // float4. The visible consequence is that a fully morphed chunk is shaded
+                // with its fine elevation while drawn with its coarse geometry, which
+                // shifts the band blend by the amplitude of the octaves above the parent
+                // band limit -- the finest ones, and the smallest. Left as is deliberately.
                 o.elevation   = input.uv2.w;
                 o.shadowCoord = GetShadowCoord(vpi);
                 return o;
@@ -200,14 +270,24 @@ Shader "Sonoma/TerrainTriplanar"
             float3 _LightDirection;
             float3 _LightPosition;
 
-            struct ShadowAttr { float4 positionOS : POSITION; float3 normalOS : NORMAL; };
+            struct ShadowAttr
+            {
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 morphPos   : TEXCOORD2;
+                float3 morphNrm   : TEXCOORD3;
+            };
             struct ShadowVar  { float4 positionCS : SV_POSITION; };
 
             ShadowVar ShadowVert(ShadowAttr input)
             {
+                float3 positionOS = input.positionOS.xyz;
+                float3 normalOS   = input.normalOS;
+                SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm);
+
                 ShadowVar o;
-                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
-                float3 normalWS   = TransformObjectToWorldNormal(input.normalOS);
+                float3 positionWS = TransformObjectToWorld(positionOS);
+                float3 normalWS   = TransformObjectToWorldNormal(normalOS);
 
                 #if _CASTING_PUNCTUAL_LIGHT_SHADOW
                     float3 lightDir = normalize(_LightPosition - positionWS);
@@ -241,13 +321,17 @@ Shader "Sonoma/TerrainTriplanar"
             #pragma vertex   DepthVert
             #pragma fragment DepthFrag
 
-            struct DAttr { float4 positionOS : POSITION; };
+            // POSITION alone was enough before the morph; the depth prepass now has to
+            // move its vertices exactly as ForwardLit does, so it needs TEXCOORD2 too.
+            struct DAttr { float4 positionOS : POSITION; float4 morphPos : TEXCOORD2; };
             struct DVar  { float4 positionCS : SV_POSITION; };
 
             DVar DepthVert(DAttr i)
             {
                 DVar o;
-                o.positionCS = TransformObjectToHClip(i.positionOS.xyz);
+                float3 positionOS = i.positionOS.xyz;
+                SonomaMorphPosition(positionOS, i.morphPos);
+                o.positionCS = TransformObjectToHClip(positionOS);
                 return o;
             }
             half4 DepthFrag(DVar i) : SV_Target { return 0; }
@@ -265,14 +349,24 @@ Shader "Sonoma/TerrainTriplanar"
             #pragma vertex   DNVert
             #pragma fragment DNFrag
 
-            struct DNAttr { float4 positionOS : POSITION; float3 normalOS : NORMAL; };
+            struct DNAttr
+            {
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 morphPos   : TEXCOORD2;
+                float3 morphNrm   : TEXCOORD3;
+            };
             struct DNVar  { float4 positionCS : SV_POSITION; float3 normalWS : TEXCOORD0; };
 
             DNVar DNVert(DNAttr i)
             {
                 DNVar o;
-                o.positionCS = TransformObjectToHClip(i.positionOS.xyz);
-                o.normalWS   = TransformObjectToWorldNormal(i.normalOS);
+                float3 positionOS = i.positionOS.xyz;
+                float3 normalOS   = i.normalOS;
+                SonomaMorph(positionOS, normalOS, i.morphPos, i.morphNrm);
+
+                o.positionCS = TransformObjectToHClip(positionOS);
+                o.normalWS   = TransformObjectToWorldNormal(normalOS);
                 return o;
             }
             half4 DNFrag(DNVar i) : SV_Target
