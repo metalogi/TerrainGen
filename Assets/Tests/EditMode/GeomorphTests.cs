@@ -93,7 +93,8 @@ namespace Sonoma.Tests
                     double3 target  = parent.Anchor + (double3)pv.Position;
 
                     double dp = math.distance(morphed, target);
-                    double dn = math.distance((double3)cv.MorphNormal, (double3)pv.Normal);
+                    double dn = math.distance((double3)(float3)cv.MorphNormalElevation.xyz,
+                                              (double3)pv.Normal);
                     worstPosition = math.max(worstPosition, dp);
                     worstNormal   = math.max(worstNormal,   dn);
 
@@ -109,6 +110,13 @@ namespace Sonoma.Tests
                     // distances and cracks at the boundary.
                     Assert.AreEqual((float)childNode.Depth, cv.MorphPosition.w, 0f,
                         $"quadrant {q} vertex ({i},{j}): wrong depth packed into TEXCOORD2.w");
+
+                    // And the elevation the shader blends its bands towards is the parent's
+                    // own elevation -- bit-identical, not merely close, because both come
+                    // from the same pure height function at the same band limit on a
+                    // bit-identical surface position.
+                    Assert.AreEqual(pv.TopoElevation.w, cv.MorphNormalElevation.w, 0f,
+                        $"quadrant {q} vertex ({i},{j}): morph elevation is not the parent's");
                 }
 
                 // Claim 2: the fully morphed child triangulates exactly as the parent does.

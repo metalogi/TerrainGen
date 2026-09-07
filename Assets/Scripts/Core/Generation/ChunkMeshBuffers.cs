@@ -15,8 +15,13 @@ namespace Sonoma.Core.Generation
         public float3 Normal;
         public float2 Uv;            // (u, v) on the root quad
         public float4 TopoElevation; // xyz = base surface normal, w = height above it
-        public float4 MorphPosition; // xyz = geomorph target, w = node depth   (M3)
-        public float3 MorphNormal;   // geomorph target normal                  (M3)
+        public float4 MorphPosition; // xyz = geomorph target, w = node depth
+        // xyz = geomorph target normal, w = geomorph target elevation. The elevation rides
+        // along in the spare component because the shader shades by elevation as well as
+        // drawing by position: without it a fully morphed chunk is shaded with its fine
+        // elevation while drawn with its coarse geometry, and the band blend shifts at the
+        // swap. 80 bytes a vertex rather than 76, which is the price of that.
+        public float4 MorphNormalElevation;
     }
 
     // The Unity-side half of the mesh layout: the vertex descriptor set and the shared index
@@ -37,7 +42,7 @@ namespace Sonoma.Core.Generation
             // pencilled them into TexCoord1 without checking the shader.
             new VertexAttributeDescriptor(VertexAttribute.TexCoord1, VertexAttributeFormat.Float32, 4),
             new VertexAttributeDescriptor(VertexAttribute.TexCoord2, VertexAttributeFormat.Float32, 4),
-            new VertexAttributeDescriptor(VertexAttribute.TexCoord3, VertexAttributeFormat.Float32, 3),
+            new VertexAttributeDescriptor(VertexAttribute.TexCoord3, VertexAttributeFormat.Float32, 4),
         };
 
         // Index buffers are identical for every chunk of a given resolution and winding, so

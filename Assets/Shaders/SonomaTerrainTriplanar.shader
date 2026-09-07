@@ -6,7 +6,8 @@
 //   TEXCOORD1.w   = elevation scalar (height value × HeightScale, in world units)
 //   TEXCOORD2.xyz = geomorph target position, chunk-local like POSITION
 //   TEXCOORD2.w   = the chunk quadtree depth, which indexes the morph range array
-//   TEXCOORD3     = geomorph target normal
+//   TEXCOORD3.xyz = geomorph target normal
+//   TEXCOORD3.w   = geomorph target elevation, blended against TEXCOORD1.w
 //
 // Per-frame globals:
 //   _SonomaWorldOrigin (float3), from WorldOriginSystem.PushOriginToShader — added to
@@ -129,14 +130,17 @@ Shader "Sonoma/TerrainTriplanar"
             return saturate((dist - r.x) / max(r.y - r.x, 1e-5));
         }
 
-        void SonomaMorph(inout float3 positionOS, inout float3 normalOS,
-                         float4 morphPosition, float3 morphNormal)
+        // Returns the factor it used, so a caller that has more than position and normal to
+        // blend -- ForwardLit, with its elevation -- does not recompute it.
+        float SonomaMorph(inout float3 positionOS, inout float3 normalOS,
+                          float4 morphPosition, float3 morphNormal)
         {
             float k    = SonomaMorphFactor(positionOS, morphPosition.w);
             positionOS = lerp(positionOS, morphPosition.xyz, k);
             normalOS   = lerp(normalOS,   morphNormal,       k);
             // Deliberately not normalized here: the fragment stages normalize what they
             // receive, and a lerp of two unit normals is only short, never wrong.
+            return k;
         }
 
         // Position only, for the depth prepass, which has no normal to morph. Its position
@@ -170,7 +174,7 @@ Shader "Sonoma/TerrainTriplanar"
                 float2 uv         : TEXCOORD0;
                 float4 uv2        : TEXCOORD1; // (topoUp.xyz, elevation)
                 float4 morphPos   : TEXCOORD2; // (geomorph target position.xyz, node depth)
-                float3 morphNrm   : TEXCOORD3; // geomorph target normal
+                float4 morphNrm   : TEXCOORD3; // (geomorph target normal.xyz, target elevation)
             };
 
             struct Varyings
@@ -199,7 +203,7 @@ Shader "Sonoma/TerrainTriplanar"
 
                 float3 positionOS = input.positionOS.xyz;
                 float3 normalOS   = input.normalOS;
-                SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm);
+                float  k = SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm.xyz);
 
                 VertexPositionInputs vpi = GetVertexPositionInputs(positionOS);
                 VertexNormalInputs   vni = GetVertexNormalInputs(normalOS);
@@ -209,13 +213,12 @@ Shader "Sonoma/TerrainTriplanar"
                 // Chunk transforms are unrotated in this project, but TransformObjectToWorldDir
                 // is the safe form if a parent ever introduces rotation.
                 o.topoUp      = TransformObjectToWorldDir(input.uv2.xyz);
-                // Elevation is NOT morphed: there is no coarse elevation in the vertex
-                // layout to morph towards, and adding one would widen TEXCOORD3 to a
-                // float4. The visible consequence is that a fully morphed chunk is shaded
-                // with its fine elevation while drawn with its coarse geometry, which
-                // shifts the band blend by the amplitude of the octaves above the parent
-                // band limit -- the finest ones, and the smallest. Left as is deliberately.
-                o.elevation   = input.uv2.w;
+                // Elevation morphs with everything else, on the same k. The bands are
+                // driven by this value, so leaving it on the fine elevation while the
+                // geometry moves to the coarse one shifts the band blend at exactly the
+                // moment the parent takes over -- a colour seam where there is no
+                // geometric one.
+                o.elevation   = lerp(input.uv2.w, input.morphNrm.w, k);
                 o.shadowCoord = GetShadowCoord(vpi);
                 return o;
             }
@@ -275,7 +278,7 @@ Shader "Sonoma/TerrainTriplanar"
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
                 float4 morphPos   : TEXCOORD2;
-                float3 morphNrm   : TEXCOORD3;
+                float4 morphNrm   : TEXCOORD3;   // .w unused here; the layout is shared
             };
             struct ShadowVar  { float4 positionCS : SV_POSITION; };
 
@@ -283,7 +286,7 @@ Shader "Sonoma/TerrainTriplanar"
             {
                 float3 positionOS = input.positionOS.xyz;
                 float3 normalOS   = input.normalOS;
-                SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm);
+                SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm.xyz);
 
                 ShadowVar o;
                 float3 positionWS = TransformObjectToWorld(positionOS);
@@ -354,7 +357,7 @@ Shader "Sonoma/TerrainTriplanar"
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
                 float4 morphPos   : TEXCOORD2;
-                float3 morphNrm   : TEXCOORD3;
+                float4 morphNrm   : TEXCOORD3;   // .w unused here; the layout is shared
             };
             struct DNVar  { float4 positionCS : SV_POSITION; float3 normalWS : TEXCOORD0; };
 
@@ -363,7 +366,7 @@ Shader "Sonoma/TerrainTriplanar"
                 DNVar o;
                 float3 positionOS = i.positionOS.xyz;
                 float3 normalOS   = i.normalOS;
-                SonomaMorph(positionOS, normalOS, i.morphPos, i.morphNrm);
+                SonomaMorph(positionOS, normalOS, i.morphPos, i.morphNrm.xyz);
 
                 o.positionCS = TransformObjectToHClip(positionOS);
                 o.normalWS   = TransformObjectToWorldNormal(normalOS);
