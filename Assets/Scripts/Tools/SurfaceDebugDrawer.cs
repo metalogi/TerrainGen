@@ -2,9 +2,9 @@ using UnityEngine;
 using Unity.Mathematics;
 using Sonoma.Core.Surface;
 
-/// Draws the M1 surface layer as gizmos, in Edit mode, without entering Play.
+/// Draws the surface layer as gizmos, in Edit mode, without entering Play.
 ///
-/// Deliberately independent of QuadtreeManager and the rest of the prototype: drop it on
+/// Deliberately independent of TerrainRoot and the generation pipeline: drop it on
 /// an empty GameObject in an empty scene to inspect root quads, node grids, normals and
 /// neighbour links. Dragging the neighbour probe across a cube-face seam is the fastest
 /// way to sanity-check the adjacency table by eye.

@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Sonoma.Core.CoordinateSpace;
 using Sonoma.Core.Quadtree;
+using Sonoma.Core.Surface;
 
 /// Topology-aware fly camera using the new Input System.
 ///
@@ -16,8 +17,8 @@ using Sonoma.Core.Quadtree;
 public class TopologyFlyCamera : MonoBehaviour
 {
     [Header("Topology Source")]
-    [Tooltip("Reads Topology + radii from this manager. Auto-found in Start if null. Falls back to flat plane (Y up) if none in scene.")]
-    public QuadtreeManager TerrainManager;
+    [Tooltip("Reads the surface definition from this root. Auto-found in Start if null. Falls back to flat plane (Y up) if none in scene.")]
+    public TerrainRoot Terrain;
 
     [Header("Auto Speed (Elevation-driven)")]
     [Tooltip("Base move speed at zero elevation (units/sec).")]
@@ -78,8 +79,8 @@ public class TopologyFlyCamera : MonoBehaviour
 
     void Start()
     {
-        if (TerrainManager == null)
-            TerrainManager = FindFirstObjectByType<QuadtreeManager>();
+        if (Terrain == null)
+            Terrain = FindAnyObjectByType<TerrainRoot>();
     }
 
     void Update()
@@ -165,13 +166,13 @@ public class TopologyFlyCamera : MonoBehaviour
 
     Vector3 ComputeTopoUp(Vector3 renderPos)
     {
-        if (TerrainManager == null) return Vector3.up;
+        if (Terrain == null) return Vector3.up;
         Vector3 abs = RenderToAbsoluteWorld(renderPos);
-        switch (TerrainManager.Topology)
+        switch (Terrain.Topology)
         {
-            case WorldTopology.UVSphere:
+            case SurfaceType.CubeSphere:
                 return abs.sqrMagnitude < 1e-6f ? Vector3.up : abs.normalized;
-            case WorldTopology.Cylinder:
+            case SurfaceType.Cylinder:
             {
                 Vector3 radial = new Vector3(abs.x, abs.y, 0f);
                 if (radial.sqrMagnitude < 1e-6f) return Vector3.up;
@@ -185,14 +186,14 @@ public class TopologyFlyCamera : MonoBehaviour
 
     float ComputeElevation(Vector3 renderPos)
     {
-        if (TerrainManager == null) return renderPos.y;
+        if (Terrain == null) return renderPos.y;
         Vector3 abs = RenderToAbsoluteWorld(renderPos);
-        switch (TerrainManager.Topology)
+        switch (Terrain.Topology)
         {
-            case WorldTopology.UVSphere:
-                return abs.magnitude - TerrainManager.SphereRadius;
-            case WorldTopology.Cylinder:
-                return TerrainManager.CylRadius - new Vector2(abs.x, abs.y).magnitude;
+            case SurfaceType.CubeSphere:
+                return abs.magnitude - (float)Terrain.Radius;
+            case SurfaceType.Cylinder:
+                return (float)Terrain.Radius - new Vector2(abs.x, abs.y).magnitude;
             default:
                 return abs.y;
         }

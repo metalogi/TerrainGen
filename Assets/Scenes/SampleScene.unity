@@ -269,7 +269,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7625b4d692193be45a65551212353587, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TopologyFlyCamera
-  TerrainManager: {fileID: 1981064310}
+  Terrain: {fileID: 1981064310}
   BaseSpeed: 1
   SpeedPerMetre: 1
   MinSpeed: 4
@@ -467,7 +467,7 @@ GameObject:
   - component: {fileID: 1981064311}
   - component: {fileID: 1981064310}
   m_Layer: 0
-  m_Name: QuadtreeManager
+  m_Name: TerrainRoot
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -482,22 +482,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 1981064309}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 93610a01c58d5c24e98136c6c1fe7740, type: 3}
+  m_Script: {fileID: 11500000, guid: 16940845e87602ccd9e5aa33bdf14948, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Core.Quadtree.QuadtreeManager
+  m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Core.Quadtree.TerrainRoot
   Settings: {fileID: 11400000, guid: 53e9baa3033f64d49beeb587c4b9fe9a, type: 2}
   ChunkMaterial: {fileID: 2100000, guid: 011c216fef1872648b9826af582db113, type: 2}
   Topology: 1
-  PlaneSize: 1000
-  SphereRadius: 300
-  SphereCols: 8
-  SphereRows: 4
-  CylRadius: 400
-  CylHeight: 1000
-  CylCols: 8
-  DefaultMaxDepth: 6
-  DefaultBaseSplitDistance: 200
-  DefaultHysteresis: 1.2
+  Radius: 300
+  TileSize: 1000
+  Length: 32000
+  Cols: 8
+  Rows: 4
+  TangentAdjust: 1
 --- !u!4 &1981064311
 Transform:
   m_ObjectHideFlags: 0
