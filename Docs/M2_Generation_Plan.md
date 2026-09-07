@@ -141,11 +141,16 @@ exceeds the node size regardless of world position. `transform.position = (float
 |---|---|---|---|
 | `POSITION` | `float3` | 12 | M2 |
 | `NORMAL` | `float3` | 12 | M2 |
-| `TEXCOORD0` | `float2` | 8 | M2 |
-| `TEXCOORD1` | `float3` | 12 | M3 — morph target position |
-| `TEXCOORD2` | `float3` | 12 | M3 — morph target normal |
-| `TEXCOORD3` | `float` | 4 | M3 — node depth |
-| | | **60** | |
+| `TEXCOORD0` | `float2` | 8 | M2 — uv |
+| `TEXCOORD1` | `float4` | 16 | M2 — (topoUp.xyz, elevation), the existing shader contract |
+| `TEXCOORD2` | `float4` | 16 | M3 — (morph position.xyz, node depth) |
+| `TEXCOORD3` | `float3` | 12 | M3 — morph target normal |
+| | | **76** | |
+
+`TEXCOORD1` is not free: `SonomaTerrainTriplanar.shader` already reads it as
+`(topoUp.xyz, elevation)` to drive elevation banding and the cliff overlay. The morph
+attributes go above it. (This table originally assigned `TEXCOORD1` to the morph position
+without checking the shader — see the amendments.)
 
 M2 **computes and writes all six**, and the shader ignores `TEXCOORD1..3` until M3. Writing them now
 means M3 is a shader change plus an LOD selector, not another pass over the mesh job. The coarse
@@ -154,13 +159,16 @@ morph targets that simply never get used.
 
 ### C7 — Buffer sizes (verified)
 
-Grid of `R×R` vertices plus one skirt ring of `4(R−1)` duplicated border vertices:
+Grid of `R×R` vertices plus one skirt row of `R` duplicated vertices per edge (`4R` in
+total — per-edge rows rather than a shared ring, so each edge is independent and corners are
+simply coincident). Triangles are `2(R−1)²` for the grid plus `8(R−1)` for the skirts: four
+edges, `R−1` quads each, **two** triangles per quad.
 
 | R | sampled `(R+2)²` | coarse `((R−1)/2+3)²` | verts | tris | indices | mesh bytes |
 |---|---|---|---|---|---|---|
-| 33 | 1,225 | 361 | 1,217 | 2,176 | 6,528 | 71.3 KB |
-| 65 | 4,489 | 1,225 | 4,481 | 8,448 | 25,344 | 262.6 KB |
-| 129 | 17,161 | 4,489 | 17,153 | 33,280 | 99,840 | 1005.5 KB |
+| 33 | 1,225 | 361 | 1,221 | 2,304 | 6,912 | 90.6 KB |
+| 65 | 4,489 | 1,225 | 4,485 | 8,704 | 26,112 | 332.9 KB |
+| 129 | 17,161 | 4,489 | 17,157 | 33,792 | 101,376 | 1273.4 KB |
 
 `R` must be **odd** so `(R−1)/2` is exact; assert it in `HeightParams.FromSettings`.
 
@@ -576,6 +584,46 @@ rather than edited into the tasks, so the plan still reads as what was decided u
    methods are compiled as part of whichever job calls them; the attribute would only matter for a
    function pointer, so it is noise that implies a guarantee it does not provide. The M2b test
    `JobsCompileWithoutManagedFallback` is what actually checks this.
+
+## Amendments from implementing M2b
+
+Six more, in the same spirit as the M2a list. Three of these are corrections to numbers or
+claims in the plan above, and two came from tests failing on the first run.
+
+8. **`TEXCOORD1` was already taken.** C6 assigned it to the morph target position without
+   checking `SonomaTerrainTriplanar.shader`, which has read it as `(topoUp.xyz, elevation)`
+   since the prototype. The morph attributes moved to `TEXCOORD2`/`TEXCOORD3` and the vertex
+   is 76 bytes rather than 60. C6 above is corrected.
+9. **The surfaces disagree on handedness, and one winding cannot serve all three.** Measured
+   `dot(cross(du, dv), normal)`: **+2.467e-2** on every cube face, **−1.0e-4** on a plane
+   grid, **−7.854e-4** on a cylinder. The prototype's triangulation was written for a plane,
+   so a cube-sphere built with it renders **inside out** — a whole-planet bug the plan did not
+   anticipate, and one nothing in M1 would have caught because M1 drew only gizmo lines.
+   `SurfaceMath.UvFrameIsRightHanded` classifies it, `ChunkMeshLayout.BuildIndices` takes it
+   as `flipWinding`, and two tests cover it: one re-derives the classification numerically,
+   one builds a real triangle per topology and asserts it faces outward.
+   Vertex normals sidestep the issue differently — they are oriented by
+   `dot(n, baseNormal) < 0` rather than by a fixed cross-product order, which is correct on
+   any topology without a flag.
+10. **The skirt triangle count in C7 was wrong by half, and the tests caught it.** `8(R−1)`,
+    not `4(R−1)`: four edges, `R−1` quads each, two triangles per quad. The error came from
+    the original derivation and had propagated into the doc, the code and the test's expected
+    table, so the first run of `EveryIndexIsInRangeAndNoTriangleIsDegenerate` threw
+    `IndexOutOfRange` on a buffer sized from the bad formula. C7 is corrected.
+11. **Which prototype skirt edge was reversed: North, not West.** `CLAUDE.md` records West.
+    Re-deriving the facing of all four shows the prototype's West was *correct* — it had
+    already been given a flipped triangle order — and North was the one facing inward.
+12. **`ChunkMeshLayout` is split in two.** Task 3 implied one class, but anything importing
+    `UnityEngine` cannot run in the out-of-Editor test harness. The counts, the skirt index
+    map and `BuildIndices` are now UnityEngine-free in `ChunkMeshLayout`; `TerrainVertex`, the
+    attribute descriptors and the `NativeArray` cache live in `ChunkMeshBuffers`. This is what
+    let amendment 10 be caught by a test rather than by staring at a corrupted mesh.
+13. **The scene's driver was swapped in place.** `SampleScene` carried a `QuadtreeManager`
+    component; deleting the script would have left a missing-script GameObject and no terrain
+    at all. The component is now `TerrainRoot` on the same GameObject, keeping its
+    `TerrainSettings` and material references, with `Topology` still 1 (which is `CubeSphere`
+    in the new enum) and `Radius` 300 to preserve the scene's existing scale.
+    `TopologyFlyCamera.TerrainManager` became `Terrain` and still points at it.
 
 ## Out of scope for M2
 

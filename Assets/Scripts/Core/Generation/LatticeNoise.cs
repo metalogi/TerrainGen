@@ -4,8 +4,9 @@ namespace Sonoma.Core.Generation
 {
     // Gradient lattice noise that takes double coordinates.
     //
-    // This exists because HeightmapGenerator.SampleAt casts the world position to float
-    // once per octave. Float has 24 mantissa bits, so at coordinate magnitude 2^k the
+    // This exists because the prototype's height sampler (HeightmapGenerator, deleted in M2)
+    // cast the world position to float once per octave. Float has 24 mantissa bits, so at
+    // coordinate magnitude 2^k the
     // resolution is 2^(k-23): on an Earth-radius sphere the eighth octave lands two
     // samples per lattice cell and every finer octave is worse than noise. See
     // SonomaRevisedPlan.md section 2.3.

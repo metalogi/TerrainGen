@@ -12,7 +12,7 @@ namespace Sonoma.Core.Surface
     // reading managed static arrays from a job, and M2 calls these from jobs.
     //
     // Positions are double3 (planetary scale); normals are float3 (direction only).
-    // Height is added along the normal, matching CoordinateTransform.GetBaseSurface.
+    // Height is added along the normal; HeightSampleJob and ChunkMeshJob are the callers.
     //
     // Named SurfaceMath, not Surface, on purpose. A type may not share the name of its
     // own namespace: from a sibling namespace such as Sonoma.Core.Generation, with the
@@ -161,6 +161,30 @@ namespace Sonoma.Core.Surface
             double3 p01 = SurfacePoint(s, q, n.UMin, n.VMax);
             return math.max(math.distance(p00, p11), math.distance(p10, p01));
         }
+
+        // Whether (du, dv, normal) is a right-handed frame, i.e. dot(cross(du, dv), n) > 0.
+        //
+        // The topologies do not agree, and nothing before M2 cared. A cube-sphere is
+        // right-handed: u runs along `right`, v along `up`, and right x up == centre, which
+        // is the outward normal. A plane grid is left-handed: u runs +X, v runs +Z, and
+        // cross(+X, +Z) == -Y while the normal is +Y. A cylinder is left-handed too, because
+        // its normal points inward at the axis for interior viewing while cross(du, dv)
+        // points outward.
+        //
+        // The consequence is entirely about triangle winding: one fixed vertex order cannot
+        // face outward on both groups, so a mesh built for a plane renders a cube-sphere
+        // inside out. ChunkMeshLayout.WriteIndices takes this as its flipWinding argument.
+        // Measured values are +2.467e-2 (every cube face), -1.0e-4 (plane), -7.854e-4
+        // (cylinder); SurfaceGeometryTests.UvFrameHandednessMatchesTheTable re-derives them
+        // numerically rather than trusting this switch.
+        public static bool UvFrameIsRightHanded(in SurfaceDef s) => s.Type switch
+        {
+            SurfaceType.CubeSphere => true,
+            SurfaceType.PlaneGrid  => false,
+            SurfaceType.Cylinder   => false,
+            _ => throw new ArgumentOutOfRangeException(nameof(s),
+                     "SurfaceMath.UvFrameIsRightHanded: unknown surface type."),
+        };
 
         // ── Cube face basis ──────────────────────────────────────────────────
         //

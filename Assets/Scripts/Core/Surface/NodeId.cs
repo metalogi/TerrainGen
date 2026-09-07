@@ -3,8 +3,7 @@ using System;
 namespace Sonoma.Core.Surface
 {
     // Edge numbering is South, East, North, West so that Opposite(e) == (e + 2) & 3.
-    // NOT interchangeable with Sonoma.Core.Quadtree.EdgeDirection, which is ordered
-    // North, South, East, West. Never cast between the two.
+    // ChunkMeshLayout's skirt edges use the same order and rely on it.
     public enum Edge : byte { South = 0, East = 1, North = 2, West = 3 }
 
     // Addresses any quadtree node without walking the tree.
