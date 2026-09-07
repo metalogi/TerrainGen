@@ -10,11 +10,23 @@ namespace Sonoma.Systems.Configuration
                  "even-indexed vertices, and an even resolution leaves it half a vertex out of step.")]
         public int ChunkResolution = 33;
         public int MaxDepth = 8;
-        public float HysteresisFactor = 1.2f;
         public float HeightScale = 200f;
 
-        [Tooltip("Distance per LOD level indexed by depth (0 = root). Replaced by SplitFactor in M3.")]
-        public float[] LodDistances = new float[] { 1000f, 500f, 250f, 125f, 60f, 30f, 15f, 7f, 3f };
+        [Header("LOD")]
+        [Tooltip("Split a node when the camera is closer than SplitFactor x the node's nominal " +
+                 "size. Nominal, not measured: see LodMath.NominalSize.")]
+        public float SplitFactor = 2f;
+        [Tooltip("Collapse distance as a multiple of the split distance. Must be at least 1; " +
+                 "applies to the split decision only, never to the morph range.")]
+        public float HysteresisFactor = 1.2f;
+        [Tooltip("Fraction of the split distance over which a chunk morphs towards its parent. " +
+                 "Must be at most 0.5, or the fine side of a boundary is fully morphed before " +
+                 "the coarse side has begun and every LOD boundary cracks.")]
+        [Range(0.05f, 0.5f)]
+        public float MorphStartFraction = 0.4f;
+        [Tooltip("Children are requested within this multiple of the split distance, so they " +
+                 "are usually resident before the camera crosses it.")]
+        public float PreloadFactor = 1.5f;
 
         [Header("Generation Pipeline")]
         [Tooltip("Maximum chunk generation jobs in flight at once.")]
@@ -24,12 +36,19 @@ namespace Sonoma.Systems.Configuration
         public float UploadBudgetMs = 1.5f;
 
         [Header("Memory Budget")]
-        [Tooltip("Maximum number of simultaneously active (visible) chunks. 0 = unlimited.")]
-        public int MaxActiveChunks = 500;
+        [Tooltip("Maximum number of resident chunks, counting hidden parents held for an " +
+                 "instant collapse -- not just the visible ones. 0 = unlimited. The default " +
+                 "LOD configuration (MaxDepth 8, SplitFactor 2, Earth-radius cube-sphere) " +
+                 "wants about 770; a budget below the working set makes the selector build " +
+                 "and evict the same chunks every frame, and it says so once in the console.")]
+        public int MaxResidentChunks = 2000;
 
         [Header("Skirts")]
-        [Tooltip("World-space depth of the skirt geometry hanging below each chunk edge. " +
-                 "A fallback for transient LOD differences; geomorphing (M3) is the real mechanism.")]
+        [Tooltip("Skirts are the fallback for transient states where the tree is briefly more " +
+                 "than one depth apart across an edge. Geomorphing is the real mechanism; turn " +
+                 "these off to prove it, then leave them on.")]
+        public bool SkirtsEnabled = true;
+        [Tooltip("World-space depth of the skirt geometry hanging below each chunk edge.")]
         public float SkirtDepth = 10f;
 
         [Header("Noise")]

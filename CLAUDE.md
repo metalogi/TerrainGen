@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain generation system using hierarchical heightmap-based terrain with quadtree LOD management. The system generates realistic natural landscapes from continent-scale down to third-person game scale with seamless LOD transitions.
 
-**Current Status:** Milestones M0–M2 of `SonomaRevisedPlan.md` are done; that document supersedes the 5-phase roadmap below and is what to work against. The synchronous prototype is gone: generation runs as Burst jobs behind a priority scheduler, heights come from a pure double-precision function, and seam stitching was deleted rather than fixed. **M2 renders root quads only** — there is no subdivision until M3 adds `LodSelector`, so the scene is deliberately coarse.
+**Current Status:** Milestones M0–M2 and M3a of `SonomaRevisedPlan.md` are done; that document supersedes the 5-phase roadmap below and is what to work against. The synchronous prototype is gone: generation runs as Burst jobs behind a priority scheduler, heights come from a pure double-precision function, and seam stitching was deleted rather than fixed. M3a added subdivision — `LodMath` and `LodSelector` — so the scene now has its detail. **The geomorph is still M3b:** `ChunkMeshJob` writes morph targets into `TEXCOORD2`/`TEXCOORD3` and the shader still ignores them, so LOD transitions pop and skirts are still what covers the seams.
 
 **Implemented systems:**
 - `Core/Surface/`: `NodeId`, `Edge`, `RootQuad`, `SurfaceDef`, `EdgeLink`, `SurfaceMath` — topology and integer node addressing (cube-sphere, plane grid, cylinder)
 - `Core/Generation/`: `LatticeNoise`, `TerrainHeightFunction`, `HeightParams`, `MacroSample`, `ChunkGrid`, `ChunkMeshLayout`, `ChunkMeshBuffers`, `HeightSampleJob`, `CoarseHeightSampleJob`, `ChunkMeshJob`
-- `Core/Quadtree/`: `GenerationScheduler`, `TerrainRoot` (MonoBehaviour, the scene entry point)
+- `Core/Quadtree/`: `LodMath`, `LodSelector`, `GenerationScheduler`, `TerrainRoot` (MonoBehaviour, the scene entry point)
 - `Core/Rendering/`: `TerrainChunk`, `ChunkPool`
 - `Core/CoordinateSpace/`: `WorldOriginSystem` (all that remains of the old coordinate layer)
 - `Systems/Configuration/`: `TerrainSettings` (ScriptableObject)
@@ -33,8 +33,8 @@ Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain gener
 - Unity Test Runner: Window → General → Test Runner
 - Run tests via Test Framework package (com.unity.test-framework@1.6.0)
 - An EditMode test assembly exists at `Assets/Tests/EditMode/` (`Sonoma.Tests.EditMode`); run it from Window → General → Test Runner
-- 42 EditMode tests: the surface layer (cube face basis, the 24-entry adjacency table re-derived geometrically in the test, neighbour round-trips, node addressing, argument guards), the noise and height function (determinism to the bit, precision at large coordinates, seam agreement, band limiting), the mesh layout (counts, winding, handedness), and a Burst compilation witness
-- **One test only means anything inside the Editor.** `BurstCompilationTests` needs a real Burst backend; everything else is UnityEngine-free by design and also runs outside the Editor (see the `unity-verification-without-batchmode` note). If Burst compilation is switched off in the Editor, that test reports Ignore rather than failing — a deliberate state, not a defect.
+- 51 EditMode tests: the surface layer (cube face basis, the 24-entry adjacency table re-derived geometrically in the test, neighbour round-trips, node addressing, argument guards), the noise and height function (determinism to the bit, precision at large coordinates, seam agreement, band limiting), the mesh layout (counts, winding, handedness), the LOD thresholds (exact range nesting, the measured-size mutation, the `MorphStartFraction` bound, hysteresis, child/parent vertex coincidence), the selector's policy (atomic swap, sibling-group eviction, zero per-frame allocation), and a Burst compilation witness
+- **Two test files only mean anything inside the Editor.** `BurstCompilationTests` needs a real Burst backend, and `LodSelectorTests` needs `Mesh`, `GameObject` and the job system. Everything else is UnityEngine-free by design and also runs outside the Editor (see the `unity-verification-without-batchmode` note) — 47 of the 51 do. If Burst compilation is switched off in the Editor, the witness test reports Ignore rather than failing — a deliberate state, not a defect.
 
 ### Editor Scripts
 - Editor scripts go in `Assets/Editor/` (assembly `Sonoma.Editor`) — **not** in an `Editor/` folder under `Assets/Scripts/`. Since M0 the project uses assembly definitions, and under the `Sonoma.Core` asmdef that folder name loses its magic and would be compiled into the runtime assembly.
@@ -90,13 +90,13 @@ This ensures child chunks at any subdivision depth conform to the true curved su
 - **Addressing**: integer `NodeId(Quad, Depth, X, Y)`, not float bounds. A node is addressable without walking the tree, and is usable as a dictionary key.
 - **Child nodes**: each node subdivides into 4; each level is 50% of the parent's `(u, v)` extent
 - **Typical depth**: 8–12 levels. Reaching 1 m vertex spacing on an Earth-sized cube-sphere needs depth 19 at resolution 33.
-- **Status**: **subdivision is not implemented yet.** M2 generates root quads only; `LodSelector` arrives in M3.
+- **Status**: implemented in M3a. `LodSelector` descends from each root every frame, keyed on the branch containing the camera, so the wanted set is O(MaxDepth) deep rather than O(4^MaxDepth) wide. At the shipped configuration (Earth-radius cube-sphere, `MaxDepth` 8, `SplitFactor` 2) that wanted set is **766 nodes, 576 of them leaves** — which is why `MaxResidentChunks` defaults to 2000 and not the 500 M2 carried.
 
 ### Generation Pipeline (Burst)
 
 Chunks depend on nothing but their own `NodeId` — no parent, no neighbour — so they generate in any order, on any thread, and a cancelled one can simply be dropped.
 
-**Stage 1 — Height sampling (worker thread).** `HeightSampleJob` (`IJobParallelFor`) over an `(R+2)²` grid: the chunk's own vertices plus a one-vertex border so normals are two-sided at the edge. `CoarseHeightSampleJob` does the even vertices at the *parent's* band limit, for M3's geomorph targets. Output: `double3` base points, `float3` base normals, `float` heights.
+**Stage 1 — Height sampling (worker thread).** `HeightSampleJob` (`IJobParallelFor`) over an `(R+2)²` grid: the chunk's own vertices plus a one-vertex border so normals are two-sided at the edge. `CoarseHeightSampleJob` does the even vertices at the *parent's* band limit, for M3b's geomorph targets. Output: `double3` base points, `float3` base normals, `float` heights.
 
 **Stage 2 — Mesh building (worker thread).** `ChunkMeshJob` (`IJob`) writes `TerrainVertex` straight into a `Mesh.MeshData` obtained on the main thread, in chunk-local floats around the node's `Anchor`, and adds skirts.
 
@@ -111,7 +111,7 @@ Height is a **pure function of a surface position and a band limit** — same ar
 There is deliberately **no parent→child heightmap chain**. Upsampling a parent and adding detail would force every chunk to depend on its whole ancestor chain, serialise generation top-down, forbid evicting ancestors, and *guarantee* that adjacent LODs disagree at shared vertices — which is what stitching then had to paper over. See `SonomaRevisedPlan.md` §2.5.
 
 - **Double-precision lattice noise.** `LatticeNoise.Gradient3D(double3, uint)` takes the integer cell with a `double` floor and narrows to `float` exactly once, at `p − floor(p)`, which is always in `[0,1)`. Precision is then independent of distance from the origin.
-- **Band-limited per depth.** `HeightParams.MaxOctave(d) = clamp(d + K0, 0, OctaveCount−1)`. A chunk carries only octaves its vertex spacing can represent, so a chunk and its parent evaluate deliberately *different* functions at the same point; M3's geomorph bridges them.
+- **Band-limited per depth.** `HeightParams.MaxOctave(d) = clamp(d + K0, 0, OctaveCount−1)`. A chunk carries only octaves its vertex spacing can represent, so a chunk and its parent evaluate deliberately *different* functions at the same point; M3b's geomorph bridges them.
 - **Zero-mean**, so the base surface is the mean rather than a floor.
 - **Macro layer in, not up.** `MacroSample` is a placeholder holding zero until M5 adds the persistent per-root-quad maps. Non-local algorithms (erosion, rivers, tectonics) belong there, run once and coarsely — never at chunk time.
 
@@ -123,13 +123,13 @@ Stitching is **deleted, not fixed**. Because height is a pure function of positi
 - **Across a cube edge: bounded, not identical.** The two faces reach the shared edge by different parameterisations, so positions differ by 2.067e-16 relative (1.32 nm at Earth radius) and edge *normals* by up to 0.151° — the border sample continues its own face's parameterisation past the edge rather than crossing onto the neighbour's, so the central difference is not centred. Geometric rather than terrain-driven: still 0.1503° at `HeightScale` 0. A faint shading seam along the 12 cube edges, not a crack.
 - **Skirts** remain as the fallback for transient states where the tree is more than one depth apart across an edge.
 
-### LOD Transition Morphing (M3, not yet implemented)
+### LOD Transition Morphing (M3b, not yet implemented)
 
-Each fine vertex stores a morph target: the even vertex `(i & ~1, j & ~1)` evaluated at the parent's band limit. `ChunkMeshJob` already writes these into `TEXCOORD2`/`TEXCOORD3`; nothing reads them until M3 adds the vertex-shader morph. Fully morphed, a child mesh is triangle-for-triangle its parent — which is why the `(i00, i11, i10), (i00, i01, i11)` triangulation is load-bearing and must not be changed to a flipping scheme.
+Each fine vertex stores a morph target: the even vertex `(i & ~1, j & ~1)` evaluated at the parent's band limit. `ChunkMeshJob` already writes these into `TEXCOORD2`/`TEXCOORD3`; nothing reads them until M3b adds the vertex-shader morph. Fully morphed, a child mesh is triangle-for-triangle its parent — which is why the `(i00, i11, i10), (i00, i01, i11)` triangulation is load-bearing and must not be changed to a flipping scheme.
 
 ### Chunk Unloading
 
-When resident chunk count exceeds budget: evict furthest first, in **complete sibling groups of four** — evicting a single node would leave its region uncovered. `ChunkPool` recycles the GameObject and its Mesh rather than destroying them; meshes are never destroyed during play. (The eviction policy itself lands with M3's `LodSelector`; M2 has only root chunks, so nothing is ever evicted.)
+When resident chunk count exceeds budget: evict furthest first, in **complete sibling groups of four** — evicting a single node would leave its region uncovered. `ChunkPool` recycles the GameObject and its Mesh rather than destroying them; meshes are never destroyed during play. Implemented in M3a as `LodSelector.EvictToBudget`, which collapses a group into its already-resident parent.
 
 ## Milestones (M0–M7)
 
@@ -138,7 +138,8 @@ The authoritative plan is `SonomaRevisedPlan.md` §5. The original 5-phase roadm
 - **M0 — Housekeeping.** Done. Assembly definitions, explicit Burst/Collections/Mathematics dependencies, dead code removed.
 - **M1 — Surfaces and addressing.** Done. `RootQuad`, `NodeId`, `EdgeLink`, `SurfaceMath` with cube-sphere, plane grid and cylinder; the 24-entry cross-face adjacency table.
 - **M2 — Height function and Burst generation.** Done. Double-precision lattice noise, the pure height function, the two sample jobs and the mesh job, `GenerationScheduler`, `ChunkPool`, and deletion of the whole prototype path. **Root quads only.**
-- **M3 — LOD selection and geomorphing.** Next. `LodSelector` with bounding-sphere distance and `SplitFactor`, the vertex-shader morph, parent-until-children-ready swap, resident-chunk budget. Removes the last need for skirts.
+- **M3a — LOD selection.** Done. `LodMath` (depth-only thresholds, validated `MorphStartFraction`), `LodSelector` with bounding-sphere distance, preload margin, the parent-until-children-ready swap and sibling-group eviction against `MaxResidentChunks`.
+- **M3b — Geomorphing.** Next. The vertex-shader morph across all four passes, fed by a global range array; the child-at-full-morph-equals-parent invariant test; then skirts off to prove it. Removes the last need for skirts.
 - **M4 — Floating origin at scale.** Per-chunk double anchors exist already; M4 adds the camera/rig handling and the Earth-radius stress test.
 - **M5 — Macro layer and biomes.** Fills in `MacroSample`: persistent per-root-quad maps, biome modulation, splat weights.
 - **M6 — Collision, tooling, polish.** Colliders at the finest depths, debug overlay, heightmap cache, profiling against the 2 ms budget.
@@ -154,7 +155,8 @@ Assets/Scripts/
 │   │                       #   ChunkGrid, ChunkMeshLayout, ChunkMeshBuffers,
 │   │                       #   HeightSampleJob, CoarseHeightSampleJob, ChunkMeshJob,
 │   │                       #   BurstWitnessJob
-│   ├── Quadtree/           # GenerationScheduler, TerrainRoot (+ M3: LodSelector)
+│   ├── Quadtree/           # LodMath, LodMathSettings, LodSelector,
+│   │                       #   GenerationScheduler, TerrainRoot
 │   ├── Rendering/          # TerrainChunk, ChunkPool
 │   └── CoordinateSpace/    # WorldOriginSystem (all that remains of the old coordinate layer)
 ├── Systems/
@@ -162,7 +164,7 @@ Assets/Scripts/
 └── Tools/                  # TopologyFlyCamera, SurfaceDebugDrawer (not in Sonoma namespace)
 ```
 
-`TerrainRoot` is the scene entry point: it owns the `SurfaceDef`, the `ChunkPool` and the `GenerationScheduler`, and asks for the chunks that should exist.
+`TerrainRoot` is the scene entry point: it owns the `SurfaceDef`, the `ChunkPool`, the `GenerationScheduler` and the `LodSelector`, and drives them once per frame — selector first, then scheduler.
 
 Editor scripts live in `Assets/Editor/` (assembly `Sonoma.Editor`); EditMode tests live in `Assets/Tests/EditMode/` (assembly `Sonoma.Tests.EditMode`). There is deliberately no `Assets/Scripts/Editor/` — under the `Sonoma.Core` asmdef that folder name loses its magic and would be compiled into the runtime assembly.
 
@@ -199,6 +201,13 @@ All generation parameters should be ScriptableObjects:
 ## Non-Obvious Implementation Details
 
 - **The topologies disagree on the handedness of `(u, v, normal)`, and it decides triangle winding.** Measured `dot(cross(du, dv), n)` is **+2.467e-2** on every cube face but **−1.0e-4** on a plane grid and **−7.854e-4** on a cylinder. One fixed vertex order therefore cannot face outward on all three: the prototype's triangulation was written for a plane, and a cube-sphere built with it renders **inside out**. `SurfaceMath.UvFrameIsRightHanded` classifies it and `ChunkMeshLayout.BuildIndices` takes it as `flipWinding`. Vertex normals do *not* use the flag — `ChunkMeshJob` orients them with `dot(n, baseNormal) < 0`, which is correct on any topology without one. Two tests guard this; the classification switch is re-derived numerically, as with the adjacency table.
+- **The LOD thresholds must come from depth too, and for the same reason.** `LodMath.NominalSize(d)` is `S0 / 2^d`, never `SurfaceMath.NodeWorldSize`. Measured size varies across one cube face at a fixed depth — 1.1793:1 at depth 3, 1.2908 at depth 5, 1.3279 at depth 8 — so measured thresholds do not nest by exactly 2, and two same-depth nodes on one face end up at different points in the morph: at depth 8 the smallest is at `k = 1.000` where the largest is still at `k = 0.383`. That 0.617 disagreement along a shared edge is a gaping crack, and no amount of shader work recovers from it. Only the *threshold* is depth-only; the distance `LodSelector` compares against it still uses the node's real bounding sphere. `SonomaRevisedPlan.md` §4.4 originally said measured; it was corrected during M3a. Note the plan's phrasing "two same-depth neighbours at a shared edge" for the 0.383 figure: immediately adjacent nodes differ far too little to show it (worst measured disagreement 0.0000), and the number is the face's extremes. `LodMathTests.MeasuredNodeSizeWouldBreakTheBoundary` reproduces it.
+- **`LodMath.NominalSize` divides by a shifted power of two, not by `math.pow`.** `MorphRangesNestExactly` asserts `end_{d-1} / end_d == 2.0` with a delta of zero, and it can only do that because `S0 / (double)(1L << d)` is exact in IEEE. This is the same species of decision as `HeightParams.FloorLog2` reading the exponent field rather than calling `log2`.
+- **`MorphStartFraction` above 0.5 cracks every LOD boundary in the world.** The fine side reaches `k = 1` at `end_d`; the coarse side stays at `k = 0` until `start_{d-1} = 2·end_d(1 - frac)`, so `frac <= 0.5` follows directly. `LodMath.Create` throws rather than letting it ship, and 0.5 exactly is accepted — an off-by-one there would cost a usable configuration.
+- **`LodMath.cs` imports no `UnityEngine`; the `TerrainSettings` overload of `Create` lives in `LodMathSettings.cs`.** `TerrainSettings` is a `ScriptableObject`, so a single-file `LodMath` would drag `UnityEngine` in and lose the out-of-Editor harness. Same split, and same reason, as `ChunkMeshLayout` / `ChunkMeshBuffers`.
+- **The per-frame order is selector, then scheduler, and chunks arrive hidden.** `LodSelector.OnChunkReady` deactivates the chunk it is handed and leaves it to the next `Run` to show. Landing a chunk visible would put a freshly generated child on screen in the same frame as the parent it replaces, which is exactly the overlap the atomic swap exists to prevent. The cost is one frame of latency on a new chunk; the parent is still drawing, so there is no hole.
+- **The selector's split decision is `Descend`'s return value, not a stored flag.** A node goes into `_frameSplit` only when all four children returned covered, recursively; the visibility pass then descends only through `_frameSplit`. `NodeState.HasChildren` is a separate thing — last frame's split *decision*, kept solely to feed hysteresis. Conflating the two gives a node that is marked split before its children exist, and the visibility pass walks into a hole.
+- **`ChunkPool.Dispose` destroys the GameObjects as well as the meshes, and uses `DestroyImmediate` outside play mode.** `Object.Destroy` defers to the end of the frame, which never arrives in an EditMode test — it throws there instead. `LodSelectorTests` drives the real pool, so the teardown path has to work in both.
 - **The band limit must come from depth, never from measured node size.** `HeightParams.MaxOctave(depth)` is `clamp(depth + K0, 0, OctaveCount-1)`. Actual node size varies across a cube face by up to 1.33:1 at a fixed depth, which can straddle a `floor(log2(...))` boundary and give two same-depth neighbours different octave counts — different functions along a shared edge, i.e. a crack. `K0` is read off the IEEE exponent rather than via `log2`, because the reference config lands on exactly 16 and a library log returning 3.9999999999999996 would drop an octave worldwide.
 - **`ChunkGrid.VertexUV` is the only place a vertex index becomes a surface parameter.** The exact `math.lerp(UMin, UMax, i / (double)(R-1))` is load-bearing: `UMax(x)` and `UMin(x+1)` are bit-identical, so both sides of a same-quad seam produce identical `double3`s and identical heights. Rewriting it as `UMin + (UMax - UMin) * t` is algebraically equal, changes the last bits, and silently turns an exact seam into an approximate one.
 - **Configuration is validated once, in `HeightParams.Create`, and nowhere later.** Chunk resolution must be odd, at least 3, and no greater than `ChunkMeshLayout.MaxResolutionFor16BitIndices` (253). The upper bound matters as much as the others: without it an oversized resolution is accepted at setup and first fails inside `GenerationScheduler.Upload`, after the jobs have allocated their persistent buffers and on a path that has already dropped the `Pending` and so cannot free them.
@@ -212,7 +221,7 @@ All generation parameters should be ScriptableObjects:
 - **`RootQuad.Index` is the quad's position in the `BuildRoots` array**, for every topology (and, for a cube-sphere, also the face). `NodeWorldSize` takes both a `RootQuad` and a `NodeId` that already carries its quad, so it checks the two agree and throws if they do not — a mismatch would otherwise return a wrong-but-plausible size and quietly bias LOD.
 - **`SurfaceDebugDrawer` bounds its own gizmo cost.** `OnDrawGizmos` runs per SceneView repaint, so `DrawDepth` is capped at 4 and `EdgeSegments` is scaled down to keep the total near `MaxGizmoLines`. Raising the depth costs curvature detail, not responsiveness; unbounded it issued ~393k `Gizmos.DrawLine` calls per repaint and locked the Editor.
 - **`TerrainChunk` has two static sets**: `AllChunks` (every chunk, including `SetActive(false)` ones) and `AllActive` (only enabled). `WorldOriginSystem` iterates `AllChunks` so hidden chunks aren't missed during an origin rebase, and rebases each from its `double3 Anchor` rather than shifting by a delta — the prototype's `position -= shift` accumulated float error over a session.
-- **`TEXCOORD1` is spoken for.** `SonomaTerrainTriplanar.shader` reads it as `(topoUp.xyz, elevation)`. The geomorph attributes M3 needs live at `TEXCOORD2` (morph position + depth) and `TEXCOORD3` (morph normal); `ChunkMeshJob` writes all of them now even though nothing reads them until M3, so the vertex layout is settled once.
+- **`TEXCOORD1` is spoken for.** `SonomaTerrainTriplanar.shader` reads it as `(topoUp.xyz, elevation)`. The geomorph attributes live at `TEXCOORD2` (morph position + depth) and `TEXCOORD3` (morph normal); `ChunkMeshJob` has written all of them since M2 even though nothing reads them until M3b, so the vertex layout is settled once.
 - **Skirts are `4R` vertices, one row per edge, and `8(R-1)` triangles.** Two triangles per skirt quad, four edges — a `4(R-1)` triangle count is the easy mistake and sizes the index buffer at half what it needs. The four edges are walked anticlockwise as seen from outside (South +u, East +v, North −u, West −v) so one triangle order serves all four. The prototype's reversed edge was **North**, not West as an earlier note here claimed.
 - **`ChunkMeshLayout` is UnityEngine-free on purpose** so its arithmetic runs in the out-of-Editor test harness; `ChunkMeshBuffers` holds everything that needs `UnityEngine.Rendering`. Keep the split — it is what catches buffer-sizing bugs as test failures rather than as memory corruption.
 - **The scheduler checks "still wanted" twice**, before scheduling and again on completion, and disposes unwanted results instead of showing them. This is the fix for the prototype's orphan-chunk leak, where a collapsed node stayed queued and later produced a chunk nothing referenced.
