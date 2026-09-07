@@ -11,24 +11,18 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 234b26f8b91f91448b08780b800a638f, type: 3}
   m_Name: TerrainSettings
-  m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Systems.Configuration.TerrainSettings
+  m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.TerrainSettings
   ChunkResolution: 33
   MaxDepth: 8
-  HysteresisFactor: 1.2
   HeightScale: 50
-  LodDistances:
-  - 1000
-  - 500
-  - 250
-  - 125
-  - 60
-  - 30
-  - 15
-  - 7
-  - 3
+  SplitFactor: 2
+  HysteresisFactor: 1.2
+  MorphStartFraction: 0.4
+  PreloadFactor: 1.5
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
-  MaxActiveChunks: 500
+  MaxResidentChunks: 2000
+  SkirtsEnabled: 1
   SkirtDepth: 2
   OctaveWavelength0: 0
   OctaveCount: 20

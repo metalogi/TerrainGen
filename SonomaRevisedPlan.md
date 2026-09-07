@@ -184,7 +184,8 @@ Scheduler policy:
 Selection (per frame, cheap, allocation-free):
 
 - Distance `D` from camera to the node's bounding sphere (surface centre, radius from chord size and stored min/max height).
-- Split when `D < SplitFactor × NodeWorldSize`; collapse with hysteresis on the **decision** only.
+- Split when `D < SplitFactor × S_d`, where `S_d = S0 / 2^d` is the **nominal** node size at that depth; collapse with hysteresis on the **decision** only.
+  - **Corrected during M3a.** This originally read `SplitFactor × NodeWorldSize`, i.e. the *measured* size. That does not work: `SurfaceMath.NodeWorldSize` varies across one cube face at a fixed depth (measured 1.1793:1 at depth 3, 1.2908 at depth 5, 1.3279 at depth 8), so thresholds derived from it do not nest by exactly 2, and two same-depth nodes on one face disagree about how far through the morph they are — at depth 8 the smallest node is at `k = 1.000` where the largest is still at `k = 0.383`. Nominal size is the same rule as `HeightParams.MaxOctave` taking a depth rather than a size, and for the same reason. The *distance* `D` still uses the node's real bounding sphere; only the threshold is depth-only. `LodMath.NominalSize` and `LodMathTests.MorphRangesNestExactly` / `MeasuredNodeSizeWouldBreakTheBoundary` pin it.
 - Show parent until all four children are resident (keep the existing atomic swap); begin generating children at `PreloadFactor × split distance` so they are usually ready before the camera crosses the split distance.
 - Budget: `MaxResidentChunks` counts every resident chunk, hidden parents included; evict furthest complete sibling groups first, as now.
 
@@ -192,6 +193,7 @@ Geomorphing (per vertex, in the vertex shader):
 
 - Each fine vertex `(x, y)` stores its **morph target**: the chunk-local position of the even vertex `(x & ~1, y & ~1)` evaluated with the parent's band limit `maxOctave(d−1)`. Even vertices morph in height only; odd vertices collapse onto an even neighbour. With the existing triangulation `(i00,i11,i10),(i00,i01,i11)` this makes a fully-morphed child mesh **identical, triangle for triangle, to the parent mesh** (the surviving triangles are the parent's, the rest are zero-area).
 - Morph factor `k = saturate((dist − start_d) / (end_d − start_d))` per vertex, where `end_d` is the split distance of depth d and `start_d = end_d × (1 − MorphStartFraction)`. Ranges nest (`end_{d−1} = 2·end_d`), so at any boundary between depths d and d−1 the fine side is at `k = 1` and the coarse side at `k = 0`: no crack, no T-junction, no stitching.
+  - **`MorphStartFraction` must be ≤ 0.5**, which follows directly from the sentence above and was not stated. The fine side reaches `k = 1` at `end_d`; the coarse side stays at `k = 0` until `start_{d−1} = 2·end_d(1 − frac)`. Requiring `end_d ≤ 2·end_d(1 − frac)` gives `frac ≤ 0.5`, with zero margin at exactly 0.5. Anything above it cracks at every LOD boundary in the world, so `LodMath.Create` refuses it. Default 0.4.
 - Both `position` and `normal` are lerped. The chunk's depth is packed into a vertex attribute and ranges come from a global `float4[]` so the SRP batcher stays enabled (no per-chunk `MaterialPropertyBlock`).
 - Skirts remain as the fallback for the transient state where the tree is temporarily more than one depth apart across an edge (a parent still waiting for children). Optionally enforce 2:1 balance in selection later; not required.
 

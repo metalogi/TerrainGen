@@ -73,7 +73,22 @@ namespace Sonoma.Core.Quadtree
         readonly List<NodeId>                 _finished = new List<NodeId>();
         readonly Stopwatch                    _clock    = new Stopwatch();
 
-        public event Action<NodeId, TerrainChunk> ChunkReady;
+        // What the mesh job measured, handed on with the chunk. The selector needs the
+        // height bounds for its bounding sphere and would otherwise have to walk the mesh
+        // again on the main thread to get numbers the job already had.
+        public readonly struct Result
+        {
+            public readonly NodeId       Node;
+            public readonly TerrainChunk Chunk;
+            public readonly float        MinHeight, MaxHeight;
+
+            public Result(NodeId node, TerrainChunk chunk, float minHeight, float maxHeight)
+            {
+                Node = node; Chunk = chunk; MinHeight = minHeight; MaxHeight = maxHeight;
+            }
+        }
+
+        public event Action<Result> ChunkReady;
 
         public int QueuedCount   => _heap.Count;
         public int InFlightCount => _inFlight.Count;
@@ -250,7 +265,7 @@ namespace Sonoma.Core.Quadtree
             chunk.gameObject.name = $"Chunk_q{p.Node.Quad}_d{p.Node.Depth}_{p.Node.X}_{p.Node.Y}";
 
             p.DisposeBuffers();
-            ChunkReady?.Invoke(p.Node, chunk);
+            ChunkReady?.Invoke(new Result(p.Node, chunk, minH, maxH));
         }
 
         // Play-mode teardown. Every in-flight job must be completed before its buffers are

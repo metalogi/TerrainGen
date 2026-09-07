@@ -64,17 +64,30 @@ namespace Sonoma.Core.Rendering
             return chunk;
         }
 
-        // Play-mode teardown only. Destroys every mesh the pool created, whether or not it
-        // was released first; the GameObjects go with the scene.
+        // Teardown. Destroys every mesh the pool created, whether or not it was released
+        // first -- _free alone would free nothing, since at teardown the live chunks are all
+        // checked out. The GameObjects go too: in play mode the scene would take them, but
+        // an EditMode test has no scene teardown to rely on.
         public void Dispose()
         {
             foreach (var chunk in _all)
             {
                 if (chunk == null) continue;
-                if (chunk.Mesh != null) Object.Destroy(chunk.Mesh);
+                Destroy(chunk.Mesh);
+                Destroy(chunk.gameObject);
             }
             _all.Clear();
             _free.Clear();
+        }
+
+        // Object.Destroy defers to the end of the frame, which never comes outside play
+        // mode -- it throws there instead. EditMode tests drive this pool directly, so the
+        // teardown path has to work in both.
+        static void Destroy(Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) Object.Destroy(o);
+            else                       Object.DestroyImmediate(o);
         }
     }
 }
