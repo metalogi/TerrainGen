@@ -14,7 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Systems.Configuration.TerrainSettings
   ChunkResolution: 33
   MaxDepth: 8
-  MaxUploadsPerFrame: 3
   HysteresisFactor: 1.2
   HeightScale: 50
   LodDistances:
@@ -27,9 +26,12 @@ MonoBehaviour:
   - 15
   - 7
   - 3
+  MaxInFlightJobs: 8
+  UploadBudgetMs: 1.5
   MaxActiveChunks: 500
   SkirtDepth: 2
-  BaseFrequency: 0.003
-  Octaves: 6
+  OctaveWavelength0: 0
+  OctaveCount: 20
   Persistence: 0.5
+  Lacunarity: 2
   Seed: 42

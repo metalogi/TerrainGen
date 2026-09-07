@@ -177,6 +177,113 @@ namespace Sonoma.Tests
                 $"cross-face shared heights diverged by {worstH:E3} m");
         }
 
+        // Chunk vertex (i, j) of a node in world space, exactly as HeightSampleJob and
+        // ChunkMeshJob.Local build it. i and j may be -1 or Resolution: the border samples.
+        static double3 VertexPos(in SurfaceDef s, RootQuad[] roots, NodeId n, int i, int j,
+                                 int oct, in HeightParams hp)
+        {
+            ChunkGrid.VertexUV(n, i, j, Resolution, out double u, out double v);
+            SurfaceMath.SurfaceFrame(s, roots[n.Quad], u, v, out double3 p, out float3 nrm);
+            return p + (double3)(nrm * TerrainHeightFunction.Height(p, oct, MacroSample.Zero, hp));
+        }
+
+        // The vertex normal ChunkMeshJob computes: central difference over the border-extended
+        // grid, oriented against the base surface normal.
+        static double3 VertexNormal(in SurfaceDef s, RootQuad[] roots, NodeId n, int i, int j,
+                                    int oct, in HeightParams hp)
+        {
+            double3 dU = VertexPos(s, roots, n, i + 1, j, oct, hp) - VertexPos(s, roots, n, i - 1, j, oct, hp);
+            double3 dV = VertexPos(s, roots, n, i, j + 1, oct, hp) - VertexPos(s, roots, n, i, j - 1, oct, hp);
+            double3 nn = math.cross(dV, dU);
+
+            ChunkGrid.VertexUV(n, i, j, Resolution, out double u, out double v);
+            float3 baseN = SurfaceMath.SurfaceNormal(s, roots[n.Quad], u, v);
+            if (math.dot(nn, (double3)baseN) < 0.0) nn = -nn;
+            return math.normalize(nn);
+        }
+
+        static void EdgeVertex(Edge e, int k, out int i, out int j)
+        {
+            switch (e)
+            {
+                case Edge.South: i = k;              j = 0;              return;
+                case Edge.East:  i = Resolution - 1; j = k;              return;
+                case Edge.North: i = k;              j = Resolution - 1; return;
+                default:         i = 0;              j = k;              return;   // West
+            }
+        }
+
+        // The other half of the seam guarantee. Positions are covered above; this is what the
+        // shader actually reads, and the two regimes are not the same.
+        //
+        // Inside a root quad the border sample is bit-identical to the neighbour's own vertex,
+        // so the normals match to rounding. Across a cube face the border continues this face's
+        // tangent-adjusted parameterisation past its own edge rather than crossing onto the
+        // neighbour's, so the central difference is not centred and the two sides disagree.
+        // That is a shading discontinuity along the 12 cube edges, not a crack -- the positions
+        // still agree to 1.3 nm.
+        [Test]
+        public void CrossFaceEdgeNormalsAgreeToABoundedAngle()
+        {
+            var s     = Sphere();
+            var roots = SurfaceMath.BuildRoots(s);
+            var p     = Params();
+
+            double Angle(double3 a, double3 b) =>
+                math.degrees(math.acos(math.clamp(math.dot(a, b), -1.0, 1.0)));
+
+            // Control: two nodes inside one root quad, sharing a column of vertices.
+            {
+                int oct = p.MaxOctave(1);
+                var a   = new NodeId(0, 1, 0, 0);
+                var b   = new NodeId(0, 1, 1, 0);
+                double worst = 0.0;
+
+                for (int j = 0; j < Resolution; j++)
+                    worst = math.max(worst, Angle(VertexNormal(s, roots, a, Resolution - 1, j, oct, p),
+                                                  VertexNormal(s, roots, b, 0,              j, oct, p)));
+
+                // Measured 1.9e-6 degrees -- pure float rounding in the height sum.
+                Assert.Less(worst, 1e-4,
+                    $"same-quad seam normals diverged by {worst:E3} deg; inside a root quad the " +
+                    "border sample is bit-identical to the neighbour's vertex and this must be exact");
+            }
+
+            // Every cube edge, at root depth.
+            {
+                int    oct   = p.MaxOctave(0);
+                double worst = 0.0;
+                string where = "";
+
+                for (int face = 0; face < 6; face++)
+                for (int e = 0; e < 4; e++)
+                {
+                    var link = SurfaceMath.CubeEdgeLink(face, (Edge)e);
+                    var na   = new NodeId(face,      0, 0, 0);
+                    var nb   = new NodeId(link.Face, 0, 0, 0);
+
+                    for (int k = 0; k < Resolution; k++)
+                    {
+                        int k2 = link.Reversed ? Resolution - 1 - k : k;
+                        EdgeVertex((Edge)e,   k,  out int ia, out int ja);
+                        EdgeVertex(link.Edge, k2, out int ib, out int jb);
+
+                        double d = Angle(VertexNormal(s, roots, na, ia, ja, oct, p),
+                                         VertexNormal(s, roots, nb, ib, jb, oct, p));
+                        if (d > worst) { worst = d; where = $"face {face} {(Edge)e} -> face {link.Face} {link.Edge}"; }
+                    }
+                }
+
+                // Measured 0.1510 degrees. The bound is deliberately close to the measurement:
+                // this is a known, geometric artefact -- at HeightScale 0, on a perfect sphere,
+                // it is still 0.1503 degrees -- and the point of the test is that it stays this
+                // size. If a change pushes it up, that is a real regression in edge shading and
+                // should be looked at, not absorbed by widening the tolerance.
+                Assert.Less(worst, 0.25,
+                    $"cross-face edge normals diverged by {worst:F4} deg at {where}");
+            }
+        }
+
         [Test]
         public void HeightHasNoConstantBias()
         {

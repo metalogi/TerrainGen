@@ -18,9 +18,12 @@ namespace Sonoma.Core.Rendering
         readonly int            _resolution;
         readonly Stack<TerrainChunk> _free = new Stack<TerrainChunk>();
 
-        int _created;
+        // Every chunk this pool ever made, acquired or not. _free alone is not enough to
+        // dispose from: at teardown the live chunks are all checked out, so a Dispose that
+        // walks only the free stack frees nothing it created.
+        readonly List<TerrainChunk> _all = new List<TerrainChunk>();
 
-        public int Created   => _created;
+        public int Created   => _all.Count;
         public int Available => _free.Count;
 
         public ChunkPool(Transform parent, Material material, int resolution)
@@ -57,19 +60,20 @@ namespace Sonoma.Core.Rendering
             mesh.indexFormat = ChunkMeshBuffers.IndexFormatFor(_resolution);
             chunk.SetMesh(mesh);
 
-            _created++;
+            _all.Add(chunk);
             return chunk;
         }
 
-        // Play-mode teardown only. Destroys the meshes the pool owns; the GameObjects go with
-        // the scene.
+        // Play-mode teardown only. Destroys every mesh the pool created, whether or not it
+        // was released first; the GameObjects go with the scene.
         public void Dispose()
         {
-            foreach (var chunk in _free)
+            foreach (var chunk in _all)
             {
                 if (chunk == null) continue;
                 if (chunk.Mesh != null) Object.Destroy(chunk.Mesh);
             }
+            _all.Clear();
             _free.Clear();
         }
     }

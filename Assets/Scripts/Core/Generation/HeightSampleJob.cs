@@ -10,9 +10,21 @@ namespace Sonoma.Core.Generation
     //
     // The grid is (R+2) x (R+2): the chunk's own R x R vertices plus a one-vertex border on
     // every side. The border is what lets the mesh job take two-sided central differences at
-    // the chunk edge without knowing anything about its neighbours -- and because the height
-    // function is pure, the border samples land on exactly the points the adjacent chunk will
-    // compute for itself, so edge normals agree by construction rather than by stitching.
+    // the chunk edge without knowing anything about its neighbours.
+    //
+    // Inside a root quad that is exact: the height function is pure and ChunkGrid.VertexUV
+    // gives the border sample bit-identical (u, v) to the adjacent chunk's own vertex, so
+    // edge normals agree by construction rather than by stitching -- measured 1.9e-6 degrees.
+    //
+    // Across a cube face it is only close. The border continues *this* face's tangent-adjusted
+    // parameterisation past its own edge instead of crossing onto the neighbour's, so the
+    // central difference is not centred: at v = -1/32 the offsets from the edge are -0.1067
+    // and +0.0982 in face-local b, and the neighbouring face makes the mirrored error. The
+    // measured worst normal disagreement over all 24 links is 0.151 degrees at Earth radius.
+    // It is geometric, not terrain-driven -- at HeightScale 0, on a perfect sphere, it is
+    // still 0.1503 degrees -- so it does not shrink with gentler terrain. Vertex *positions*
+    // are unaffected (1.3 nm), so this is a shading discontinuity along the 12 cube edges and
+    // not a crack. HeightFunctionTests.CrossFaceEdgeNormalsAgreeToABoundedAngle pins the bound.
     [BurstCompile(CompileSynchronously = true)]
     public struct HeightSampleJob : IJobParallelFor
     {

@@ -46,6 +46,14 @@ namespace Sonoma.Core.Generation
             if (resolution < 3 || (resolution & 1) == 0)
                 throw new ArgumentOutOfRangeException(nameof(resolution),
                     "HeightParams: chunk resolution must be odd and at least 3.");
+            // The mesh side cannot address more than 65,536 distinct vertices, and 32-bit
+            // indices are not implemented. Checked here rather than left to BuildIndices,
+            // which only runs at the first upload -- by then the jobs have allocated their
+            // buffers and thrown from a path that cannot free them.
+            if (resolution > ChunkMeshLayout.MaxResolutionFor16BitIndices)
+                throw new ArgumentOutOfRangeException(nameof(resolution),
+                    "HeightParams: chunk resolution needs more than 16-bit mesh indices, " +
+                    "which are not implemented. See ChunkMeshLayout.MaxResolutionFor16BitIndices.");
             if (octaveCount < 1)
                 throw new ArgumentOutOfRangeException(nameof(octaveCount),
                     "HeightParams: octave count must be at least 1.");

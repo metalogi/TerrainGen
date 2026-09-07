@@ -20,9 +20,13 @@ namespace Sonoma.Core.Generation
     {
         // i and j may run from -1 to resolution (inclusive) rather than 0 to resolution-1:
         // the sampling grid carries a one-vertex border so normals at the chunk edge can be
-        // taken by central difference without querying a neighbour. The border extends the
-        // same lerp past the node's own range, which lands on the true surface point of the
-        // adjacent node -- not an extrapolation.
+        // taken by central difference without querying a neighbour.
+        //
+        // Within a root quad the border extends the same lerp past the node's own range and
+        // lands on the true surface point of the adjacent node -- not an extrapolation. Past
+        // a *root quad* edge it genuinely is an extrapolation: it continues this quad's
+        // parameterisation rather than crossing onto the neighbour's, which is what leaves a
+        // 0.151-degree normal discontinuity along the cube edges. See HeightSampleJob.
         public static void VertexUV(in NodeId n, int i, int j, int resolution,
                                     out double u, out double v)
         {
