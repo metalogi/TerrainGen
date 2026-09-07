@@ -14,16 +14,23 @@ namespace Sonoma.Systems.Configuration
 
         [Header("LOD")]
         [Tooltip("Split a node when the camera is closer than SplitFactor x the node's nominal " +
-                 "size. Nominal, not measured: see LodMath.NominalSize.")]
-        public float SplitFactor = 2f;
+                 "size. Nominal, not measured: see LodMath.NominalSize. " +
+                 "2 is NOT usable with the geomorph: it leaves a morph window under 1% wide on " +
+                 "a cube sphere, which is a pop by another name. Costs scale with the square, " +
+                 "so 3 is roughly 2.25x the chunks of 2.")]
+        public float SplitFactor = 3f;
         [Tooltip("Collapse distance as a multiple of the split distance. Must be at least 1; " +
-                 "applies to the split decision only, never to the morph range.")]
-        public float HysteresisFactor = 1.2f;
-        [Tooltip("Fraction of the split distance over which a chunk morphs towards its parent. " +
-                 "Must be at most 0.5, or the fine side of a boundary is fully morphed before " +
-                 "the coarse side has begun and every LOD boundary cracks.")]
-        [Range(0.05f, 0.5f)]
-        public float MorphStartFraction = 0.4f;
+                 "applies to the split decision only, never to the morph range. It does eat " +
+                 "into the usable MorphStartFraction, because a node held split by hysteresis " +
+                 "reaches further out than the split distance alone would allow.")]
+        public float HysteresisFactor = 1.1f;
+        [Tooltip("Fraction of the morph range over which a chunk morphs towards its parent. " +
+                 "Bounded by LodMath.MaxMorphStartFraction(SplitFactor, HysteresisFactor, " +
+                 "surface size spread) -- above it the coarse side of a LOD boundary starts " +
+                 "morphing before the fine side has finished, and the boundary cracks. " +
+                 "LodMath.Create throws rather than let that ship.")]
+        [Range(0.02f, 0.5f)]
+        public float MorphStartFraction = 0.15f;
         [Tooltip("Children are requested within this multiple of the split distance, so they " +
                  "are usually resident before the camera crosses it.")]
         public float PreloadFactor = 1.5f;

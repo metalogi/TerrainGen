@@ -72,7 +72,7 @@ namespace Sonoma.Core.Quadtree
             _params = HeightParams.Create(Surface, Settings.ChunkResolution, Settings.OctaveWavelength0,
                                           Settings.OctaveCount, Settings.HeightScale,
                                           Settings.Persistence, Settings.Lacunarity, Settings.Seed);
-            _lod    = LodMath.Create(Settings, _params);
+            _lod    = LodMath.Create(Surface, Settings, _params);
 
             // Skirts are the fallback for transient states where the tree is briefly more
             // than one depth apart across an edge. A depth of zero leaves the skirt vertices

@@ -9,6 +9,61 @@ namespace Sonoma.Tests
     // the tangent adjustment, node sizing, and the cylinder's inward normal convention.
     public class SurfaceGeometryTests
     {
+        // MaxNodeSizeSpread is a hand-entered table, so it is re-derived here numerically --
+        // the same treatment as the cube adjacency table and the handedness switch.
+        //
+        // It matters because LodMath uses it to bound MorphStartFraction: a coarse leaf's
+        // patch reaches past its own bounding-sphere distance by roughly this factor, and
+        // the morph range has to start beyond that or LOD boundaries crack. A table entry
+        // that is too small is therefore a seam, not a rounding error, so each entry must be
+        // an upper bound on what the geometry actually does.
+        [Test]
+        public void NodeSizeSpreadMatchesTheTable()
+        {
+            var surfaces = new[]
+            {
+                SurfaceDef.CubeSphere(6371000.0, true),
+                SurfaceDef.CubeSphere(6371000.0, false),
+                SurfaceDef.PlaneGrid(200000.0, 4, 4),
+                SurfaceDef.Cylinder(5000.0, 32000.0, 8),
+            };
+
+            foreach (var s in surfaces)
+            {
+                var    roots = SurfaceMath.BuildRoots(s);
+                double s0    = SurfaceMath.NodeWorldSize(s, roots[0], new NodeId(0, 0, 0, 0));
+                double worst = 1.0;
+
+                // The ratio climbs with depth and converges; depth 8 is within 0.2% of the
+                // limit for every topology here.
+                for (int d = 1; d <= 8; d++)
+                {
+                    int    span    = 1 << d;
+                    double nominal = s0 / (double)(1L << d);
+                    for (int x = 0; x < span; x++)
+                    for (int y = 0; y < span; y++)
+                        worst = math.max(worst,
+                            SurfaceMath.NodeWorldSize(s, roots[0], new NodeId(0, d, x, y)) / nominal);
+                }
+
+                double tabled = SurfaceMath.MaxNodeSizeSpread(s);
+                Assert.GreaterOrEqual(tabled, worst,
+                    $"{s.Type} (tangent adjust {s.TangentAdjust}): the tabled spread {tabled:F5} " +
+                    $"is below the measured {worst:F5}, which would let MorphStartFraction sit " +
+                    "above what the geometry allows");
+                Assert.Less(tabled, worst * 1.02,
+                    $"{s.Type} (tangent adjust {s.TangentAdjust}): the tabled spread {tabled:F5} " +
+                    $"is needlessly far above the measured {worst:F5}, which costs morph window " +
+                    "for nothing");
+            }
+
+            // The limits are exact: the tangent adjustment converges on pi/2, and the raw
+            // cube-sphere parameterisation on sqrt(3).
+            Assert.AreEqual(math.PI_DBL / 2.0, SurfaceMath.MaxNodeSizeSpread(SurfaceDef.CubeSphere(1.0, true)), 0.0);
+            Assert.AreEqual(math.sqrt(3.0),    SurfaceMath.MaxNodeSizeSpread(SurfaceDef.CubeSphere(1.0, false)), 0.0);
+            Assert.AreEqual(1.0,               SurfaceMath.MaxNodeSizeSpread(SurfaceDef.PlaneGrid(1.0, 1, 1)), 0.0);
+        }
+
         [Test]
         public void CubeSpherePointsLieOnSphere()
         {

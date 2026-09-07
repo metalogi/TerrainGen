@@ -23,6 +23,8 @@ namespace Sonoma.Tests
         const double TileSize    = 1000.0;
         const int    Resolution  = 5;
         const int    MaxDepth    = 3;
+        // A plane grid has no node size spread, so SplitFactor 2 stays inside
+        // LodMath.MaxMorphStartFraction here even though a cube sphere would refuse it.
         const float  SplitFactor = 2f;
 
         SurfaceDef          _surface;
@@ -39,7 +41,7 @@ namespace Sonoma.Tests
             _roots   = SurfaceMath.BuildRoots(_surface);
 
             var p   = HeightParams.Create(_surface, Resolution, 0.0, 8, 20f, 0.5f, 2f, 42u);
-            var lod = LodMath.Create(p, SplitFactor, 0.4f, 1.2f, 1.5f, MaxDepth);
+            var lod = LodMath.Create(_surface, p, SplitFactor, 0.14f, 1.2f, 1.5f, MaxDepth);
 
             _host      = new GameObject("LodSelectorTestHost");
             _pool      = new ChunkPool(_host.transform, null, Resolution);

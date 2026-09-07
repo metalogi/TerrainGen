@@ -18,8 +18,9 @@ namespace Sonoma.Tests
         const double EarthRadius = 6371000.0;
         const int    Resolution  = 33;
         const int    MaxDepth    = 12;
-        const float  SplitFactor = 2f;
-        const float  MorphStart  = 0.4f;
+        const float  SplitFactor = 3f;
+        const float  MorphStart  = 0.15f;
+        const float  Hysteresis  = 1.1f;
 
         static SurfaceDef Sphere() => SurfaceDef.CubeSphere(EarthRadius);
 
@@ -27,7 +28,7 @@ namespace Sonoma.Tests
             HeightParams.Create(Sphere(), Resolution, 0.0, 20, 200f, 0.5f, 2f, 42u);
 
         static LodMath Lod() =>
-            LodMath.Create(Params(), SplitFactor, MorphStart, 1.2f, 1.5f, MaxDepth);
+            LodMath.Create(Sphere(), Params(), SplitFactor, MorphStart, Hysteresis, 1.5f, MaxDepth);
 
         // The headline guard for C1. Nesting must be *exactly* 2, not 2 within a delta:
         // the morph range of a depth-d chunk has to end precisely where its parent's
@@ -52,6 +53,40 @@ namespace Sonoma.Tests
                 Assert.AreEqual(2.0, lod.SplitDistance(d - 1) / lod.SplitDistance(d), 0.0,
                     $"split distance at depth {d - 1} is not exactly twice depth {d}");
             }
+        }
+
+        // The correction M3b needed, and the check that was missing.
+        //
+        // A chunk must be fully morphed where its PARENT takes over -- that is the parent's
+        // split distance, not its own. Its own split distance is where it hands over to its
+        // *children*, and finishing the morph there means a chunk is drawing its parent's
+        // geometry while its coarser neighbour, also finished, draws its grandparent's.
+        // Measured with the original definition, 100% of cross-depth boundary samples came
+        // out exactly 1.0 effective LOD apart: a seam along every boundary in the world, and
+        // a full level of pop at every swap.
+        //
+        // MorphFactorIsOneAndZeroAtEveryBoundary below passes either way -- it only ever
+        // evaluates the factor at `end`, and never asks whether `end` is in the right place.
+        // This is the assertion that pins where.
+        [Test]
+        public void MorphCompletesWhereTheParentTakesOver()
+        {
+            var lod = Lod();
+
+            for (int d = 1; d <= MaxDepth; d++)
+            {
+                lod.MorphRange(d, out _, out double end);
+                Assert.AreEqual(lod.SplitDistance(d - 1), end, 0.0,
+                    $"depth {d} does not finish morphing where its parent takes over");
+                Assert.AreNotEqual(lod.SplitDistance(d), end,
+                    $"depth {d} finishes morphing at its own split distance, which is the " +
+                    "off-by-one M3b corrected");
+            }
+
+            // A root has no parent; the range is still well defined so nothing needs a
+            // special case, and nothing ever replaces a root anyway.
+            lod.MorphRange(0, out _, out double rootEnd);
+            Assert.AreEqual(2.0 * lod.SplitDistance(0), rootEnd, 0.0);
         }
 
         // At a depth boundary the fine side must be fully morphed exactly where the coarse
@@ -110,7 +145,7 @@ namespace Sonoma.Tests
                     $"measured node size spread at depth {depth} is not the figure C1 was derived from");
 
                 // The distance at which the smallest node is exactly fully morphed.
-                double distance = SplitFactor * smallest;
+                double distance = C1SplitFactor * smallest;
 
                 Assert.AreEqual(1.0, MeasuredMorphFactor(distance, smallest), 1e-9,
                     $"the smallest depth-{depth} node should be fully morphed here");
@@ -141,11 +176,17 @@ namespace Sonoma.Tests
             }
         }
 
+        // The configuration C1's figures were derived under, kept here rather than read from
+        // the shipped defaults: the point of this test is to reproduce a specific historical
+        // measurement, and it should not shift every time a default is retuned.
+        const float C1SplitFactor = 2f;
+        const float C1MorphStart  = 0.4f;
+
         // LodMath.MorphFactor with the nominal size replaced by a measured one.
         static double MeasuredMorphFactor(double distance, double measuredSize)
         {
-            double end   = SplitFactor * measuredSize;
-            double start = end * (1.0 - MorphStart);
+            double end   = C1SplitFactor * measuredSize;
+            double start = end * (1.0 - C1MorphStart);
             return math.saturate((distance - start) / (end - start));
         }
 
@@ -153,39 +194,55 @@ namespace Sonoma.Tests
         // side is at k = 0. Exactly 0.5 is the real bound and must be accepted -- rejecting
         // it would be an off-by-one costing a usable configuration.
         [Test]
-        public void MorphStartFractionAboveHalfIsRejected()
+        public void MorphStartFractionAboveTheCeilingIsRejected()
         {
+            var s = Sphere();
             var p = Params();
+            double spread = SurfaceMath.MaxNodeSizeSpread(s);
 
-            Assert.DoesNotThrow(() => LodMath.Create(p, SplitFactor, 0.5f, 1.2f, 1.5f, MaxDepth),
-                "0.5 is the derived bound and must be accepted");
+            // The ceiling is the tighter of the nesting bound (0.5) and the node-extent
+            // bound. On a cube sphere the second always wins.
+            float ceiling = LodMath.MaxMorphStartFraction(SplitFactor, Hysteresis, spread);
+            Assert.AreEqual(1.0 - (Hysteresis + spread / SplitFactor) / 2.0, ceiling, 1e-6,
+                "the ceiling is not the derived expression");
+            Assert.Less(ceiling, LodMath.NestingMorphStartFraction,
+                "on a cube sphere the node-extent bound should be the binding one");
 
+            Assert.DoesNotThrow(
+                () => LodMath.Create(s, p, SplitFactor, ceiling, Hysteresis, 1.5f, MaxDepth),
+                "the ceiling itself is the real bound and must be accepted");
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, SplitFactor, 0.5f + 1e-4f, 1.2f, 1.5f, MaxDepth),
-                "anything above 0.5 cracks every LOD boundary and must be refused at setup");
+                () => LodMath.Create(s, p, SplitFactor, ceiling + 1e-3f, Hysteresis, 1.5f, MaxDepth),
+                "above the ceiling the coarse side of a boundary starts morphing before the " +
+                "fine side has finished, and every boundary cracks");
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, SplitFactor, 0.9f, 1.2f, 1.5f, MaxDepth));
-            Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, SplitFactor, 0f, 1.2f, 1.5f, MaxDepth));
+                () => LodMath.Create(s, p, SplitFactor, 0f, Hysteresis, 1.5f, MaxDepth));
 
-            // At exactly 0.5 the margin is zero but the boundary still holds.
-            var tight = LodMath.Create(p, SplitFactor, 0.5f, 1.2f, 1.5f, MaxDepth);
-            for (int d = 1; d <= MaxDepth; d++)
-            {
-                tight.MorphRange(d, out _, out double end);
-                Assert.AreEqual(1f, tight.MorphFactor(end, d), 0f);
-                Assert.AreEqual(0f, tight.MorphFactor(end, d - 1), 0f);
-            }
+            // The shipped configuration must sit under its own ceiling, with margin. This is
+            // the assertion that fails if somebody edits TerrainSettings back to the M3a
+            // defaults, which are unreachable: SplitFactor 2 with hysteresis allows a morph
+            // window under 1% wide.
+            Assert.Less(MorphStart, ceiling,
+                "the shipped MorphStartFraction is above its own ceiling");
+            Assert.Less(LodMath.MaxMorphStartFraction(2f, 1.2f, spread), 0.01f,
+                "SplitFactor 2 with hysteresis should be effectively unusable; if this ever " +
+                "passes, the geometry has changed and the defaults deserve revisiting");
+
+            // A plane grid has no size spread, so it gets a more generous ceiling.
+            var plane = SurfaceDef.PlaneGrid(1000.0, 1, 1);
+            Assert.Greater(LodMath.MaxMorphStartFraction(SplitFactor, Hysteresis,
+                               SurfaceMath.MaxNodeSizeSpread(plane)), ceiling,
+                "a uniformly parameterised surface should allow a wider morph window");
 
             // The other setup guards, in the same place and for the same reason.
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, 0f,          MorphStart, 1.2f,  1.5f, MaxDepth));
+                () => LodMath.Create(s, p, 0f,          MorphStart, Hysteresis, 1.5f, MaxDepth));
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, SplitFactor, MorphStart, 0.9f,  1.5f, MaxDepth));
+                () => LodMath.Create(s, p, SplitFactor, MorphStart, 0.9f,       1.5f, MaxDepth));
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, SplitFactor, MorphStart, 1.2f,  0.5f, MaxDepth));
+                () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 0.5f, MaxDepth));
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => LodMath.Create(p, SplitFactor, MorphStart, 1.2f,  1.5f, -1));
+                () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 1.5f, -1));
         }
 
         // Hysteresis is applied to the decision and to nothing else. A node parked on the
@@ -202,7 +259,7 @@ namespace Sonoma.Tests
                     $"collapse distance at depth {d} does not exceed the split distance");
 
                 lod.MorphRange(d, out _, out double end);
-                Assert.AreEqual(lod.SplitDistance(d), end, 0.0,
+                Assert.AreEqual(2.0 * lod.SplitDistance(d), end, 0.0,
                     $"morph range end at depth {d} has picked up the hysteresis factor");
             }
 

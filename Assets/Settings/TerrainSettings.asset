@@ -15,9 +15,9 @@ MonoBehaviour:
   ChunkResolution: 33
   MaxDepth: 8
   HeightScale: 50
-  SplitFactor: 2
-  HysteresisFactor: 1.2
-  MorphStartFraction: 0.4
+  SplitFactor: 3
+  HysteresisFactor: 1.1
+  MorphStartFraction: 0.15
   PreloadFactor: 1.5
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
