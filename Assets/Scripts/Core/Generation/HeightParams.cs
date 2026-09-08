@@ -37,6 +37,14 @@ namespace Sonoma.Core.Generation
         // construction. HeightFunctionTests.BandLimitIsDepthOnly guards this.
         public int MaxOctave(int depth) => math.clamp(depth + K0, 0, OctaveCount - 1);
 
+        // No MaxAbsHeight helper here on purpose. An analytic bound on |Height| is easy --
+        // HeightScale times the geometric series in Persistence -- but it is about 2.6x the
+        // measured maximum, and the quantity the LOD boundary actually cares about is the
+        // *relief across a node*, not the absolute elevation. See LodMath.MaxHalfRelief and
+        // LodSelector.NodeDistance: padding a bounding sphere by absolute elevation is what
+        // made deep nodes 21x oversized, and bounding fbm relief in advance is what made a
+        // Create-time check refuse perfectly good worlds.
+
         public static HeightParams Create(in SurfaceDef s, int resolution, double octaveWavelength0,
                                           int octaveCount, float heightScale, float persistence,
                                           float lacunarity, uint seed)

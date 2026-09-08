@@ -18,7 +18,7 @@ namespace Sonoma.Tests
         const double EarthRadius = 6371000.0;
         const int    Resolution  = 33;
         const int    MaxDepth    = 12;
-        const float  SplitFactor = 3f;
+        const float  SplitFactor = 4f;
         const float  MorphStart  = 0.15f;
         const float  Hysteresis  = 1.1f;
 
@@ -243,6 +243,53 @@ namespace Sonoma.Tests
                 () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 0.5f, MaxDepth));
             Assert.Throws<ArgumentOutOfRangeException>(
                 () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 1.5f, -1));
+        }
+
+        // MaxHalfRelief is MaxMorphStartFraction solved for the other unknown, and the two must
+        // agree exactly or the runtime check in LodSelector polices a different bound from the
+        // one Create enforces.
+        //
+        // The terrain is the other claimant on the boundary budget: LodSelector.NodeDistance
+        // widens a node's sphere by half its relief, which enters the boundary condition in the
+        // same place the size spread does. It is not checked by Create because fbm relief at a
+        // given scale is a property of the noise -- measured, half-relief over node size is
+        // flat across depth but swings by an order of magnitude with persistence -- so an
+        // analytic bound safe for all of them would refuse usable worlds.
+        [Test]
+        public void MaxHalfReliefInvertsTheMorphStartFractionBound()
+        {
+            var    lod    = Lod();
+            double spread = SurfaceMath.MaxNodeSizeSpread(Sphere());
+
+            for (int d = 0; d <= MaxDepth; d++)
+            {
+                double allowed = lod.MaxHalfRelief(d);
+
+                // Feeding exactly that relief back in as extent must land on the configured
+                // MorphStartFraction: at the allowed relief the boundary is exactly closed.
+                double extent  = allowed / lod.NominalSize(d);
+                Assert.AreEqual(MorphStart,
+                    1.0 - (Hysteresis + (spread + 2.0 * extent) / SplitFactor) / 2.0, 1e-6,
+                    $"MaxHalfRelief at depth {d} does not invert the morph bound");
+
+                // It scales with the node, so the *ratio* is constant -- which is why the
+                // measured relief ratio being flat across depth is the thing that matters.
+                if (d > 0)
+                    Assert.AreEqual(0.5, allowed / lod.MaxHalfRelief(d - 1), 1e-12,
+                        $"the allowance at depth {d} is not exactly half depth {d - 1}");
+            }
+
+            // A wider morph window buys room for rougher terrain, and a coarser split factor
+            // buys more still. Both are the levers the warning names.
+            var gentler = LodMath.Create(Sphere(), Params(), SplitFactor, MorphStart * 0.5f,
+                                         Hysteresis, 1.5f, MaxDepth);
+            Assert.Greater(gentler.MaxHalfRelief(8), lod.MaxHalfRelief(8),
+                "halving MorphStartFraction should allow more relief, not less");
+
+            var coarser = LodMath.Create(Sphere(), Params(), SplitFactor * 2f, MorphStart,
+                                         Hysteresis, 1.5f, MaxDepth);
+            Assert.Greater(coarser.MaxHalfRelief(8), lod.MaxHalfRelief(8),
+                "doubling SplitFactor should allow more relief, not less");
         }
 
         // Hysteresis is applied to the decision and to nothing else. A node parked on the

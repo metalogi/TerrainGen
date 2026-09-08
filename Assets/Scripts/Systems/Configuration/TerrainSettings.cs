@@ -16,9 +16,12 @@ namespace Sonoma.Systems.Configuration
         [Tooltip("Split a node when the camera is closer than SplitFactor x the node's nominal " +
                  "size. Nominal, not measured: see LodMath.NominalSize. " +
                  "2 is NOT usable with the geomorph: it leaves a morph window under 1% wide on " +
-                 "a cube sphere, which is a pop by another name. Costs scale with the square, " +
-                 "so 3 is roughly 2.25x the chunks of 2.")]
-        public float SplitFactor = 3f;
+                 "a cube sphere, which is a pop by another name. Costs scale with the square: " +
+                 "measured worst case over a face at MaxDepth 8, the working set is 1878 " +
+                 "chunks at 3 and 2970 at 4. What the extra buys is room for rough terrain -- " +
+                 "it raises both the MorphStartFraction ceiling and LodMath.MaxHalfRelief, so " +
+                 "4 is what lets a 300 m sphere carry a 50 m height scale without seams.")]
+        public float SplitFactor = 4f;
         [Tooltip("Collapse distance as a multiple of the split distance. Must be at least 1; " +
                  "applies to the split decision only, never to the morph range. It does eat " +
                  "into the usable MorphStartFraction, because a node held split by hysteresis " +
@@ -26,14 +29,24 @@ namespace Sonoma.Systems.Configuration
         public float HysteresisFactor = 1.1f;
         [Tooltip("Fraction of the morph range over which a chunk morphs towards its parent. " +
                  "Bounded by LodMath.MaxMorphStartFraction(SplitFactor, HysteresisFactor, " +
-                 "surface size spread) -- above it the coarse side of a LOD boundary starts " +
-                 "morphing before the fine side has finished, and the boundary cracks. " +
-                 "LodMath.Create throws rather than let that ship.")]
+                 "surface size spread, terrain amplitude as a multiple of the smallest leaf) " +
+                 "-- above it the coarse side of a LOD boundary starts morphing before the " +
+                 "fine side has finished, and the boundary cracks. LodMath.Create throws " +
+                 "rather than let that ship. Terrain roughness spends the same budget and is " +
+                 "checked separately, at runtime, because fbm relief cannot be bounded tightly " +
+                 "in advance: LodSelector warns once naming the numbers if the generated " +
+                 "terrain is rougher than LodMath.MaxHalfRelief allows.")]
         [Range(0.02f, 0.5f)]
         public float MorphStartFraction = 0.15f;
-        [Tooltip("Children are requested within this multiple of the split distance, so they " +
-                 "are usually resident before the camera crosses it.")]
-        public float PreloadFactor = 1.5f;
+        [Tooltip("A node asks for its four children once it is within this multiple of its own " +
+                 "split distance, so they are usually resident before the camera crosses it. " +
+                 "Must be at least 1; at exactly 1 there is no margin and the children are " +
+                 "requested the instant the split is decided. This is the one LOD number that " +
+                 "trades memory for latency directly, and it is not cheap: measured on the " +
+                 "default configuration, worst case over a face, the resident working set is " +
+                 "2382 chunks at 1.0, 2970 at 1.15 and 4326 at 1.5. Keep " +
+                 "MaxResidentChunks above whichever you pick.")]
+        public float PreloadFactor = 1.15f;
 
         [Header("Generation Pipeline")]
         [Tooltip("Maximum chunk generation jobs in flight at once.")]
@@ -44,11 +57,14 @@ namespace Sonoma.Systems.Configuration
 
         [Header("Memory Budget")]
         [Tooltip("Maximum number of resident chunks, counting hidden parents held for an " +
-                 "instant collapse -- not just the visible ones. 0 = unlimited. The default " +
-                 "LOD configuration (MaxDepth 8, SplitFactor 2, Earth-radius cube-sphere) " +
-                 "wants about 770; a budget below the working set makes the selector build " +
-                 "and evict the same chunks every frame, and it says so once in the console.")]
-        public int MaxResidentChunks = 2000;
+                 "instant collapse and children held by the preload margin -- not just the " +
+                 "visible ones. 0 = unlimited. The default LOD configuration (MaxDepth 8, " +
+                 "SplitFactor 4, PreloadFactor 1.15) wants 2970 worst case over a face, 2430 " +
+                 "near a face centre. A budget below the working set makes the selector build " +
+                 "and evict the same chunks every frame, and it says so once in the console. " +
+                 "At resolution 33 a chunk is about 98 KB of vertex data, so this default is " +
+                 "roughly 310 MB; drop PreloadFactor to 1.0 to save about 600 chunks of it.")]
+        public int MaxResidentChunks = 3200;
 
         [Header("Skirts")]
         [Tooltip("Skirts are the fallback for transient states where the tree is briefly more " +
