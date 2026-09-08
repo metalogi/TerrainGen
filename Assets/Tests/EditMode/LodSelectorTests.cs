@@ -41,7 +41,18 @@ namespace Sonoma.Tests
             _roots   = SurfaceMath.BuildRoots(_surface);
 
             var p   = HeightParams.Create(_surface, Resolution, 0.0, 8, 20f, 0.5f, 2f, 42u);
-            var lod = LodMath.Create(_surface, p, SplitFactor, 0.14f, 1.2f, 1.5f, MaxDepth);
+
+            // MorphStartFraction 0.12, not the 0.15 ceiling this configuration allows and not
+            // the 0.14 it used to carry. At SplitFactor 2 and hysteresis 1.2 on a plane, the
+            // allowance LodMath.MaxHalfRelief leaves for terrain is (0.3 - 2*frac) of the node
+            // size, so 0.14 leaves 0.0200 -- against a measured worst half-relief of 0.0224 at
+            // depth 3, which had every run of this fixture printing the roughness warning.
+            // 0.12 leaves 0.0600, or 2.7x the terrain that actually generates.
+            //
+            // Safe to change without re-deriving the preload geometry below: MorphStartFraction
+            // feeds only MorphRange and MaxHalfRelief. Selection is SplitFactor, NominalSize,
+            // Hysteresis and PreloadFactor, none of which move.
+            var lod = LodMath.Create(_surface, p, SplitFactor, 0.12f, 1.2f, 1.5f, MaxDepth);
 
             _host      = new GameObject("LodSelectorTestHost");
             _pool      = new ChunkPool(_host.transform, null, Resolution);
@@ -152,6 +163,65 @@ namespace Sonoma.Tests
             foreach (var node in _selector.ResidentNodes())
                 if (_selector.IsVisible(node)) list.Add(node);
             return list;
+        }
+
+        // The preload margin: a leaf approaching its split distance asks for its four children
+        // before it splits, so the swap has nothing to wait for when the camera arrives.
+        //
+        // M3a shipped a Preload whose condition could not be satisfied -- each child's distance
+        // against PreloadDistance(depth + 1), which is 0.75 of a threshold the parent had
+        // already exceeded -- and nothing here noticed, because everything else about the
+        // selector is correct without it. The tree still converged, the swap was still atomic,
+        // coverage was still complete; the only symptom was four chunks of latency at every
+        // subdivision, and no assertion was looking at latency. This is that assertion.
+        [Test]
+        public void ChildrenAreRequestedBeforeTheParentSplits()
+        {
+            Build(maxResidentChunks: 0);
+
+            // Off the west edge and low, so distance varies strongly across the tile rather
+            // than being near-constant the way it is from directly overhead. That is what puts
+            // all three regimes on screen at once: of the sixteen depth-2 nodes, 5 are inside
+            // SplitDistance(2) = 707 and split, 6 are leaves inside PreloadDistance(2) = 1061
+            // and preload, and 5 are leaves beyond it and do not.
+            //
+            // The classification does not depend on the terrain that happens to be generated.
+            // NodeDistance offsets each sphere to the node's mid-elevation and widens it by
+            // half the node's relief, either of which could in principle move a node across a
+            // threshold; measured against the real height function at this configuration, the
+            // nearest node to any threshold still sits 26 m clear of it.
+            _camera = new double3(-900.0, 50.0, 500.0);
+            DriveToSteadyState();
+
+            int preloaded = 0, notPreloaded = 0;
+            foreach (var leaf in VisibleNodes())
+            {
+                // A leaf at MaxDepth has nothing to preload; Preload returns before asking.
+                if (leaf.Depth >= MaxDepth) continue;
+
+                int resident = 0;
+                for (int c = 0; c < 4; c++)
+                    if (_selector.IsResident(leaf.Child(c))) resident++;
+
+                // All four or none. The swap is all-or-nothing, so a preload that requested
+                // the near children of a group and not the far ones would buy nothing at all.
+                Assert.IsTrue(resident == 0 || resident == 4,
+                    $"{leaf} is drawing with {resident} of its 4 children resident: preload " +
+                    "requests a whole sibling group or none of it");
+
+                if (resident == 4) preloaded++; else notPreloaded++;
+            }
+
+            Assert.Greater(preloaded, 0,
+                "no visible leaf had its children resident, so Preload never fired -- which is " +
+                "exactly what the M3a form did, and every other test still passed");
+            Assert.Greater(notPreloaded, 0,
+                "every visible leaf preloaded, so the preload distance is not discriminating " +
+                "and this would pass just as well with the threshold deleted");
+
+            // And preloading must not disturb the thing it exists to speed up: the preloaded
+            // children arrive hidden, so the visible set is still an exact partition.
+            AssertNoOverlapAndNoHole();
         }
 
         // Eviction takes complete sibling groups of four. A lone eviction would leave a

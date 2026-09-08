@@ -34,7 +34,11 @@ namespace Sonoma.Core.Quadtree
         // be nearer than its own start. A coarse leaf's finer neighbour exists because their
         // shared parent-level node split, so that node's bounding-sphere distance is under
         // SplitDistance(d) * Hysteresis -- and a point of it can be a whole sphere diameter
-        // further again, which is SizeSpread nominal node sizes. Hence
+        // further again, which is SizeSpread nominal node sizes.
+        //
+        // Terrain reaches past that patch as well, and it is NOT in this expression -- see
+        // MaxHalfRelief, which inverts the same bound for the terrain term and is checked
+        // against the terrain that actually gets generated rather than against a guess.
         //
         //     max(distance / SplitDistance(d)) <= Hysteresis + SizeSpread / SplitFactor
         //     start_d >= that, and start_d = 2 * SplitDistance(d) * (1 - frac), so
@@ -45,10 +49,34 @@ namespace Sonoma.Core.Quadtree
         //
         // The practical consequence is that SplitFactor 2 is not usable with a per-vertex
         // morph: on a cube sphere with any hysteresis at all it allows a morph window under
-        // 1% wide, which is a pop by another name. LodBoundaryAgreement pins all of this.
+        // 1% wide, which is a pop by another name. LodBoundaryTests pins all of this.
         public static float MaxMorphStartFraction(float splitFactor, float hysteresis, double sizeSpread)
             => (float)math.min(NestingMorphStartFraction,
                                1.0 - (hysteresis + sizeSpread / splitFactor) / 2.0);
+
+        // The largest terrain relief a depth-`depth` node can carry and still meet a
+        // differently-sized neighbour cleanly, as a half-range in metres.
+        //
+        // The same bound as MaxMorphStartFraction, solved for the other unknown.
+        // LodSelector.NodeDistance centres a node's bounding sphere on its own mid-elevation
+        // and pads the radius by half its relief, so that pad enters the boundary condition in
+        // exactly the place SizeSpread does:
+        //
+        //     Hysteresis + (SizeSpread + 2*pad/S_d) / SplitFactor <= 2 * (1 - frac)
+        //
+        // A negative result means the configuration has no room for terrain at all at this
+        // depth. That is a real answer, not an error.
+        //
+        // Deliberately NOT enforced by Create. The relief of an fbm at a given scale is a
+        // property of the noise rather than of the configuration: measured, half-relief as a
+        // fraction of node size is flat across depth and independent of radius and HeightScale,
+        // but it is 1.83x the persistence-0.4 figure at 0.5, 4.2x at 0.6 and 11.6x at 0.7, and
+        // an analytic worst case covering all of them runs about 4x the truth -- tight enough
+        // to refuse worlds that are perfectly fine. So the check happens against the terrain
+        // that actually turns up, once, in LodSelector.OnChunkReady.
+        public double MaxHalfRelief(int depth)
+            => NominalSize(depth) * (SplitFactor * (2.0 * (1.0 - MorphStartFraction) - Hysteresis)
+                                     - SizeSpread) / 2.0;
 
         // Nominal node size at a depth: S0 / 2^depth.
         //
@@ -71,8 +99,16 @@ namespace Sonoma.Core.Quadtree
 
         public double SplitDistance(int depth)   => SplitFactor * NominalSize(depth);
 
-        // How far out a child is requested ahead of the split, so it is usually resident
-        // before the camera crosses the split distance and the swap has nothing to wait for.
+        // The distance at which a depth-`depth` node starts asking for its children, so they
+        // are usually resident before it reaches SplitDistance(depth) and the swap has
+        // nothing to wait for.
+        //
+        // Compared against the *node's own* distance, at the node's own depth -- not against
+        // a child's distance at depth + 1. A child is never nearer than its parent, and a
+        // node reaching Preload has already passed SplitDistance(depth), so any threshold
+        // below that is dead. PreloadFactor >= 1 is exactly the statement that this one is
+        // not: at 1 the children are requested the instant the split is decided, and the
+        // margin is whatever is above it. See LodSelector.Preload.
         public double PreloadDistance(int depth) => PreloadFactor * SplitDistance(depth);
 
         // Distances over which a depth-`depth` chunk morphs towards its parent.
@@ -152,7 +188,6 @@ namespace Sonoma.Core.Quadtree
             if (!(sizeSpread >= 1.0) || double.IsInfinity(sizeSpread))
                 throw new ArgumentOutOfRangeException(nameof(sizeSpread),
                     "LodMath: node size spread must be at least 1; see SurfaceMath.MaxNodeSizeSpread.");
-
             // Two bounds, and the tighter one wins. Nesting alone requires frac <= 0.5: the
             // fine side reaches k = 1 at end_d while the coarse side stays at 0 until
             // start_{d-1} = 2*end_d*(1 - frac). Node extent then tightens it further, because
@@ -160,6 +195,11 @@ namespace Sonoma.Core.Quadtree
             // MaxMorphStartFraction. Refused here rather than shipped, because the symptom is
             // a hairline seam along every LOD boundary that is very easy to blame on
             // something else.
+            //
+            // Only the geometry is refused here. The terrain's share of the same budget is
+            // MaxHalfRelief, and it is checked where the terrain is known rather than guessed
+            // -- LodSelector.OnChunkReady -- because a Create-time bound on fbm relief has to
+            // be several times the truth to be safe, and would refuse usable worlds.
             float ceiling = MaxMorphStartFraction(splitFactor, hysteresis, sizeSpread);
             if (!(morphStartFraction > 0f) || morphStartFraction > ceiling)
                 throw new ArgumentOutOfRangeException(nameof(morphStartFraction),

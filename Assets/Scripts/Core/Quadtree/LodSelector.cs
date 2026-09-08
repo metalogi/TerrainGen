@@ -24,6 +24,13 @@ namespace Sonoma.Core.Quadtree
             public TerrainChunk Chunk;        // null while the node is queued or in flight
             public bool         HasChildren;  // last frame's split decision; feeds hysteresis
             public float        MinHeight, MaxHeight;
+
+            // NodeDistance for this node, as of the current frame's Want. Cached rather than
+            // recomputed because NodeDistance is five trigonometric surface evaluations, and
+            // eviction used to call it once per resident node per evicted group. Every node
+            // still in _nodes after ReleaseUnwanted was Wanted this frame, so this is always
+            // current by the time the budget pass reads it.
+            public double       Distance;
         }
 
         readonly SurfaceDef          _surface;
@@ -42,6 +49,11 @@ namespace Sonoma.Core.Quadtree
         readonly HashSet<NodeId>               _frameSplit = new HashSet<NodeId>();
         readonly List<NodeId>                  _scratch    = new List<NodeId>();
 
+        // The sibling groups the budget pass may collapse, gathered once per over-budget
+        // frame. A field rather than a local so it keeps its capacity and the frame path
+        // stays allocation-free; see EvictToBudget.
+        readonly List<NodeId>                  _collapsible = new List<NodeId>();
+
         // Double-buffered so a visibility change is a set difference rather than a walk over
         // every chunk. Swapped by reference at the end of each frame; never reallocated.
         HashSet<NodeId> _visibleNow  = new HashSet<NodeId>();
@@ -49,6 +61,7 @@ namespace Sonoma.Core.Quadtree
 
         double3 _camera;
         bool    _budgetWarned;
+        bool    _reliefWarned;
 
         public int ResidentCount { get; private set; }
         public int VisibleCount  => _visiblePrev.Count;
@@ -104,7 +117,7 @@ namespace Sonoma.Core.Quadtree
 
             if (!split)
             {
-                Preload(node, depth);
+                Preload(node, depth, dist);
                 return state.Chunk != null;
             }
 
@@ -127,27 +140,50 @@ namespace Sonoma.Core.Quadtree
         }
 
         // Children are requested before the parent splits, so the swap usually has nothing
-        // to wait for. PreloadDistance(depth+1) is 0.75 of the parent's own split distance
-        // at the default factors, which is roughly one node-width of warning.
-        void Preload(NodeId node, int depth)
+        // to wait for.
+        //
+        // The test is on the PARENT's own distance against its own PreloadDistance, and the
+        // shape of that is not incidental. M3a shipped it the other way round -- each child's
+        // distance against PreloadDistance(depth + 1) -- and it never once fired. Preload runs
+        // only on a node that did *not* split, so its distance is already at or beyond
+        // SplitDistance(depth); a child's bounding sphere is contained in its parent's, so
+        // NodeDistance(child) >= NodeDistance(node); and PreloadDistance(depth + 1) works out
+        // to PreloadFactor / 2 of SplitDistance(depth), which at the default 1.5 is 0.75 of a
+        // threshold the parent has already exceeded. The condition was unsatisfiable, so every
+        // subdivision in the world waited on four cold chunks and the atomic swap held the
+        // parent at coarse LOD for the whole of it.
+        // LodSelectorTests.ChildrenAreRequestedBeforeTheParentSplits pins the fixed form.
+        //
+        // All four children go together, unconditionally. The swap is atomic, so three of four
+        // buys nothing; only the scheduling *priority* is per child, which is why the distance
+        // is still measured individually below.
+        void Preload(NodeId node, int depth, double distance)
         {
             if (depth >= _lod.MaxDepth) return;
+            if (distance >= _lod.PreloadDistance(depth)) return;
 
-            double preload = _lod.PreloadDistance(depth + 1);
             for (int i = 0; i < 4; i++)
             {
-                var    child = node.Child(i);
-                double dist  = NodeDistance(child);
-                if (dist < preload) Want(child, dist);
+                var child = node.Child(i);
+                Want(child, NodeDistance(child));
             }
         }
 
         void Want(NodeId node, double distance)
         {
             _wanted.Add(node);
-            if (_nodes.ContainsKey(node)) return;
 
-            _nodes[node] = default;
+            // The distance is refreshed every frame even for a node that already exists: it is
+            // what the budget pass sorts on, and a stale one would evict by where the camera
+            // used to be.
+            if (_nodes.TryGetValue(node, out var state))
+            {
+                state.Distance = distance;
+                _nodes[node]   = state;
+                return;
+            }
+
+            _nodes[node] = new NodeState { Distance = distance };
             // distance / node size, so near-and-coarse outranks far-and-fine -- which is the
             // ordering the scheduler's heap exists to serve. Nominal size, like every other
             // depth-derived quantity here.
@@ -188,17 +224,53 @@ namespace Sonoma.Core.Quadtree
             ResidentCount = CountResident();
             if (_maxResident <= 0 || ResidentCount <= _maxResident) return;
 
-            while (ResidentCount > _maxResident && TryFindFurthestCollapsible(out NodeId parent))
+            // The collapsible groups are gathered in ONE pass and then drained furthest-first.
+            //
+            // Re-scanning every resident node after each collapse is what made this O(n^2),
+            // and each probe called NodeDistance -- five trigonometric surface evaluations --
+            // so a twenty-group eviction at the shipped working set cost on the order of a
+            // hundred thousand of them in a single frame, against a 2 ms budget. Distances now
+            // come from NodeState, where Descend put them earlier this frame.
+            //
+            // Gathering once is safe because collapses cannot invalidate each other. A
+            // candidate's four children are leaves (IsCollapsible requires it), so no candidate
+            // is another candidate's child, and no candidate's children or grandchildren belong
+            // to another candidate. The set only ever loses the entry that is taken.
+            //
+            // What is deliberately given up is the cascade *within* one frame: a node that
+            // becomes collapsible only because its own children have just gone is picked up by
+            // the next frame's pass. That costs a frame of being marginally over budget and
+            // saves rebuilding the candidate set.
+            _collapsible.Clear();
+            foreach (var kv in _nodes)
+                if (kv.Value.Chunk != null && IsCollapsible(kv.Key)) _collapsible.Add(kv.Key);
+
+            bool collapsedAny = false;
+            while (ResidentCount > _maxResident && _collapsible.Count > 0)
             {
-                Collapse(parent);
+                int best = 0;
+                for (int i = 1; i < _collapsible.Count; i++)
+                    if (_nodes[_collapsible[i]].Distance > _nodes[_collapsible[best]].Distance)
+                        best = i;
+
+                Collapse(_collapsible[best]);
+                _collapsible[best] = _collapsible[_collapsible.Count - 1];
+                _collapsible.RemoveAt(_collapsible.Count - 1);
+
                 ResidentCount -= 4;
+                collapsedAny   = true;
             }
 
             // Everything left is either a leaf the camera needs or a parent still holding
             // split children. Saying so once is more useful than silently rebuilding and
             // re-evicting the same chunks every frame, which is what a budget below the
             // configuration's working set actually produces.
-            if (ResidentCount > _maxResident && !_budgetWarned)
+            //
+            // The condition is "over budget and nothing at all could be collapsed", not "over
+            // budget after collapsing": with cascades deferred to the next frame, a pass that
+            // did evict something may still be over budget and yet be making progress. Waiting
+            // for a frame that can do nothing is the honest test for stuck.
+            if (ResidentCount > _maxResident && !collapsedAny && !_budgetWarned)
             {
                 _budgetWarned = true;
                 Debug.LogWarning(
@@ -220,27 +292,6 @@ namespace Sonoma.Core.Quadtree
         // Eviction takes complete sibling groups of four, never a lone node: evicting one
         // child leaves a quarter of the parent's area uncovered, which is a hole rather than
         // a coarser LOD. The parent is already resident, so the collapse is instant.
-        bool TryFindFurthestCollapsible(out NodeId parent)
-        {
-            parent = default;
-            double furthest = -1.0;
-            bool   found    = false;
-
-            foreach (var kv in _nodes)
-            {
-                if (kv.Value.Chunk == null) continue;      // the parent must be able to take over
-                if (!IsCollapsible(kv.Key)) continue;
-
-                double d = NodeDistance(kv.Key);
-                if (d <= furthest) continue;
-
-                furthest = d;
-                parent   = kv.Key;
-                found    = true;
-            }
-            return found;
-        }
-
         bool IsCollapsible(NodeId parent)
         {
             for (int i = 0; i < 4; i++)
@@ -318,6 +369,41 @@ namespace Sonoma.Core.Quadtree
             state.MinHeight = result.MinHeight;
             state.MaxHeight = result.MaxHeight;
             _nodes[result.Node] = state;
+
+            WarnIfTerrainIsTooRoughToCloseBoundaries(result);
+        }
+
+        // The terrain half of the LOD boundary budget, checked against terrain that exists.
+        //
+        // LodMath.MaxMorphStartFraction spends that budget on geometry -- node size spread and
+        // hysteresis -- and Create refuses a configuration whose geometry alone overruns it.
+        // Terrain draws on the same budget, because a node's bounding sphere is widened by half
+        // its relief, but it cannot be checked at Create time: the relief of an fbm at a given
+        // scale is a property of the noise, and an analytic bound safe across every persistence
+        // runs several times the truth and would refuse worlds that are fine. So it is checked
+        // here, once, against the first chunk that actually overruns.
+        //
+        // A warning rather than a throw for the same reason it is not in Create: the bound is a
+        // worst case over a whole face, the excess is usually small, and skirts cover a good
+        // deal of it. What it costs when it is exceeded is a hairline seam along LOD boundaries
+        // in the roughest terrain, which is worth knowing about and is very easy to misdiagnose.
+        void WarnIfTerrainIsTooRoughToCloseBoundaries(in GenerationScheduler.Result result)
+        {
+            if (_reliefWarned) return;
+
+            double half    = 0.5 * (result.MaxHeight - result.MinHeight);
+            double allowed = _lod.MaxHalfRelief(result.Node.Depth);
+            if (half <= allowed) return;
+
+            _reliefWarned = true;
+            Debug.LogWarning(
+                $"[LodSelector] terrain at depth {result.Node.Depth} has a half-relief of " +
+                $"{half:F2} m where this configuration allows {allowed:F2} m " +
+                $"(node size {_lod.NominalSize(result.Node.Depth):F2} m). LOD boundaries in the " +
+                "roughest terrain may not close: the coarse side can begin morphing before the " +
+                "fine side has finished, leaving a hairline seam that skirts will mostly, but " +
+                "not always, cover. Lower MorphStartFraction, raise SplitFactor, lower " +
+                "HysteresisFactor, or reduce HeightScale or MaxDepth. See LodMath.MaxHalfRelief.");
         }
 
         // Bounding-sphere distance, clamped at zero inside the sphere.
@@ -329,17 +415,33 @@ namespace Sonoma.Core.Quadtree
         {
             ref readonly RootQuad root = ref _roots[node.Quad];
 
-            double3 centre = SurfaceMath.SurfacePoint(_surface, root,
-                                 0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax));
+            SurfaceMath.SurfaceFrame(_surface, root,
+                0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax),
+                out double3 centre, out float3 normal);
 
             // Half the longer diagonal is the circumradius of the node's surface patch.
             double radius = 0.5 * SurfaceMath.NodeWorldSize(_surface, root, node);
 
-            // Terrain displaces along the normal both ways, so the bound is the larger
-            // magnitude rather than MaxHeight alone: a node whose terrain sits entirely
-            // below the base surface has a negative MaxHeight and would shrink its sphere.
+            // Terrain MOVES the sphere and widens it by its relief; it does not inflate the
+            // radius by the elevation.
+            //
+            // Padding with max(|MinHeight|, |MaxHeight|) -- the absolute elevation -- is what
+            // this did until it was measured. It bounds the geometry correctly but grows
+            // without limit relative to the node, because the elevation is fixed while the
+            // node halves every level: on the sample scene, a 300 m sphere with a 50 m height
+            // scale, the pad reached 10.5x the node size at depth 7 and 21x at depth 8. Every
+            // node within about forty metres of the camera then returned distance 0, so the
+            // whole hierarchy split to MaxDepth regardless of where the camera actually was.
+            //
+            // Centring on the node's own mid-elevation and padding by half its relief keeps
+            // the sphere proportional to the node: the same measurement gives 0.30 of the node
+            // size, flat across depth and independent of radius and HeightScale. It is still
+            // a containing sphere, up to the normal's divergence across the patch.
             if (_nodes.TryGetValue(node, out var state))
-                radius += math.max(math.abs(state.MinHeight), math.abs(state.MaxHeight));
+            {
+                centre += (double3)normal * (0.5 * (state.MinHeight + state.MaxHeight));
+                radius += 0.5 * (state.MaxHeight - state.MinHeight);
+            }
 
             return math.max(0.0, math.distance(_camera, centre) - radius);
         }

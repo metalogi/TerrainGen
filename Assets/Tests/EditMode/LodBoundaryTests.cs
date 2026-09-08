@@ -33,7 +33,7 @@ namespace Sonoma.Tests
         const int    MaxDepth    = 8;
 
         // The shipped defaults, kept in step with TerrainSettings.
-        const float SplitFactor = 3f;
+        const float SplitFactor = 4f;
         const float MorphStart  = 0.15f;
         const float Hysteresis  = 1.1f;
 
@@ -170,12 +170,25 @@ namespace Sonoma.Tests
             for (int i = 0; i < 4; i++) Descend(node.Child(i), depth + 1);
         }
 
+        // LodSelector.NodeDistance, including the terrain padding it applies to the bounding
+        // sphere -- which this modelled without until it was noticed that the selector pads and
+        // this did not, so the one test that checks the ranges against a real tree was checking
+        // a selector nobody ships.
+        //
+        // The pad here is exactly LodMath.MaxHalfRelief: the most relief the configuration
+        // claims to tolerate at that depth. That makes this the check on the claim. If the
+        // inversion in MaxHalfRelief is wrong in the unsafe direction, boundaries opened at
+        // precisely the relief it permits, and EveryLodBoundaryAgreesOnEffectiveLod fails.
+        //
+        // No mid-elevation offset, because no meshes are generated here and every node would
+        // shift by the same amount anyway; only the radius term affects the split decision.
         double NodeDistance(NodeId node)
         {
             var     root   = _roots[node.Quad];
             double3 centre = SurfaceMath.SurfacePoint(_surface, root,
                                  0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax));
-            double  radius = 0.5 * SurfaceMath.NodeWorldSize(_surface, root, node);
+            double  radius = 0.5 * SurfaceMath.NodeWorldSize(_surface, root, node)
+                             + math.max(0.0, _lod.MaxHalfRelief(node.Depth));
             return math.max(0.0, math.distance(_camera, centre) - radius);
         }
 
