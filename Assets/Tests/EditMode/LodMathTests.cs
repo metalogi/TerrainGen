@@ -243,6 +243,39 @@ namespace Sonoma.Tests
                 () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 0.5f, MaxDepth));
             Assert.Throws<ArgumentOutOfRangeException>(
                 () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 1.5f, -1));
+
+            // The upper bound on depth, which is the half that is easy to leave off. Neither
+            // failure past it is loud: NodeId.Span evaluates 1 << 31 == int.MinValue so the UV
+            // accessors return small negative numbers and the node lands somewhere plausible
+            // but wrong, and past 31 the shader's morph range array runs out and its clamp
+            // pins the chunk at k = 1, drawn permanently morphed onto its parent.
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 1.5f,
+                                     NodeId.MaxAddressableDepth + 1));
+            Assert.DoesNotThrow(
+                () => LodMath.Create(s, p, SplitFactor, MorphStart, Hysteresis, 1.5f,
+                                     NodeId.MaxAddressableDepth),
+                "the deepest addressable depth must still be a usable configuration; an " +
+                "off-by-one here costs a legitimate one");
+        }
+
+        // NodeId.MaxAddressableDepth is the last depth whose Span does not overflow, and
+        // LodMath.Create's upper bound is only as good as that constant. Re-derived here
+        // rather than trusted, as with the adjacency table and the handedness switch.
+        [Test]
+        public void MaxAddressableDepthIsTheLastDepthWhoseSpanIsPositive()
+        {
+            for (int d = 0; d <= NodeId.MaxAddressableDepth; d++)
+            {
+                var node = new NodeId(0, d, 0, 0);
+                Assert.Greater(node.Span, 0, $"depth {d} should still address");
+                Assert.AreEqual(0.0, node.UMin, 0.0, $"depth {d} UMin");
+                Assert.Greater(node.UMax, 0.0, $"depth {d} UMax should be positive");
+            }
+
+            // And the first one that does not, so the constant is a boundary and not a guess.
+            Assert.Less(new NodeId(0, NodeId.MaxAddressableDepth + 1, 0, 0).Span, 0,
+                "MaxAddressableDepth is not sitting where Span actually overflows");
         }
 
         // MaxHalfRelief is MaxMorphStartFraction solved for the other unknown, and the two must

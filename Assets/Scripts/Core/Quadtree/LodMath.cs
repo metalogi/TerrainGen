@@ -177,6 +177,18 @@ namespace Sonoma.Core.Quadtree
             if (maxDepth < 0)
                 throw new ArgumentOutOfRangeException(nameof(maxDepth),
                     "LodMath: maximum depth cannot be negative.");
+            // The upper bound matters as much as the lower one, and neither failure is loud.
+            // Past NodeId.MaxAddressableDepth, Span evaluates 1 << 31 == int.MinValue and the
+            // UV accessors return small negative numbers, so a node lands somewhere plausible
+            // but wrong; past 31 the shader's _SonomaMorphRanges runs out and its clamp pins
+            // the chunk at k = 1, drawing it permanently morphed onto its parent. Refused here
+            // for the same reason HeightParams.Create refuses an oversized resolution: at
+            // setup, where it can still be read as a configuration error.
+            if (maxDepth > NodeId.MaxAddressableDepth)
+                throw new ArgumentOutOfRangeException(nameof(maxDepth),
+                    "LodMath: maximum depth is beyond what NodeId can address; see " +
+                    "NodeId.MaxAddressableDepth. Depth 19 already reaches metre-scale vertex " +
+                    "spacing on an Earth-sized cube sphere at resolution 33.");
             if (!(hysteresis >= 1f))
                 throw new ArgumentOutOfRangeException(nameof(hysteresis),
                     "LodMath: hysteresis must be at least 1; below 1 a node collapses closer " +

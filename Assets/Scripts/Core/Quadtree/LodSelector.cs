@@ -173,6 +173,11 @@ namespace Sonoma.Core.Quadtree
         {
             _wanted.Add(node);
 
+            // distance / node size, so near-and-coarse outranks far-and-fine -- which is the
+            // ordering the scheduler's heap exists to serve. Nominal size, like every other
+            // depth-derived quantity here.
+            double priority = distance / _lod.NominalSize(node.Depth);
+
             // The distance is refreshed every frame even for a node that already exists: it is
             // what the budget pass sorts on, and a stale one would evict by where the camera
             // used to be.
@@ -180,14 +185,25 @@ namespace Sonoma.Core.Quadtree
             {
                 state.Distance = distance;
                 _nodes[node]   = state;
+
+                // And so is the queue priority, for a node still waiting to be built. Pricing
+                // a node once, when it is first sighted, is the same staleness one step
+                // earlier: the preload margin enters a node at PreloadFactor * SplitFactor
+                // node sizes and by the time the camera arrives it is the node the tree is
+                // waiting on, but the heap still holds the number it was requested with. It
+                // then generates after every entry whose own stale priority is smaller, and
+                // the atomic swap holds the parent at coarse LOD for the whole of it -- the
+                // exact latency preload exists to remove, and invisible to every test here
+                // because the tree still converges and coverage stays complete.
+                //
+                // Only while Chunk is null: a resident node needs nothing built, and skipping
+                // it is also what keeps the steady-state frame free of heap traffic.
+                if (state.Chunk == null) _scheduler.Enqueue(node, priority);
                 return;
             }
 
             _nodes[node] = new NodeState { Distance = distance };
-            // distance / node size, so near-and-coarse outranks far-and-fine -- which is the
-            // ordering the scheduler's heap exists to serve. Nominal size, like every other
-            // depth-derived quantity here.
-            _scheduler.Enqueue(node, distance / _lod.NominalSize(node.Depth));
+            _scheduler.Enqueue(node, priority);
         }
 
         // Nodes that stopped being wanted are cancelled and their chunks returned. This is
@@ -222,7 +238,10 @@ namespace Sonoma.Core.Quadtree
         void EvictToBudget()
         {
             ResidentCount = CountResident();
-            if (_maxResident <= 0 || ResidentCount <= _maxResident) return;
+            if (_maxResident <= 0) return;
+
+            WarnIfTheBudgetIsBelowTheWorkingSet();
+            if (ResidentCount <= _maxResident) return;
 
             // The collapsible groups are gathered in ONE pass and then drained furthest-first.
             //
@@ -245,7 +264,6 @@ namespace Sonoma.Core.Quadtree
             foreach (var kv in _nodes)
                 if (kv.Value.Chunk != null && IsCollapsible(kv.Key)) _collapsible.Add(kv.Key);
 
-            bool collapsedAny = false;
             while (ResidentCount > _maxResident && _collapsible.Count > 0)
             {
                 int best = 0;
@@ -258,27 +276,37 @@ namespace Sonoma.Core.Quadtree
                 _collapsible.RemoveAt(_collapsible.Count - 1);
 
                 ResidentCount -= 4;
-                collapsedAny   = true;
             }
+        }
 
-            // Everything left is either a leaf the camera needs or a parent still holding
-            // split children. Saying so once is more useful than silently rebuilding and
-            // re-evicting the same chunks every frame, which is what a budget below the
-            // configuration's working set actually produces.
-            //
-            // The condition is "over budget and nothing at all could be collapsed", not "over
-            // budget after collapsing": with cascades deferred to the next frame, a pass that
-            // did evict something may still be over budget and yet be making progress. Waiting
-            // for a frame that can do nothing is the honest test for stuck.
-            if (ResidentCount > _maxResident && !collapsedAny && !_budgetWarned)
-            {
-                _budgetWarned = true;
-                Debug.LogWarning(
-                    $"[LodSelector] {ResidentCount} chunks resident against a budget of {_maxResident}, " +
-                    "and no further sibling group can be collapsed. The LOD configuration wants more " +
-                    "chunks than the budget allows: raise MaxResidentChunks, or lower MaxDepth or " +
-                    "SplitFactor. Until then chunks will be built and evicted repeatedly.");
-            }
+        // The budget is too small when the *wanted set* does not fit in it, and that is what
+        // to test -- not what eviction managed to do about it.
+        //
+        // _nodes is exactly the set this frame wants resident: ReleaseUnwanted has already
+        // dropped everything else, and every entry left is a node Descend or Preload asked
+        // for. So _nodes.Count > _maxResident says the selector is about to evict chunks it
+        // will ask for again next frame: build, evict, rebuild, forever, at a full Burst job
+        // and mesh upload each time.
+        //
+        // The previous test -- over budget *and* nothing could be collapsed -- could not fire
+        // in the case it was written for. A tree deep enough to overrun its budget always has
+        // a collapsible sibling group somewhere, so the collapse succeeded, the count came
+        // back under budget, and both halves of the condition went false while the churn ran
+        // on in silence. Only a budget below the six root quads ever reached it.
+        //
+        // Warn-once, and the working-set size is the number worth printing: it is what
+        // MaxResidentChunks has to clear.
+        void WarnIfTheBudgetIsBelowTheWorkingSet()
+        {
+            if (_budgetWarned || _nodes.Count <= _maxResident) return;
+
+            _budgetWarned = true;
+            Debug.LogWarning(
+                $"[LodSelector] this LOD configuration wants {_nodes.Count} chunks resident from " +
+                $"here ({ResidentCount} built so far) against a budget of {_maxResident}. Chunks " +
+                "the camera still needs will be evicted and rebuilt every frame, at a full " +
+                "generation job each. Raise MaxResidentChunks above the working set, or lower " +
+                "MaxDepth, SplitFactor or PreloadFactor to shrink it.");
         }
 
         int CountResident()

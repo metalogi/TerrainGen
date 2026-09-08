@@ -18,6 +18,17 @@ namespace Sonoma.Core.Surface
             Quad = quad; Depth = depth; X = x; Y = y;
         }
 
+        // The deepest node this addressing scheme can represent.
+        //
+        // Span is `1 << Depth` in a signed int, so depth 31 evaluates to int.MinValue and
+        // UMin/UMax/VMin/VMax return small negative numbers instead of failing -- the same
+        // trap Parent guards against at the other end. 30 is the last depth that works.
+        //
+        // Not enforced in the constructor: NodeId is a value type built inside Burst jobs
+        // and on every Child() call, and a branch there costs more than it buys. It is
+        // enforced once, where the configuration is validated, in LodMath.Create.
+        public const int MaxAddressableDepth = 30;
+
         public int  Span   => 1 << Depth;   // nodes per axis at this depth
         public bool IsRoot => Depth == 0;
 

@@ -14,10 +14,17 @@
 //   positionWS so triplanar samples on true world coordinates and stays continuous
 //   through floating-origin rebases.
 //
-//   _SonomaMorphRanges (float4[32]), from TerrainRoot.PushMorphRanges — (start, end) per
+//   _SonomaMorphRanges (float4[32]), from TerrainRoot.PushShaderGlobals — (start, end) per
 //   depth. A global array rather than a per-chunk MaterialPropertyBlock, because a
 //   property block breaks SRP batching; that is the whole reason depth travels in a
 //   vertex attribute instead of a material property.
+//
+//   _SonomaViewPosition (float3), from TerrainRoot.PushShaderGlobals — the position the
+//   morph measures distance from, in render space, and the same one LodSelector selected
+//   with this frame. NOT _WorldSpaceCameraPos: URP restores that for the main-light
+//   shadow pass but not for the additional-lights one, so a scene with a shadow-casting
+//   point or spot light and no shadowed directional light renders the terrain's shadow
+//   caster against a stale camera and morphs it by a different k than ForwardLit used.
 //
 // The morph runs in ALL FOUR passes. Morphing only ForwardLit leaves shadows and the
 // depth prepass on unmorphed geometry, which presents as shadow acne and depth-test
@@ -110,8 +117,17 @@ Shader "Sonoma/TerrainTriplanar"
         // parent. Ranges nest exactly (end_{d-1} == 2*end_d), so at any boundary between
         // depths d and d-1 the fine side is at k = 1 where the coarse side is still at
         // k = 0. See LodMath, and SonomaRevisedPlan.md section 4.4.
+        // LodMath.Create refuses a MaxDepth above what NodeId can address (30), so no chunk
+        // can reach this index. The clamp is the belt to that brace: it bounds the read, but
+        // it does NOT degrade gracefully -- slot 31's range is a few centimetres wide, so a
+        // chunk landing there would be pinned at k = 1 and drawn permanently morphed onto
+        // its parent, not drawn unmorphed.
         #define SONOMA_MAX_MORPH_DEPTH 31
         float4 _SonomaMorphRanges[SONOMA_MAX_MORPH_DEPTH + 1];
+
+        // Render space (world - origin), like positionWS before the _SonomaWorldOrigin
+        // correction and like every chunk transform.
+        float3 _SonomaViewPosition;
 
         // Distance is measured from the UNMORPHED position. That matters twice over: it is
         // what lets every pass arrive at the same k for the same vertex, and it is what
@@ -119,13 +135,25 @@ Shader "Sonoma/TerrainTriplanar"
         // for it, so they compute the same distance and the same k. Per vertex, never per
         // chunk.
         //
-        // Both positions are render space (world - origin), so their difference is true
-        // world metres and needs no _SonomaWorldOrigin correction, unlike the triplanar
-        // sampling in the fragment stage.
+        // Both positions are render space, so their difference is true world metres and
+        // needs no _SonomaWorldOrigin correction, unlike the triplanar sampling in the
+        // fragment stage.
+        //
+        // _SonomaViewPosition rather than _WorldSpaceCameraPos, and that is not a style
+        // choice. URP sets _WorldSpaceCameraPos for the main-light shadow pass explicitly
+        // (MainLightShadowCasterPass calls ShadowUtils.SetCameraPosition, commented "not set
+        // for passes executed before normal rendering") and AdditionalLightsShadowCasterPass
+        // does not. So with a shadow-casting point or spot light and no shadowed directional
+        // light, the ShadowCaster pass reads whatever was last bound -- a stale frame, or
+        // another camera -- and morphs the shadow geometry by a different k than ForwardLit
+        // and DepthOnly used. That is the same shadow-acne-along-LOD-boundaries failure the
+        // "morph in every pass" rule exists to prevent, arrived at from the other side.
+        // TerrainRoot pushes this once a frame from the camera it also selected with, so all
+        // four passes agree by construction rather than by URP's pass order.
         float SonomaMorphFactor(float3 positionOS, float depth)
         {
             float3 wp   = TransformObjectToWorld(positionOS);
-            float  dist = distance(wp, _WorldSpaceCameraPos);
+            float  dist = distance(wp, _SonomaViewPosition);
             float2 r    = _SonomaMorphRanges[clamp((int)depth, 0, SONOMA_MAX_MORPH_DEPTH)].xy;
             return saturate((dist - r.x) / max(r.y - r.x, 1e-5));
         }
