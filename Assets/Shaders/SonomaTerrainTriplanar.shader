@@ -190,8 +190,14 @@ Shader "Sonoma/TerrainTriplanar"
             #pragma vertex   Vert
             #pragma fragment Frag
 
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
-            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            // These must match URP's own Lit.shader for the installed URP version. A
+            // keyword the pipeline enables but the shader does not declare does not warn --
+            // the shader simply gets the variant with that keyword OFF. Missing
+            // _SHADOWS_SOFT_LOW/MEDIUM/HIGH (Unity 6 replaced the single _SHADOWS_SOFT with
+            // a quality tier) is why this shader rendered single-tap hard shadows no matter
+            // what Soft Shadows quality the URP asset asked for.
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -212,7 +218,17 @@ Shader "Sonoma/TerrainTriplanar"
                 float3 normalWS    : TEXCOORD1;
                 float3 topoUp      : TEXCOORD2;
                 float  elevation   : TEXCOORD3;
-                float4 shadowCoord : TEXCOORD4;
+                // ONLY interpolated when URP says it is safe to. Under
+                // _MAIN_LIGHT_SHADOWS_CASCADE the shadow coord is not an interpolatable
+                // quantity: TransformWorldToShadowCoord picks a cascade with
+                // ComputeCascadeIndex, a hard step across the four camera-centred split
+                // spheres, and each cascade has its own matrix into its own quadrant of the
+                // shadow atlas. Interpolating across a triangle whose vertices fall in
+                // different cascades samples a point between two unrelated atlas tiles.
+                // See the note above Frag.
+                #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
+                    float4 shadowCoord : TEXCOORD4;
+                #endif
             };
 
             half3 SampleTriplanar(TEXTURE2D_PARAM(tex, smp), float3 wp, float3 absN, float scale)
@@ -247,7 +263,9 @@ Shader "Sonoma/TerrainTriplanar"
                 // moment the parent takes over -- a colour seam where there is no
                 // geometric one.
                 o.elevation   = lerp(input.uv2.w, input.morphNrm.w, k);
-                o.shadowCoord = GetShadowCoord(vpi);
+                #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
+                    o.shadowCoord = GetShadowCoord(vpi);
+                #endif
                 return o;
             }
 
@@ -272,7 +290,31 @@ Shader "Sonoma/TerrainTriplanar"
                 float  cliffB = smoothstep(_SlopeThreshold, _SlopeThreshold + _SlopeBlend, slope);
                 half3  albedo = lerp(band, clf, cliffB);
 
-                Light  ml      = GetMainLight(input.shadowCoord);
+                // Shadow coordinate, resolved exactly the way URP's own InitializeInputData
+                // does. The cheap per-vertex path is valid only for a single non-cascaded
+                // shadow map (and for screen-space shadows, which are already in NDC);
+                // REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR is URP's name for that
+                // condition, and it is deliberately NOT defined for
+                // _MAIN_LIGHT_SHADOWS_CASCADE. Computing it per vertex regardless -- which
+                // is what this shader did -- puts a ring of triangles at every cascade split
+                // sphere whose interpolated coord lands in the wrong atlas tile, so the
+                // depth compare fails and the ring reads as a thin black line. Concentric,
+                // and it follows the camera, because the split spheres do.
+                #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
+                    float4 shadowCoord = input.shadowCoord;
+                #elif defined(MAIN_LIGHT_CALCULATE_SHADOWS)
+                    float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);
+                #else
+                    float4 shadowCoord = float4(0, 0, 0, 0);
+                #endif
+
+                // The three-argument overload, not GetMainLight(shadowCoord): only this one
+                // applies GetMainLightShadowFade(positionWS), which fades the shadow out
+                // over the cascade border and to nothing at the shadow distance. Without it
+                // shadows terminate at a hard circle at _ShadowDistance -- another
+                // camera-following ring, on top of the cascade ones. shadowMask is 1: this
+                // project bakes nothing, and CALCULATE_BAKED_SHADOWS is not defined here.
+                Light  ml      = GetMainLight(shadowCoord, input.positionWS, half4(1, 1, 1, 1));
                 half   NdotL   = saturate(dot(N, ml.direction));
                 half3  direct  = albedo * ml.color * (ml.distanceAttenuation * ml.shadowAttenuation) * NdotL;
                 half3  ambient = albedo * SampleSH(N) * 0.5;
