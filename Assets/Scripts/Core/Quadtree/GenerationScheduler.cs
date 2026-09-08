@@ -67,7 +67,10 @@ namespace Sonoma.Core.Quadtree
         readonly bool         _flipWinding;
 
         readonly List<Request>                _heap     = new List<Request>();
-        readonly HashSet<NodeId>              _queued   = new HashSet<NodeId>();
+        // Where each queued node sits in _heap, maintained by every swap. It is what makes
+        // Enqueue able to re-price a node already in the queue in O(log n) instead of
+        // dropping the new priority on the floor; see Enqueue.
+        readonly Dictionary<NodeId, int>      _heapAt   = new Dictionary<NodeId, int>();
         readonly HashSet<NodeId>              _wanted   = new HashSet<NodeId>();
         readonly Dictionary<NodeId, Pending>  _inFlight = new Dictionary<NodeId, Pending>();
         readonly List<NodeId>                 _finished = new List<NodeId>();
@@ -107,12 +110,37 @@ namespace Sonoma.Core.Quadtree
             _flipWinding    = SurfaceMath.UvFrameIsRightHanded(surface);
         }
 
+        // Requests a node, or re-prices one already queued.
+        //
+        // The re-pricing is not an optimisation. Priority is distance / node size and the
+        // camera moves, so the number a node was first sighted with goes stale immediately:
+        // the preload margin enters a node at PreloadFactor * SplitFactor node sizes, and by
+        // the time the camera arrives that same node is the one the tree is waiting on to
+        // split. Keeping the first-sighting value left it behind every entry whose own stale
+        // priority happened to be smaller -- including nodes the camera had since flown away
+        // from -- so the atomic swap held the parent at coarse LOD exactly as it did before
+        // preload existed. LodSelector.Want calls this every frame for a node that has no
+        // chunk yet, which is what keeps the queue ordered by where the camera is now.
         public void Enqueue(NodeId node, double priority)
         {
             _wanted.Add(node);
-            if (_inFlight.ContainsKey(node) || _queued.Contains(node)) return;
-            _queued.Add(node);
-            HeapPush(new Request { Node = node, Priority = priority });
+            if (_inFlight.ContainsKey(node)) return;
+
+            if (_heapAt.TryGetValue(node, out int at))
+            {
+                if (_heap[at].Priority == priority) return;
+                var repriced = _heap[at];
+                repriced.Priority = priority;
+                _heap[at] = repriced;
+                // The priority can move either way -- a node the camera is leaving gets less
+                // urgent -- so sift both directions. Exactly one of them does anything.
+                SiftDown(SiftUp(at));
+                return;
+            }
+
+            _heap.Add(new Request { Node = node, Priority = priority });
+            _heapAt[node] = _heap.Count - 1;
+            SiftUp(_heap.Count - 1);
         }
 
         // Drops a node from the wanted set. Anything already in flight for it finishes on the
@@ -131,7 +159,6 @@ namespace Sonoma.Core.Quadtree
             while (_inFlight.Count < _maxInFlight && _heap.Count > 0)
             {
                 var req = HeapPop();
-                _queued.Remove(req.Node);
 
                 // First "still wanted?" check: nodes cancelled while queued never start.
                 if (!_wanted.Contains(req.Node)) continue;
@@ -281,45 +308,72 @@ namespace Sonoma.Core.Quadtree
             }
             _inFlight.Clear();
             _heap.Clear();
-            _queued.Clear();
+            _heapAt.Clear();
             _wanted.Clear();
         }
 
-        // ── Binary min-heap ──────────────────────────────────────────────────
+        // ── Indexed binary min-heap ──────────────────────────────────────────
         //
         // A List-backed heap rather than SortedSet or a sorted insert: the queue is touched
         // every frame and must not allocate.
-
-        void HeapPush(Request r)
-        {
-            _heap.Add(r);
-            int i = _heap.Count - 1;
-            while (i > 0)
-            {
-                int parent = (i - 1) / 2;
-                if (_heap[parent].CompareTo(_heap[i]) <= 0) break;
-                (_heap[parent], _heap[i]) = (_heap[i], _heap[parent]);
-                i = parent;
-            }
-        }
+        //
+        // Indexed because Enqueue re-prices queued nodes. The alternative -- pushing a second
+        // entry and discarding stale pops -- grows the heap by the whole wanted set every
+        // frame, which is the wrong trade in a class whose per-frame allocation budget is
+        // zero. _heapAt is the node's current slot and every swap below maintains it, so it
+        // is the one invariant to preserve when touching this code.
 
         Request HeapPop()
         {
             var top = _heap[0];
-            _heap[0] = _heap[_heap.Count - 1];
-            _heap.RemoveAt(_heap.Count - 1);
+            _heapAt.Remove(top.Node);
 
-            int i = 0, n = _heap.Count;
+            int last = _heap.Count - 1;
+            if (last == 0)
+            {
+                _heap.RemoveAt(0);
+                return top;
+            }
+
+            _heap[0] = _heap[last];
+            _heapAt[_heap[0].Node] = 0;
+            _heap.RemoveAt(last);
+            SiftDown(0);
+            return top;
+        }
+
+        // Both return the slot the entry came to rest in, so a re-price can chain them.
+        int SiftUp(int i)
+        {
+            while (i > 0)
+            {
+                int parent = (i - 1) / 2;
+                if (_heap[parent].CompareTo(_heap[i]) <= 0) break;
+                Swap(parent, i);
+                i = parent;
+            }
+            return i;
+        }
+
+        int SiftDown(int i)
+        {
+            int n = _heap.Count;
             while (true)
             {
                 int l = 2 * i + 1, r = l + 1, best = i;
                 if (l < n && _heap[l].CompareTo(_heap[best]) < 0) best = l;
                 if (r < n && _heap[r].CompareTo(_heap[best]) < 0) best = r;
-                if (best == i) break;
-                (_heap[best], _heap[i]) = (_heap[i], _heap[best]);
+                if (best == i) return i;
+                Swap(best, i);
                 i = best;
             }
-            return top;
+        }
+
+        void Swap(int a, int b)
+        {
+            (_heap[a], _heap[b]) = (_heap[b], _heap[a]);
+            _heapAt[_heap[a].Node] = a;
+            _heapAt[_heap[b].Node] = b;
         }
     }
 }

@@ -47,11 +47,15 @@ namespace Sonoma.Core.Quadtree
         // batching, which is the whole reason the chunk's depth travels in TEXCOORD2.w
         // instead of as a material property.
         //
-        // The size matches SONOMA_MAX_MORPH_DEPTH + 1 in SonomaTerrainTriplanar.shader. The
-        // shader clamps its index into it, so a chunk deeper than this is drawn unmorphed
-        // rather than reading off the end.
+        // The size matches SONOMA_MAX_MORPH_DEPTH + 1 in SonomaTerrainTriplanar.shader, and
+        // is comfortably above the deepest addressable node: LodMath.Create refuses a
+        // MaxDepth above NodeId.MaxAddressableDepth (30), so nothing can reach the shader's
+        // clamp. That matters, because the clamp bounds the read but does not degrade
+        // gracefully -- slot 31's range is centimetres wide, so a chunk landing there would
+        // draw permanently morphed onto its parent rather than unmorphed.
         const  int              MorphRangeCount = 32;
         static readonly int     MorphRangesId   = Shader.PropertyToID("_SonomaMorphRanges");
+        static readonly int     ViewPositionId  = Shader.PropertyToID("_SonomaViewPosition");
         readonly        Vector4[] _morphRanges  = new Vector4[MorphRangeCount];
 
         public int ResidentChunks => _selector != null ? _selector.ResidentCount : 0;
@@ -86,14 +90,25 @@ namespace Sonoma.Core.Quadtree
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
 
-            PushMorphRanges();
+            PushShaderGlobals(ViewPositionRenderSpace());
         }
 
-        // (start_d, end_d) per depth, in world metres. Constant for a given configuration,
-        // but pushed every frame: shader globals are process-wide, and anything else that
-        // sets this name -- another TerrainRoot, a domain reload, an editor script -- would
-        // otherwise leave the terrain morphing against someone else's ranges.
-        void PushMorphRanges()
+        // Everything the vertex shader needs to run the morph.
+        //
+        // _SonomaMorphRanges is (start_d, end_d) per depth in world metres, constant for a
+        // given configuration but pushed every frame anyway: shader globals are process-wide,
+        // and anything else that sets these names -- another TerrainRoot, a domain reload, an
+        // editor script -- would otherwise leave the terrain morphing against someone else's
+        // numbers.
+        //
+        // _SonomaViewPosition is the position the morph measures from, and pushing it here
+        // rather than letting the shader read _WorldSpaceCameraPos is what makes all four
+        // passes agree. URP restores _WorldSpaceCameraPos for the main-light shadow pass and
+        // not for the additional-lights one, so a point or spot light casting shadows with no
+        // shadowed directional light in the scene would morph the shadow geometry against a
+        // stale camera. It is also the same value passed to LodSelector.Run below, so
+        // selection and the morph cannot drift apart within a frame.
+        void PushShaderGlobals(Vector3 viewPosition)
         {
             for (int d = 0; d < MorphRangeCount; d++)
             {
@@ -101,6 +116,7 @@ namespace Sonoma.Core.Quadtree
                 _morphRanges[d] = new Vector4((float)start, (float)end, 0f, 0f);
             }
             Shader.SetGlobalVectorArray(MorphRangesId, _morphRanges);
+            Shader.SetGlobalVector(ViewPositionId, viewPosition);
         }
 
         SurfaceDef BuildSurface() => Topology switch
@@ -114,21 +130,25 @@ namespace Sonoma.Core.Quadtree
         {
             if (_selector == null) return;
 
-            PushMorphRanges();
-            _selector.Run(CameraWorldPosition());
+            // Read the camera once and feed both from it. The shader morphs by a per-vertex
+            // distance and the selector splits by a per-node one; they are only guaranteed to
+            // describe the same world if they are measured from the same point.
+            Vector3 view = ViewPositionRenderSpace();
+
+            PushShaderGlobals(view);
+            _selector.Run(WorldOriginSystem.WorldOrigin + new double3(view.x, view.y, view.z));
             _scheduler.Update();
         }
 
-        // LOD works in absolute world space, because node centres do. The camera transform
-        // is render space (world - origin), so the origin has to be added back; skipping
-        // that would collapse the whole tree the first time WorldOriginSystem rebases.
-        double3 CameraWorldPosition()
+        // The camera transform is render space (world - origin), which is also the space
+        // chunk transforms and the shader's positionWS are in, so this is what the morph
+        // wants unmodified. LOD selection works in absolute world space, because node centres
+        // do, so Update adds the origin back before calling Run -- skipping that would
+        // collapse the whole tree the first time WorldOriginSystem rebases.
+        Vector3 ViewPositionRenderSpace()
         {
             var cam = ViewCamera != null ? ViewCamera : Camera.main;
-            if (cam == null) return WorldOriginSystem.WorldOrigin;
-
-            Vector3 p = cam.transform.position;
-            return WorldOriginSystem.WorldOrigin + new double3(p.x, p.y, p.z);
+            return cam != null ? cam.transform.position : Vector3.zero;
         }
 
         void OnDestroy()

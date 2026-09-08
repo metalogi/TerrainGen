@@ -187,6 +187,31 @@ namespace Sonoma.Tests
             Assert.IsTrue(source.Contains("_SonomaMorphRanges"),
                 "the shader declares no morph range array");
 
+            // All four passes agreeing on k needs more than all four calling SonomaMorph:
+            // they have to measure the distance from the same point. _WorldSpaceCameraPos is
+            // not that point. URP restores it for the main-light shadow pass explicitly
+            // (MainLightShadowCasterPass calls ShadowUtils.SetCameraPosition, commented "not
+            // set for passes executed before normal rendering") and AdditionalLightsShadow-
+            // CasterPass does not, so a scene with a shadow-casting point or spot light and no
+            // shadowed directional light renders the ShadowCaster pass against whatever was
+            // last bound -- a stale frame, or another camera -- and casts shadows from
+            // geometry at a morph state ForwardLit never drew. Same shadow-acne-along-LOD-
+            // boundaries failure this test exists to prevent, reached from the other side.
+            //
+            // Scoped to the function body, because the comment above it names the builtin it
+            // is deliberately not using.
+            int fnStart = source.IndexOf("float SonomaMorphFactor(", System.StringComparison.Ordinal);
+            Assert.Greater(fnStart, 0, "SonomaMorphFactor is missing from the shader");
+            int fnEnd = source.IndexOf("\n        }", fnStart, System.StringComparison.Ordinal);
+            Assert.Greater(fnEnd, fnStart, "SonomaMorphFactor has no body");
+
+            string factor = source.Substring(fnStart, fnEnd - fnStart);
+            Assert.IsTrue(factor.Contains("_SonomaViewPosition"),
+                "the morph distance is not measured from the view position TerrainRoot pushes");
+            Assert.IsFalse(factor.Contains("_WorldSpaceCameraPos"),
+                "the morph distance is measured from _WorldSpaceCameraPos, which URP does not " +
+                "set for the additional-lights shadow pass; see TerrainRoot.PushShaderGlobals");
+
             foreach (string pass in new[] { "ForwardLit", "ShadowCaster", "DepthOnly", "DepthNormals" })
             {
                 int start = source.IndexOf("Name \"" + pass + "\"", System.StringComparison.Ordinal);

@@ -35,7 +35,10 @@ namespace Sonoma.Tests
         LodSelector         _selector;
         double3             _camera;
 
-        void Build(int maxResidentChunks)
+        // maxInFlightJobs is 1 only for the queue-ordering test, which needs results to arrive
+        // in the order they were popped. Above 1 the scheduler holds several jobs at once and
+        // CollectResults walks a Dictionary, so arrival order stops meaning anything.
+        void Build(int maxResidentChunks, int maxInFlightJobs = 16)
         {
             _surface = SurfaceDef.PlaneGrid(TileSize, 1, 1);
             _roots   = SurfaceMath.BuildRoots(_surface);
@@ -56,7 +59,7 @@ namespace Sonoma.Tests
 
             _host      = new GameObject("LodSelectorTestHost");
             _pool      = new ChunkPool(_host.transform, null, Resolution);
-            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, 16, 100f);
+            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, maxInFlightJobs, 100f);
             _selector  = new LodSelector(_surface, _roots, lod, _scheduler, _pool, maxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
 
@@ -281,6 +284,64 @@ namespace Sonoma.Tests
 
             Assert.IsTrue(sawEviction,
                 "the budget never bound, so eviction was never exercised");
+        }
+
+        // Re-requesting a node that is still queued must re-price it, not drop the new
+        // priority.
+        //
+        // Priority is distance / node size and the camera moves, so the number a node was
+        // first sighted with is stale by the next frame. The preload margin makes that
+        // concrete: it enters a node at PreloadFactor * SplitFactor node sizes, and by the
+        // time the camera arrives that node is the one the tree is waiting on to split --
+        // but the heap still held the distance it was requested at, so it generated after
+        // every entry whose own stale priority happened to be smaller. Nothing caught it,
+        // because the tree still converges and coverage stays complete; the only symptom is
+        // the four chunks of latency at every subdivision that preload exists to remove,
+        // which is the same way the M3a preload defect hid.
+        //
+        // Sixteen nodes are enqueued in exactly the reverse of the order they should
+        // generate in, then re-enqueued with the right one. Under the form that returned
+        // early for an already-queued node they arrive reversed.
+        [Test]
+        public void RequeueingAQueuedNodeRepricesIt()
+        {
+            Build(maxResidentChunks: 0, maxInFlightJobs: 1);
+
+            // The queue alone is under test, so the selector does not drive this one.
+            _scheduler.ChunkReady -= _selector.OnChunkReady;
+
+            var arrived = new List<NodeId>();
+            void Collect(GenerationScheduler.Result r)
+            {
+                arrived.Add(r.Node);
+                _pool.Release(r.Chunk);
+            }
+            _scheduler.ChunkReady += Collect;
+
+            var wanted = new List<NodeId>();
+            for (int y = 0; y < 4; y++)
+            for (int x = 0; x < 4; x++)
+                wanted.Add(new NodeId(0, 2, x, y));
+
+            for (int i = 0; i < wanted.Count; i++) _scheduler.Enqueue(wanted[i], wanted.Count - i);
+            for (int i = 0; i < wanted.Count; i++) _scheduler.Enqueue(wanted[i], i);
+
+            Assert.AreEqual(wanted.Count, _scheduler.QueuedCount,
+                "re-pricing must update the entry in place, not push a second one");
+
+            int frames = 0;
+            while ((_scheduler.QueuedCount > 0 || _scheduler.InFlightCount > 0) && frames < 4000)
+            {
+                _scheduler.Update();
+                frames++;
+            }
+            _scheduler.ChunkReady -= Collect;
+
+            Assert.AreEqual(0, _scheduler.QueuedCount + _scheduler.InFlightCount,
+                "the queue never drained in this harness");
+            CollectionAssert.AreEqual(wanted, arrived,
+                "chunks generated in the order they were first requested rather than the order " +
+                "they were last priced at");
         }
 
         // The selector runs every frame over the whole wanted set. A per-frame allocation
