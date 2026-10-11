@@ -354,13 +354,51 @@ transitively even though it never says so — the harness must exclude it by tha
 
 ## Definition of done
 
-- [ ] `EarthTerrainSettings.asset` exists with the C1–C3 and C5 values; `TerrainSettings.asset` is untouched apart from gaining `SkirtFraction: 0`.
-- [ ] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
+- [x] `EarthTerrainSettings.asset` exists with the C1–C3 and C5 values; `TerrainSettings.asset` is untouched apart from gaining `SkirtFraction: 0`.
+- [x] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
 - [ ] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
 - [ ] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter or cracks.
 - [ ] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
 - [ ] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
 - [ ] `CLAUDE.md` updated; amendments section written.
+
+## Amendments from implementing M4
+
+The plan above is the plan as written. Building it changed the following; they are recorded here
+rather than edited into the tasks, so the plan still reads as what was decided up front.
+
+### M4a
+
+1. **C2's two replicas are reconciled, in the second one's favour.** Task 4 test 3's `Select` calls
+   `LodMath.NodeDistance`, the selector's own distance, and over face 0 (257 × 257 cameras at 0.5, 2
+   and 10 m) it reproduces the current replica exactly: **5,118** with hysteresis-held splits, at
+   `(20/256, 0)`, and **4,458** without, at the corner `(0, 0)`. The first replica's 4,942 was the
+   outlier, so the "about 5,670" sized from it no longer stands. One small correction to the table's
+   claim that all three altitudes give the same worst: at 10 m it is 5,110, at the same camera.
+   `EarthScaleTests.WorkingSetFitsTheResidentBudget` pins 5,118 at that camera with a 1% tolerance, and
+   walks a descent from 10,000 km to 2 m asserting every step is under budget and none is above the
+   ground figure.
+   **The budget stays 6400 for now.** C2 names two conditions for bringing it down to about 5,800;
+   this is the first. The second is the `EarthStress` peak report, which needs M4b and a play session.
+2. **An absolute 2 m skirt covers depths 18 and 19, not "nothing coarser than about depth 17".** At
+   `C` 15 the coarse-node gap at depth 17 is 2.06 m. `SkirtFraction` 0.03 clears the 2.6% estimate at
+   every depth; `EarthScaleTests.SkirtCoversTheTransientGapAtEveryDepth` asserts both.
+3. **Octave starvation also warns at runtime, not only in a test.** C3 made it a test. It is also
+   `HeightParams.IsOctaveStarved(depth)`, and `TerrainRoot.Start` logs a warning naming the depth the
+   octaves run out at and the `OctaveCount` that would fix it, because the next scene to raise
+   `MaxDepth` will not have a test of its own. Not a throw: a deliberately smooth world is legitimate.
+4. **`EarthTerrainSettings.asset` was written by hand, not through the menu**, because the Editor
+   held the project open. The ground rule's trap — a stale field set — is covered by
+   `EarthSettingsAssetTests.ConstantsMatchTheEarthAsset`, which holds every constant `EarthScaleTests`
+   copies to the asset, `SkirtFraction` included, and so fails on a missing field whose C# default
+   differs. `WorkingSetTests.ConstantsMatchSampleScene` now also asserts `SampleScene`'s
+   `SkirtFraction` is 0.
+5. **`LodMath.NominalSize` gained a static `(s0, depth)` overload**, which the instance method calls.
+   `GenerationScheduler` sizes skirts with it and has `S0` but no `LodMath`; one expression means the
+   two cannot disagree on a node's size.
+6. **Test count.** M4a adds six: four in `EarthScaleTests` (the plan's three pure tests, plus the
+   skirt), `ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction` for C5's bit-identical claim, and the
+   Editor-only asset check. 79 in all, 63 of them pure.
 
 ## Out of scope for M4
 

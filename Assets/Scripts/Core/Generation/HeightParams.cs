@@ -37,6 +37,18 @@ namespace Sonoma.Core.Generation
         // construction. HeightFunctionTests.BandLimitIsDepthOnly guards this.
         public int MaxOctave(int depth) => math.clamp(depth + K0, 0, OctaveCount - 1);
 
+        // Whether this depth's band limit is set by OctaveCount rather than by its vertex
+        // spacing -- the chunk could carry a finer octave, but there is none to give it.
+        //
+        // Not an error, and nothing refuses it, but at depth it is the one configuration
+        // mistake that looks like a rendering bug. On an Earth-sized sphere at resolution 33,
+        // K0 is 4, so depth 19 wants octave 23; at OctaveCount 20 it clamps to 19, whose
+        // wavelength is 19.8 m against 0.62 m vertex spacing. The last four depths then
+        // subdivide perfectly smooth ground, 32 vertices to the finest feature, which reads as
+        // "the detail levels aren't working". TerrainRoot warns at startup when MaxDepth is
+        // starved.
+        public bool IsOctaveStarved(int depth) => depth + K0 > OctaveCount - 1;
+
         // No MaxAbsHeight helper here on purpose. An analytic bound on |Height| is easy --
         // HeightScale times the geometric series in Persistence -- but it is about 2.6x the
         // measured maximum, and the quantity the LOD boundary actually cares about is the

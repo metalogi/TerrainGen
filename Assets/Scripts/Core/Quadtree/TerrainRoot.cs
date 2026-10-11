@@ -78,14 +78,25 @@ namespace Sonoma.Core.Quadtree
                                           Settings.Persistence, Settings.Lacunarity, Settings.Seed);
             _lod    = LodMath.Create(Surface, Settings, _params);
 
+            if (_params.IsOctaveStarved(Settings.MaxDepth))
+                Debug.LogWarning(
+                    $"[TerrainRoot] OctaveCount {Settings.OctaveCount} runs out at depth " +
+                    $"{Settings.OctaveCount - 1 - _params.K0}, so the " +
+                    $"{Settings.MaxDepth + _params.K0 - Settings.OctaveCount + 1} deepest depths add " +
+                    "vertices but no detail: the ground goes smooth as the camera descends. " +
+                    $"Raise OctaveCount to {Settings.MaxDepth + _params.K0 + 1}. " +
+                    "See HeightParams.IsOctaveStarved.");
+
             // Skirts are the fallback for transient states where the tree is briefly more
             // than one depth apart across an edge. A depth of zero leaves the skirt vertices
             // in the mesh but flat against the edge, so the vertex layout never changes.
-            float skirtDepth = Settings.SkirtsEnabled ? Settings.SkirtDepth : 0f;
+            float skirtDepth    = Settings.SkirtsEnabled ? Settings.SkirtDepth    : 0f;
+            float skirtFraction = Settings.SkirtsEnabled ? Settings.SkirtFraction : 0f;
 
             _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution);
             _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
-                                                 Settings.MaxInFlightJobs, Settings.UploadBudgetMs);
+                                                 skirtFraction, Settings.MaxInFlightJobs,
+                                                 Settings.UploadBudgetMs);
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;

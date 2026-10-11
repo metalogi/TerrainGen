@@ -64,7 +64,7 @@ namespace Sonoma.Tests
 
             _host      = new GameObject("LodSelectorTestHost");
             _pool      = new ChunkPool(_host.transform, null, Resolution);
-            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, maxInFlightJobs, 100f);
+            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, 0f, maxInFlightJobs, 100f);
             _selector  = new LodSelector(_surface, _roots, _lod, _scheduler, _pool, maxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
 

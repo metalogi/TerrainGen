@@ -140,6 +140,9 @@ namespace Sonoma.Tests
             Assert.AreEqual(MorphStart,  settings.MorphStartFraction, "MorphStartFraction");
             Assert.AreEqual(Preload,     settings.PreloadFactor,      "PreloadFactor");
             Assert.AreEqual(Budget,      settings.MaxResidentChunks,  "MaxResidentChunks");
+            // M4's node-relative skirt term. At 0 SampleScene's meshes are bit-identical to the
+            // ones every M3 figure was measured on (ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction).
+            Assert.AreEqual(0f,          settings.SkirtFraction,      "SkirtFraction");
             Assert.AreEqual(0.0,         settings.OctaveWavelength0,  "OctaveWavelength0");
             Assert.AreEqual(OctaveCount, settings.OctaveCount,        "OctaveCount");
             Assert.AreEqual(Persistence, settings.Persistence,        "Persistence");
