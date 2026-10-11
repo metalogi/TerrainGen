@@ -1,5 +1,7 @@
+using System.Globalization;
 using NUnit.Framework;
 using UnityEditor;
+using Sonoma.Core.Surface;
 using Sonoma.Systems.Configuration;
 using static Sonoma.Tests.EarthScaleTests;
 
@@ -39,6 +41,22 @@ namespace Sonoma.Tests
             Assert.AreEqual(Persistence,   s.Persistence,        "Persistence");
             Assert.AreEqual(Lacunarity,    s.Lacunarity,         "Lacunarity");
             Assert.AreEqual(Seed,          s.Seed,               "Seed");
+        }
+
+        // And the stress scene runs that asset, on the sphere the constants describe. Without
+        // this, EarthStress could point at SampleScene's asset or a 300 m radius and fly a
+        // configuration no test had looked at.
+        [Test]
+        public void EarthStressRunsTheEarthAsset()
+        {
+            string root = SceneConfig.TerrainRoot("EarthStress");
+            SceneConfig.Settings(root, out string path);
+            Assert.AreEqual(AssetPath, path, "EarthStress's TerrainRoot points at another settings asset");
+
+            var ci = CultureInfo.InvariantCulture;
+            Assert.AreEqual((int)SurfaceType.CubeSphere, int.Parse(SceneConfig.Field(root, "Topology", @"(\d+)"), ci), "Topology");
+            Assert.AreEqual("1", SceneConfig.Field(root, "TangentAdjust", @"(\d)"), "TangentAdjust");
+            Assert.AreEqual(Radius, double.Parse(SceneConfig.Field(root, "Radius", @"(\S+)"), ci), "Radius");
         }
     }
 }

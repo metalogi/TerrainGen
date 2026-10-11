@@ -58,6 +58,15 @@ namespace Sonoma.Core.Quadtree
         static readonly int     ViewPositionId  = Shader.PropertyToID("_SonomaViewPosition");
         readonly        Vector4[] _morphRanges  = new Vector4[MorphRangeCount];
 
+        // Terrain height above the base surface at a base-surface point, in metres, at full
+        // detail. For tools: TopologyFlyCamera scales its speed by clearance above the ground,
+        // and at Earth scale the ground is kilometres from the base surface. Zero until the
+        // terrain has started.
+        public float HeightAt(double3 surfacePoint) =>
+            _selector == null ? 0f
+            : TerrainHeightFunction.Height(surfacePoint, _params.MaxOctave(Settings.MaxDepth),
+                                           MacroSample.Zero, _params);
+
         public int ResidentChunks => _selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
         public int InFlightJobs   => _scheduler != null ? _scheduler.InFlightCount : 0;

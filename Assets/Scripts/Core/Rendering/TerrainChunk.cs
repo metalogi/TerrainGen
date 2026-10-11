@@ -20,7 +20,7 @@ namespace Sonoma.Core.Rendering
         // Mesh vertices are stored relative to this, and the transform is recomputed from it
         // on every rebase rather than shifted by a delta. Repeated `position -= shift` in
         // float accumulates error over a long session; recomputing from a double anchor does
-        // not. M4 stress-tests this over a thousand rebases.
+        // not. WorldOriginTests.RebaseIsExactAfterAThousandShifts holds it to the bit.
         public double3 Anchor;
 
         MeshFilter   _mf;

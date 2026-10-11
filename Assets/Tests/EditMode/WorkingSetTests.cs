@@ -1,8 +1,5 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Jobs;
@@ -10,7 +7,6 @@ using Unity.Mathematics;
 using Sonoma.Core.Generation;
 using Sonoma.Core.Quadtree;
 using Sonoma.Core.Surface;
-using Sonoma.Systems.Configuration;
 using static Sonoma.Tests.TerrainReliefTests;
 
 namespace Sonoma.Tests
@@ -107,30 +103,17 @@ namespace Sonoma.Tests
         // points at, and the topology it carries. Without it, reverting the asset to the
         // configuration that overran would leave every test here green.
         //
-        // The scene is read as text rather than opened, because opening it would replace
-        // whatever scene the Editor has open.
+        // The scene is read as text rather than opened; see SceneConfig.
         [Test]
         public void ConstantsMatchSampleScene()
         {
-            string scene    = File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Scenes", "SampleScene.unity"));
-            string rootGuid = UnityEditor.AssetDatabase.AssetPathToGUID("Assets/Scripts/Core/Quadtree/TerrainRoot.cs");
-            Assert.IsNotEmpty(rootGuid, "TerrainRoot.cs has moved; update the path here");
-
-            string root = null;
-            foreach (string doc in scene.Split(new[] { "\n--- " }, StringSplitOptions.None))
-                if (doc.Contains($"guid: {rootGuid},")) { root = doc; break; }
-            Assert.IsNotNull(root, "SampleScene has no TerrainRoot");
-
-            string settingsGuid = SceneField(root, "Settings",
-                @"\{fileID: \d+, guid: ([0-9a-f]{32}), type: \d+\}");
-            var settings = UnityEditor.AssetDatabase.LoadAssetAtPath<TerrainSettings>(
-                UnityEditor.AssetDatabase.GUIDToAssetPath(settingsGuid));
-            Assert.IsNotNull(settings, "SampleScene's TerrainRoot has no TerrainSettings asset");
+            string root     = SceneConfig.TerrainRoot("SampleScene");
+            var    settings = SceneConfig.Settings(root, out _);
 
             var ci = CultureInfo.InvariantCulture;
-            Assert.AreEqual((int)SurfaceType.CubeSphere, int.Parse(SceneField(root, "Topology", @"(\d+)"), ci), "Topology");
-            Assert.AreEqual("1", SceneField(root, "TangentAdjust", @"(\d)"), "TangentAdjust");
-            Assert.AreEqual(Radius, double.Parse(SceneField(root, "Radius", @"(\S+)"), ci), "Radius");
+            Assert.AreEqual((int)SurfaceType.CubeSphere, int.Parse(SceneConfig.Field(root, "Topology", @"(\d+)"), ci), "Topology");
+            Assert.AreEqual("1", SceneConfig.Field(root, "TangentAdjust", @"(\d)"), "TangentAdjust");
+            Assert.AreEqual(Radius, double.Parse(SceneConfig.Field(root, "Radius", @"(\S+)"), ci), "Radius");
 
             Assert.AreEqual(Resolution,  settings.ChunkResolution,    "ChunkResolution");
             Assert.AreEqual(MaxDepth,    settings.MaxDepth,           "MaxDepth");
@@ -148,15 +131,6 @@ namespace Sonoma.Tests
             Assert.AreEqual(Persistence, settings.Persistence,        "Persistence");
             Assert.AreEqual(Lacunarity,  settings.Lacunarity,         "Lacunarity");
             Assert.AreEqual(Seed,        settings.Seed,               "Seed");
-        }
-
-        // One serialized field of a scene component, by name: the first capture group of
-        // `pattern` matched against the rest of its line.
-        static string SceneField(string component, string name, string pattern)
-        {
-            var m = Regex.Match(component, $@"^\s*{name}: {pattern}\s*$", RegexOptions.Multiline);
-            Assert.IsTrue(m.Success, $"SampleScene's TerrainRoot has no readable {name} field");
-            return m.Groups[1].Value;
         }
 
         // LodSelector's wanted set in its steady state: every wanted node resident and padded by
