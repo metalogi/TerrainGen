@@ -462,9 +462,14 @@ namespace Sonoma.Core.Quadtree
             // whole hierarchy split to MaxDepth regardless of where the camera actually was.
             //
             // Centring on the node's own mid-elevation and padding by half its relief keeps
-            // the sphere proportional to the node: the same measurement gives 0.30 of the node
-            // size, flat across depth and independent of radius and HeightScale. It is still
-            // a containing sphere, up to the normal's divergence across the patch.
+            // the sphere in proportion to the node: on the same scene the pad at depth 8 is
+            // 0.16 of the node size on average and 0.60 at the roughest node of all six faces.
+            // It still grows with depth, but slowly, not by 2x a level. It is still a
+            // containing sphere, up to the normal's divergence across the patch.
+            //
+            // The pad is also a real share of the working set. Rough ground splits further
+            // out, so SampleScene wants 3546 chunks worst case where its geometry alone wants
+            // 2946; MaxResidentChunks has to clear the larger figure.
             if (_nodes.TryGetValue(node, out var state))
             {
                 centre += (double3)normal * (0.5 * (state.MinHeight + state.MaxHeight));

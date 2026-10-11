@@ -68,12 +68,14 @@ namespace Sonoma.Core.Quadtree
         // depth. That is a real answer, not an error.
         //
         // Deliberately NOT enforced by Create. The relief of an fbm at a given scale is a
-        // property of the noise rather than of the configuration: measured, half-relief as a
-        // fraction of node size is flat across depth and independent of radius and HeightScale,
-        // but it is 1.83x the persistence-0.4 figure at 0.5, 4.2x at 0.6 and 11.6x at 0.7, and
-        // an analytic worst case covering all of them runs about 4x the truth -- tight enough
-        // to refuse worlds that are perfectly fine. So the check happens against the terrain
-        // that actually turns up, once, in LodSelector.OnChunkReady.
+        // property of the noise rather than of the configuration. Measured over every node on
+        // all six faces, halfRelief / (nodeSize * HeightScale / S0) is independent of radius
+        // but not of depth or persistence: flat across depth at persistence 0.4, growing
+        // slowly at 0.5 (the worst node is 4.00 at depth 5 and 5.89 at depth 8), and growing
+        // roughly as (2 * persistence)^depth above it. A bound fixed in advance either refuses
+        // worlds that are fine or passes ones that are not. So the check happens against the
+        // terrain that actually turns up, once, in LodSelector.OnChunkReady, and
+        // TerrainReliefTests pins the persistence-0.5 figures.
         public double MaxHalfRelief(int depth)
             => NominalSize(depth) * (SplitFactor * (2.0 * (1.0 - MorphStartFraction) - Hysteresis)
                                      - SizeSpread) / 2.0;

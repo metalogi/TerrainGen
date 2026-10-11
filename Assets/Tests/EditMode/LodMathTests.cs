@@ -285,9 +285,10 @@ namespace Sonoma.Tests
         // The terrain is the other claimant on the boundary budget: LodSelector.NodeDistance
         // widens a node's sphere by half its relief, which enters the boundary condition in the
         // same place the size spread does. It is not checked by Create because fbm relief at a
-        // given scale is a property of the noise -- measured, half-relief over node size is
-        // flat across depth but swings by an order of magnitude with persistence -- so an
-        // analytic bound safe for all of them would refuse usable worlds.
+        // given scale is a property of the noise -- measured, half-relief over node size grows
+        // with depth at persistence 0.5 and swings by an order of magnitude with persistence --
+        // so a bound fixed in advance would refuse usable worlds or pass broken ones.
+        // TerrainReliefTests measures the real thing.
         [Test]
         public void MaxHalfReliefInvertsTheMorphStartFractionBound()
         {
@@ -305,23 +306,25 @@ namespace Sonoma.Tests
                     1.0 - (Hysteresis + (spread + 2.0 * extent) / SplitFactor) / 2.0, 1e-6,
                     $"MaxHalfRelief at depth {d} does not invert the morph bound");
 
-                // It scales with the node, so the *ratio* is constant -- which is why the
-                // measured relief ratio being flat across depth is the thing that matters.
+                // It scales with the node, so the *ratio* is constant across depth. The
+                // terrain's ratio is not -- it creeps up with depth -- which is why the
+                // deepest level is the one a configuration has to clear.
                 if (d > 0)
                     Assert.AreEqual(0.5, allowed / lod.MaxHalfRelief(d - 1), 1e-12,
                         $"the allowance at depth {d} is not exactly half depth {d - 1}");
             }
 
-            // A wider morph window buys room for rougher terrain, and a coarser split factor
-            // buys more still. Both are the levers the warning names.
-            var gentler = LodMath.Create(Sphere(), Params(), SplitFactor, MorphStart * 0.5f,
-                                         Hysteresis, 1.5f, MaxDepth);
-            Assert.Greater(gentler.MaxHalfRelief(8), lod.MaxHalfRelief(8),
+            // A NARROWER morph window buys room for rougher terrain -- a lower
+            // MorphStartFraction starts the coarse side's morph later -- and a larger split
+            // factor buys more still. Both are levers the warning names.
+            var narrower = LodMath.Create(Sphere(), Params(), SplitFactor, MorphStart * 0.5f,
+                                          Hysteresis, 1.5f, MaxDepth);
+            Assert.Greater(narrower.MaxHalfRelief(8), lod.MaxHalfRelief(8),
                 "halving MorphStartFraction should allow more relief, not less");
 
-            var coarser = LodMath.Create(Sphere(), Params(), SplitFactor * 2f, MorphStart,
-                                         Hysteresis, 1.5f, MaxDepth);
-            Assert.Greater(coarser.MaxHalfRelief(8), lod.MaxHalfRelief(8),
+            var larger = LodMath.Create(Sphere(), Params(), SplitFactor * 2f, MorphStart,
+                                        Hysteresis, 1.5f, MaxDepth);
+            Assert.Greater(larger.MaxHalfRelief(8), lod.MaxHalfRelief(8),
                 "doubling SplitFactor should allow more relief, not less");
         }
 
