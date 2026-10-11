@@ -96,7 +96,11 @@ namespace Sonoma.Core.Quadtree
         // of two and the division is exact in IEEE. That is what makes end_{d-1} / end_d
         // come out as literally 2.0 rather than 1.9999999999999998, which the nesting test
         // asserts without a delta.
-        public double NominalSize(int depth) => S0 / (double)(1L << math.clamp(depth, 0, 62));
+        public double NominalSize(int depth) => NominalSize(S0, depth);
+
+        // The same, for code that has S0 but no LodMath -- GenerationScheduler sizes skirts
+        // with it. One expression, so the two cannot disagree on a node's size.
+        public static double NominalSize(double s0, int depth) => s0 / (double)(1L << math.clamp(depth, 0, 62));
 
         public double SplitDistance(int depth)   => SplitFactor * NominalSize(depth);
 
