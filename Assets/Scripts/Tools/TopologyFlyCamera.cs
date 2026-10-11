@@ -1,3 +1,4 @@
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Sonoma.Core.CoordinateSpace;
@@ -6,9 +7,9 @@ using Sonoma.Core.Surface;
 
 /// Topology-aware fly camera using the new Input System.
 ///
-/// Auto-speed scales with elevation above the topology base surface, so the camera flies
-/// faster when high above terrain and slower near the ground. The mouse wheel modifies a
-/// persistent multiplier (clamped) on top of the auto-speed. The camera up vector is kept
+/// Auto-speed scales with clearance above the terrain, so the camera flies faster when high
+/// above it and slower near the ground. The mouse wheel modifies a persistent multiplier
+/// (clamped) on top of the auto-speed. The camera up vector is kept
 /// aligned to the local topology up — radial outward on a sphere, inward (toward axis) on a
 /// cylinder ringworld, world up on a plane.
 ///
@@ -21,9 +22,9 @@ public class TopologyFlyCamera : MonoBehaviour
     public TerrainRoot Terrain;
 
     [Header("Auto Speed (Elevation-driven)")]
-    [Tooltip("Base move speed at zero elevation (units/sec).")]
+    [Tooltip("Base move speed on the ground (units/sec).")]
     public float BaseSpeed = 8f;
-    [Tooltip("Extra speed added per metre of elevation above the base surface (units/sec per metre).")]
+    [Tooltip("Extra speed added per metre of clearance above the terrain (units/sec per metre).")]
     public float SpeedPerMetre = 0.5f;
     public float MinSpeed = 4f;
     public float MaxSpeed = 800f;
@@ -158,44 +159,63 @@ public class TopologyFlyCamera : MonoBehaviour
 
     // Convert render-space (camera transform) to absolute world by adding back the
     // floating-origin offset. Sphere/cylinder geometry is anchored at absolute (0,0,0).
-    Vector3 RenderToAbsoluteWorld(Vector3 renderPos)
-    {
-        var o = WorldOriginSystem.WorldOrigin;
-        return renderPos + new Vector3((float)o.x, (float)o.y, (float)o.z);
-    }
+    //
+    // In double: narrowing the origin to float first would carry it to only 0.5 m at Earth
+    // radius, which is the camera's own clearance when it is near the ground.
+    static double3 RenderToAbsoluteWorld(Vector3 renderPos) =>
+        WorldOriginSystem.WorldOrigin + new double3(renderPos.x, renderPos.y, renderPos.z);
 
     Vector3 ComputeTopoUp(Vector3 renderPos)
     {
         if (Terrain == null) return Vector3.up;
-        Vector3 abs = RenderToAbsoluteWorld(renderPos);
+        double3 abs = RenderToAbsoluteWorld(renderPos);
         switch (Terrain.Topology)
         {
             case SurfaceType.CubeSphere:
-                return abs.sqrMagnitude < 1e-6f ? Vector3.up : abs.normalized;
+                return math.lengthsq(abs) < 1e-6 ? Vector3.up : (Vector3)(float3)math.normalize(abs);
             case SurfaceType.Cylinder:
             {
-                Vector3 radial = new Vector3(abs.x, abs.y, 0f);
-                if (radial.sqrMagnitude < 1e-6f) return Vector3.up;
+                double3 radial = new double3(abs.x, abs.y, 0.0);
+                if (math.lengthsq(radial) < 1e-6) return Vector3.up;
                 // Terrain is on the inside of the cylinder; "up" is toward the axis.
-                return -radial.normalized;
+                return -(Vector3)(float3)math.normalize(radial);
             }
             default:
                 return Vector3.up;
         }
     }
 
+    // Clearance above the ground, not above the base surface. The two differ by the terrain's
+    // height, which is tens of metres on SampleScene and kilometres on an Earth-sized sphere:
+    // measured from the base surface, a camera two metres above a 5 km peak flew at 5 km/s.
     float ComputeElevation(Vector3 renderPos)
     {
         if (Terrain == null) return renderPos.y;
-        Vector3 abs = RenderToAbsoluteWorld(renderPos);
+        double3 abs = RenderToAbsoluteWorld(renderPos);
+        double  elevation;
+        double3 basePoint;
         switch (Terrain.Topology)
         {
             case SurfaceType.CubeSphere:
-                return abs.magnitude - (float)Terrain.Radius;
+            {
+                double r  = math.length(abs);
+                elevation = r - Terrain.Radius;
+                basePoint = r > 1e-6 ? abs * (Terrain.Radius / r) : new double3(0.0, Terrain.Radius, 0.0);
+                break;
+            }
             case SurfaceType.Cylinder:
-                return (float)Terrain.Radius - new Vector2(abs.x, abs.y).magnitude;
+            {
+                double r  = math.length(abs.xy);
+                elevation = Terrain.Radius - r;
+                basePoint = r > 1e-6 ? new double3(abs.xy * (Terrain.Radius / r), abs.z)
+                                     : new double3(Terrain.Radius, 0.0, abs.z);
+                break;
+            }
             default:
-                return abs.y;
+                elevation = abs.y;
+                basePoint = new double3(abs.x, 0.0, abs.z);
+                break;
         }
+        return (float)(elevation - Terrain.HeightAt(basePoint));
     }
 }

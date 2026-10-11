@@ -356,11 +356,11 @@ transitively even though it never says so — the harness must exclude it by tha
 
 - [x] `EarthTerrainSettings.asset` exists with the C1–C3 and C5 values; `TerrainSettings.asset` is untouched apart from gaining `SkirtFraction: 0`.
 - [x] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
-- [ ] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
+- [x] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
 - [ ] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter or cracks.
 - [ ] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
-- [ ] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
-- [ ] `CLAUDE.md` updated; amendments section written.
+- [x] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
+- [x] `CLAUDE.md` updated; amendments section written.
 
 ## Amendments from implementing M4
 
@@ -399,6 +399,39 @@ rather than edited into the tasks, so the plan still reads as what was decided u
 6. **Test count.** M4a adds six: four in `EarthScaleTests` (the plan's three pure tests, plus the
    skirt), `ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction` for C5's bit-identical claim, and the
    Editor-only asset check. 79 in all, 63 of them pure.
+
+### M4b
+
+7. **C4 understated the triplanar error: the sum is quantised, not merely offset.**
+   `positionWS + _SonomaWorldOrigin` is a float the size of the world, so at Earth radius *every
+   fragment within half a metre* gets the same sample coordinate, and the pattern jumps by up to 0.25 m
+   per rebase. The decision stands — no textures, nothing visible — but the shader header, `CLAUDE.md`
+   and §4.5 record the quantisation, and that the current 0.05 scales (20 m periods) would not meet the
+   power-of-two constraint the fix implies.
+8. **`WorldOriginSystem.OnDestroy` zeroes the origin.** Not in the plan. The origin is static, and the
+   Editor does not reload the domain on leaving play mode, so after an `EarthStress` session it would
+   otherwise sit megametres out for the next session or EditMode test run. Before M4 nothing moved it.
+9. **`WorldOriginSystem.ShiftOrigin(Vector3)` is public**, split out of `LateUpdate`, so the rebase test
+   drives the real rebase without a camera. `LateUpdate` calls it, then zeroes the camera.
+10. **`TopologyFlyCamera` flies by clearance above the terrain**, through a new `TerrainRoot.HeightAt`,
+    and works out its absolute position in double. The plan said leave the speed model alone, and the
+    clamping is unchanged; what changed is what "elevation" measures. Measured from the base surface,
+    a camera two metres above a 5 km peak at `HeightScale` 9000 flew at 5 km/s, which would have made
+    the "nearby geometry" checks impossible. On `SampleScene` the two differ by tens of metres at most.
+11. **`EarthStress` camera:** at `(0, 0, −7,371,000)`, 1,000 km above a face centre, looking straight
+    down — the same framing as `SampleScene`'s camera on the −Z axis. Clip planes 0.3 m to 20,000 km,
+    static: `SampleScene`'s 1 m to 10 km would show nothing from orbit. The range is safe because URP's
+    default depth attachment on Windows is 32-bit float with reversed Z
+    (`CoreUtils.GetDefaultDepthStencilFormat`). `MaxSpeed` 50,000 m/s: the descent from 1,000 km takes
+    about half a minute at the default wheel setting, and above about 60 km the camera covers most of
+    `RebaseThreshold` every frame, so the origin rebases every frame or two -- the stress case.
+12. **Test 4's mutation check was run against an arithmetic replica, not yet in the Editor.** The same
+    random sequence with `Transform` replaced by a `float3`: `position -= shift` disagrees with the
+    recomputed position on the first shift, for near and far chunks alike, in 127,469 of 128,000
+    comparisons. The in-Editor run of the real mutation is still owed.
+13. **`EarthSettingsAssetTests.EarthStressRunsTheEarthAsset`** holds the scene to the asset and the
+    radius, as `ConstantsMatchSampleScene` does for `SampleScene`. Both now read scenes through a
+    shared `SceneConfig` helper. 82 tests in all, 63 pure.
 
 ## Out of scope for M4
 
