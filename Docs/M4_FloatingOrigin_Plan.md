@@ -418,8 +418,16 @@ rather than edited into the tasks, so the plan still reads as what was decided u
     clamping is unchanged; what changed is what "elevation" measures. Measured from the base surface,
     a camera two metres above a 5 km peak at `HeightScale` 9000 flew at 5 km/s, which would have made
     the "nearby geometry" checks impossible. On `SampleScene` the two differ by tens of metres at most.
-11. **`EarthStress` camera:** at `(0, 0, −7,371,000)`, 1,000 km above a face centre, looking straight
-    down — the same framing as `SampleScene`'s camera on the −Z axis. **The clip planes first shipped
+11. **`EarthStress` camera:** 1,000 km above a sunlit coastline at direction
+    `(−0.1545, 0.6691, −0.7269)`, looking straight down. It first started above the −Z face centre,
+    which turned out to be the middle of the planet's largest basin: everything in view 2.4 to 4.9 km
+    below the base sphere, nothing above 1 km within 3,000 km, so one flat green — useless for spotting
+    cracks or jitter. The coastline was chosen by search for relief of a kilometre or more on both
+    sides within 300 km and the sun at least 30° up; the 500 km around it runs from −1,265 m to
+    +1,691 m, half above the white band and half below the green, so all three colour bands are in
+    view and any crack or wobble shows against them. (Only about 25% of this seed's surface is above
+    the white threshold, and the bands were tuned for `SampleScene`'s 50 m relief, so on Earth they
+    read as below and above sea level.) **The clip planes first shipped
     static at 0.3 m to 20,000 km, and the scene drew nothing at all, with nothing in the log.** The
     depth buffer was never the problem — URP's default on Windows is 32-bit float with reversed Z,
     which takes any ratio. The culling frustum was. Unity builds the projection matrix in float and
