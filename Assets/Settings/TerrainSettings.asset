@@ -17,11 +17,11 @@ MonoBehaviour:
   HeightScale: 50
   SplitFactor: 4
   HysteresisFactor: 1.1
-  MorphStartFraction: 0.15
+  MorphStartFraction: 0.09
   PreloadFactor: 1.15
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
-  MaxResidentChunks: 3200
+  MaxResidentChunks: 4000
   SkirtsEnabled: 1
   SkirtDepth: 2
   OctaveWavelength0: 0

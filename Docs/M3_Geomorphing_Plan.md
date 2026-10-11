@@ -341,6 +341,60 @@ Fold into `SonomaRevisedPlan.md` as part of the final commit.
 2. **§4.4 does not state the `MorphStartFraction ≤ 0.5` constraint**, which follows directly from its own
    requirement that the fine side be at `k = 1` where the coarse side is at `k = 0`. See C2.
 
+## Amendments from implementing M3
+
+The plan above is the plan as written. Building M3a and M3b, reviewing them, and the first play
+sessions changed the following; they are recorded here rather than edited into the tasks, so the plan
+still reads as what was decided up front. The commit named on each carries the full measurement. M3
+ended with 64 EditMode tests, not the 51 the definition of done implies; the eleventh amendment added
+five more.
+
+1. **`end_d` is the split distance of depth d−1, not d** (`4f603cc`). C4 and §4.4 both said the node's
+   own split distance. That is where a node hands over to its *children*; a chunk must finish morphing
+   where its *parent* takes over. Measured against a simulated selection, the plan's definition put
+   100% of cross-depth boundary samples exactly 1.0 effective LOD apart. `LodBoundaryTests` now checks
+   the ranges against a selected tree and reproduces the broken version.
+2. **Node extent bounds `MorphStartFraction` far below C2's 0.5, and rules out `SplitFactor` 2**
+   (`4f603cc`). A coarse leaf's patch reaches past its own bounding-sphere distance by up to
+   `SurfaceMath.MaxNodeSizeSpread` node sizes, giving
+   `MorphStartFraction ≤ 1 − (Hysteresis + SizeSpread / SplitFactor) / 2` — under 0.01 at `SplitFactor`
+   2 on a cube sphere. The default went to 3, and `LodMath.Create` refuses anything above the ceiling.
+3. **Preload never fired** (`c46e2ae`). Task 2 compared each child's distance against
+   `PreloadDistance(depth + 1)`, which is half the parent's own threshold and was already exceeded by the
+   time preload ran. It now tests the parent's own distance, and `PreloadFactor` dropped from 1.5 to 1.15
+   because preload turned out to be the most expensive knob.
+4. **The bounding sphere is centred on mid-elevation and padded by half the relief, not by the absolute
+   elevation** (`c46e2ae`). C5 stores min/max height "for the bounding sphere" without saying how; M3a
+   padded the radius with the absolute elevation, which reached 21× the node size at depth 8 and split
+   the whole tree to `MaxDepth`. The relief pad spends the same boundary budget as
+   node size spread, so `LodMath.MaxHalfRelief` inverts the bound for it and `LodSelector` warns once at
+   runtime if generated terrain overruns it. `SplitFactor` went to 4 to make room, and
+   `MaxResidentChunks` to 3200.
+5. **Elevation morphs too** (`2940518`). The band blend reads elevation, so leaving it on the fine value
+   while the geometry moved to the coarse one put a colour seam where there was no geometric one.
+   `TEXCOORD3.w` carries the target elevation; `TerrainVertex` is 80 bytes, not 76.
+6. **Queue priorities are re-priced every frame** (`741bd83`). A node kept the priority it was first
+   requested at, so preloaded chunks generated behind nodes the camera had since left.
+   `GenerationScheduler`'s heap is now indexed by node.
+7. **The budget warning tests the wanted set, not what eviction achieved** (`741bd83`). The first form
+   could not fire in the case it was written for.
+8. **The morph measures from `_SonomaViewPosition`, never `_WorldSpaceCameraPos`** (`741bd83`). URP
+   does not restore the latter for additional-light shadow passes, so the ShadowCaster pass morphed
+   against a stale camera.
+9. **`MaxDepth` is bounded above** (`741bd83`) by `NodeId.MaxAddressableDepth`; past it nodes land
+   somewhere plausible but wrong, and past 31 the shader's range array runs out.
+10. **Cascaded shadow coordinates are computed per fragment** (`7ad45d7`). Present since M2 and found
+    during M3's play sessions: interpolating a shadow coordinate across a cascade split drew one black
+    ring per cascade boundary, following the camera.
+11. **The relief figure behind amendment 4 was a sample, and `SampleScene` overran it** (2026-10-10).
+    The constant `halfRelief / (nodeSize × HeightScale/S0) ≈ 3.15` came from 49 nodes per depth on one
+    face, sampled 13 × 13. Over every node on all six faces the worst is 5.89 at depth 8, and the figure
+    grows with depth rather than being flat. `SplitFactor` 4 at `MorphStartFraction` 0.15 therefore
+    overran at depths 6–8 by up to 45%, which is what the first play session's warning said. The
+    relief pad also took the worst-case working set to 3546, past the 3200 budget, which the budget
+    warning said too. `SampleScene`'s asset now runs `MorphStartFraction` 0.09 and `MaxResidentChunks`
+    4000; `TerrainReliefTests` and `WorkingSetTests` pin the measured figures.
+
 ## Out of scope for M3
 
 - **2:1 quadtree balancing.** Optional, M6 at the earliest. Skirts cover the transient states.

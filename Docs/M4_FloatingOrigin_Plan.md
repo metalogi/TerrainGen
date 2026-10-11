@@ -2,7 +2,7 @@
 
 **Audience:** a coding agent working in `G:\UnityProjects\TerrainGen` with no prior context on this project.
 **Parent plan:** `SonomaRevisedPlan.md` (repo root), milestone M4.
-**Prerequisite:** M3 is complete and merged. `git log --oneline -1` should show `7ad45d7` or later, `git status --short` should be empty, and the 64 EditMode tests should pass before you start.
+**Prerequisite:** M3 is complete and merged. `git log --oneline` should include the relief and budget reconciliation that followed `7ad45d7` ("Reconcile SampleScene's relief and budget figures with the runtime"), `git status --short` should be empty, and the 69 EditMode tests should pass before you start.
 
 M4 is the first milestone that runs the system at the scale it was designed for. Everything it needs
 structurally already exists — chunks carry `double3 Anchor`, `WorldOriginSystem` rebases from those
@@ -15,19 +15,21 @@ So M4 is less "build the floating origin" than "turn it on at planetary scale an
 The work is a configuration retune, a handful of gaps in the origin system, a stress scene, and the
 1,000-rebase test the parent plan asks for.
 
-Every number below was derived and verified before this document was written. The working-set replica
-reproduces `CLAUDE.md`'s documented 2970 to within 1%, and the relief model reproduces both its
-"23% to spare at SplitFactor 4" and its "overran by up to 2.8× at 3" exactly. Port the numbers; let the
-tests confirm the port.
+Every number below was derived before this document was written, and two of them were corrected on
+2026-10-10, before M4 started, by measuring instead of sampling. The relief demand in C1 first
+reproduced `CLAUDE.md`'s 3.15 exactly — which is how it inherited that figure's error, a 49-node sample
+standing in for the whole population. The working set in C2 first held no node split by hysteresis.
+Port the numbers; let the tests confirm the port.
 
 ---
 
 ## Ground rules
 
-1. **The Earth stress scene gets its own `TerrainSettings` asset.** Do **not** retune `SampleScene`.
-   Its SplitFactor 4 was chosen deliberately in `c46e2ae` for a 300 m sphere carrying a 50 m height
-   scale, and that decision is still correct *for that scene*. The LOD configuration is legitimately
-   scene-dependent; see C1.
+1. **The Earth stress scene gets its own `TerrainSettings` asset.** Do **not** retune `SampleScene`
+   any further. Its SplitFactor 4 (`c46e2ae`), and its MorphStartFraction 0.09 and MaxResidentChunks
+   4000 (set just before M4), were chosen for a 300 m sphere carrying a 50 m height scale and are
+   pinned by `TerrainReliefTests`; they are correct *for that scene*. The LOD configuration is
+   legitimately scene-dependent; see C1.
 2. **Two landable branches**, as M2 and M3 did.
    - **M4a — `m4a-scale-config`.** The settings asset, the octave-count fix, the depth/budget numbers,
      and the pure tests that pin them. No scene, no origin changes.
@@ -49,30 +51,47 @@ as a fraction of node size is:
 allowance = (SplitFactor × (2(1 − MorphStartFraction) − Hysteresis) − SizeSpread) / 2
 ```
 
-With `MorphStartFraction` 0.15, `Hysteresis` 1.1 and a tangent-adjusted cube sphere
-(`SizeSpread` = π/2 ≈ 1.5708):
+With `Hysteresis` 1.1 and a tangent-adjusted cube sphere (`SizeSpread` = π/2 ≈ 1.5708):
 
-| SplitFactor | allowance |
-|---|---|
-| 3 | 0.1146 |
-| 4 | 0.4146 |
+| SplitFactor | MorphStartFraction | allowance |
+|---|---|---|
+| 3 | 0.15 | 0.1146 |
+| 4 | 0.15 | 0.4146 |
+| 4 | 0.09 | 0.6546 — `SampleScene`'s asset |
 
-Measured demand is `≈ 3.15 × HeightScale / S0` at persistence 0.5, and `S0` scales linearly with radius
-(`S0` = 489.9 m at radius 300, 10,403,799 m at Earth radius):
+Demand is `C × HeightScale / S0`, where `C = halfRelief / (nodeSize × HeightScale/S0)` for the roughest
+node. `S0` scales linearly with radius (489.9 m at radius 300, 10,403,799 m at Earth radius) and `C` does
+not depend on radius at all — but it **does depend on depth**, which the first version of this section
+missed. At persistence 0.5 each octave coarser than the node adds the same slope, so `C` creeps up with
+the number of octaves a node carries:
 
-| configuration | `HeightScale / S0` | demand | vs SF 3 allowance |
+| depth | octaves | `C`, roughest node | how it was measured |
 |---|---|---|---|
-| `SampleScene` — 300 m, HeightScale 50 | 0.10206 | **0.3215** | **2.8× over** |
-| Earth, HeightScale 9,000 (real relief) | 0.00087 | 0.0027 | **42× under** |
-| Earth, HeightScale 20,000 (dramatic) | 0.00192 | 0.0061 | 19× under |
-| Earth, HeightScale 100,000 (absurd) | 0.00961 | 0.0303 | 3.8× under |
+| 8 | 13 | **5.89** | every node on all six faces; `TerrainReliefTests.WorstReliefFactor` |
+| 19 | 24 | **≈ 9** | 20,000 random nodes: maximum 8.05, 99.9th percentile 6.81 against 4.34 at depth 8, scaled up to the size of the depth-8 population |
 
-This model reproduces `CLAUDE.md`'s two recorded outcomes exactly — 0.3215 / 0.4146 leaves 22.4% spare
-at SplitFactor 4 ("23% to spare"), and 0.3215 / 0.1146 is a 2.8× overrun at 3 ("up to 2.8×"). Trust it.
+A face at depth 19 is 4^19 nodes, so that row is a sample by necessity. Use **`C` = 10** at Earth depth for
+margin. Persistence matters far more than depth: at 0.6 and above, `C` grows roughly as
+`(2 × persistence)^depth`, so none of this carries over to a rougher noise.
 
-`SampleScene` is a *small planet with enormous mountains*; Earth is not. The constraint that forced
-SplitFactor 4 simply does not bind at planetary scale. Also check `LodMath.Create` will accept the
-combination: `MaxMorphStartFraction(3, 1.1, π/2)` = **0.1882**, and 0.15 is under it, so it does.
+| configuration | `HeightScale / S0` | demand | vs SF 3, 0.15 allowance (0.1146) |
+|---|---|---|---|
+| `SampleScene` — 300 m, HeightScale 50, depth 8 | 0.10206 | **0.601** | **5.2× over** |
+| Earth, HeightScale 9,000 (real relief), depth 19 | 0.000865 | 0.0087 | **13× under** |
+| Earth, HeightScale 20,000 (dramatic) | 0.00192 | 0.0192 | 6× under |
+| Earth, HeightScale 100,000 (absurd) | 0.00961 | 0.096 | 1.2× under — at the limit |
+
+The first version of this table used `C ≈ 3.15` and "reproduced `CLAUDE.md`'s two recorded outcomes
+exactly" — of course it did: all three came from the same sample of 49 nodes per depth on one face,
+the 98.8th percentile of the depth-7 population. The `SampleScene` relief warning in the first play
+session was the evidence against it. `SampleScene` at SplitFactor 4 and MorphStartFraction 0.15 actually
+overran by up to 45% at depth 8, which is why its asset now runs 0.09.
+
+The conclusion survives the correction. `SampleScene` is a *small planet with enormous mountains*;
+Earth is not, and the constraint that forced SplitFactor 4 (and then MorphStartFraction 0.09) does not
+bind at planetary scale with realistic relief. It would at HeightScale 100,000. Also check
+`LodMath.Create` will accept the combination: `MaxMorphStartFraction(3, 1.1, π/2)` = **0.1882**, and
+0.15 is under it, so it does.
 
 **Still confirm at runtime rather than trusting this table.** `LodSelector.OnChunkReady` already warns
 once, naming the measured relief and the allowance, if the generated terrain overruns. If that warning
@@ -80,22 +99,33 @@ fires in the stress scene, raise SplitFactor for that scene and re-measure the w
 
 ### C2 — The working set, measured
 
-Worst case is the camera hovering over a **face corner**, not a face centre. Resident counts include
-hidden parents held for an instant collapse. At 98 KB of vertex data per chunk (resolution 33,
-80-byte vertices):
+Worst case is the camera low over a **face edge** — at or near a corner — not a face centre. The
+counts are the whole wanted set: hidden parents held for an instant collapse, preloaded children, and
+the children of every node that hysteresis is still holding split. Measured over face 0, 257 × 257
+camera positions at 0.5, 2 and 10 m altitude (all three give the same worst). At 98 KB of vertex data
+per chunk (resolution 33, 80-byte vertices):
 
-| configuration | resident | + preloaded | ≈ memory |
+| configuration | fresh splits only | with hysteresis-held splits | ≈ memory |
 |---|---|---|---|
-| MaxDepth 8, SF 4, Preload 1.15 (today) | 2,722 | 2,946 | 282 MB |
-| MaxDepth 19, SF 4, Preload 1.15 | 7,878 | 8,506 | 814 MB |
-| **MaxDepth 19, SF 3, Preload 1.0** | **4,942** | **4,942** | **472 MB** |
+| MaxDepth 8, SF 4, Preload 1.15 (`SampleScene`'s geometry) | 2,946 | 2,946 | 282 MB |
+| MaxDepth 19, SF 4, Preload 1.15 | 8,794 | 8,794 | 842 MB |
+| **MaxDepth 19, SF 3, Preload 1.0** | 4,458 | **5,118** | **490 MB** |
+
+Hysteresis-held splits are the column that counts. A node the camera has just backed away from stays
+split out to `HysteresisFactor` × its split distance, so its four children stay wanted. When
+`PreloadFactor` exceeds `HysteresisFactor` preload was asking for those children anyway, and the
+columns agree. At `PreloadFactor` 1.0 nothing else asks for them, and they are 15% of the set. The first
+version of this table gave 4,942 here and set the budget at 5200 — 1.6% above the 5,118 that a camera
+which has just backed away can actually leave wanted. Nor does this replica reproduce that 4,942 for
+the fresh-split case; it gives 4,458. Pin the hysteresis-held figure (Task 4, test 3).
 
 The counts are scale-free — a 300 m sphere and an Earth-radius one give identical figures at the same
-depth — which is why the 300 m scene could never have revealed this.
+depth — which is why the 300 m scene could never have revealed this. The relief pad is left out, and
+at Earth scale that is safe: the roughest node's pad is `C × HeightScale/S0` ≈ 0.009 of its size,
+against 0.60 on `SampleScene`, where the pad takes the working set from 2,946 to 3,546.
 
-Set `MaxResidentChunks` to **5200** for the stress scene: above the 4,942 worst case, so the
-build-and-evict churn warning does not fire, with a little room for the relief pad that this replica
-zeroed.
+Set `MaxResidentChunks` to **5800** for the stress scene: 13% above the 5,118 worst case — the same
+headroom `SampleScene`'s 4000 has over its 3,546 — so the build-and-evict churn warning does not fire.
 
 ### C3 — `OctaveCount` must go to 24, or the last four depths are smooth mush
 
@@ -153,12 +183,12 @@ one untouched:
 |---|---|---|
 | `ChunkResolution` | 33 | unchanged |
 | `MaxDepth` | 19 | 1 m vertex spacing at Earth radius (C3) |
-| `HeightScale` | 9000 | realistic relief; keeps the relief demand 42× under the SF 3 allowance (C1) |
+| `HeightScale` | 9000 | realistic relief; keeps the relief demand 13× under the SF 3 allowance (C1) |
 | `SplitFactor` | 3 | C1 |
 | `HysteresisFactor` | 1.1 | unchanged |
-| `MorphStartFraction` | 0.15 | under the 0.1882 ceiling for SF 3 (C1) |
-| `PreloadFactor` | 1.0 | C2; no preload margin, in exchange for 3,500 fewer chunks |
-| `MaxResidentChunks` | 5200 | above the 4,942 worst case (C2) |
+| `MorphStartFraction` | 0.15 | under the 0.1882 ceiling for SF 3 (C1). Deliberately not `SampleScene`'s 0.09: Earth's relief leaves room for the wider morph window |
+| `PreloadFactor` | 1.0 | C2; no preload margin, in exchange for about 3,700 fewer chunks |
+| `MaxResidentChunks` | 5800 | 13% above the 5,118 worst case with hysteresis-held splits (C2) |
 | `OctaveCount` | 24 | C3 — the one that is invisible until you look for it |
 | everything else | as `TerrainSettings.asset` | |
 
@@ -206,13 +236,19 @@ which is fine at the scales it was built for.
    vertex spacing at `MaxDepth`. This is C3 as an assertion, and it is the test that would have caught
    the mush.
 2. **`EarthConfigurationClearsTheReliefAllowance`** — assert `MaxHalfRelief(d) / NominalSize(d)` at the
-   Earth settings exceeds the measured demand `3.15 × HeightScale / S0` with margin, and that the same
-   check *fails* for the `SampleScene` settings at SplitFactor 3. Asserting both directions is what
-   stops the table in C1 rotting into a comment nobody re-derives.
-3. **`WorkingSetFitsTheResidentBudget`** — a simulated descent (reuse `LodBoundaryTests`'s `Descend`)
-   asserting the resident count at `MaxDepth` 19 stays under `MaxResidentChunks`. Pin the measured
-   4,942 with a tolerance, so a change to `SplitFactor` or `PreloadFactor` that quietly triples memory
-   fails here rather than in the profiler.
+   Earth settings exceeds the demand `C × HeightScale / S0` with margin, taking `C` = 10 at depth 19
+   (C1), and that the same check *fails* for the `SampleScene` settings at SplitFactor 3 with
+   `C = TerrainReliefTests.WorstReliefFactor` (5.89, the full-scan depth-8 figure). Asserting both
+   directions is what stops the table in C1 rotting into a comment nobody re-derives. Do not reach for
+   3.15: it was a sample, and this test would have locked it in.
+3. **`WorkingSetFitsTheResidentBudget`** — a simulated descent asserting the wanted set at `MaxDepth` 19
+   stays under `MaxResidentChunks`. Copy `WorkingSetTests.Select` rather than `LodBoundaryTests`'s
+   `Descend`: it counts preloaded children and holds every split hysteresis can
+   (`ShouldSplit(..., currentlySplit: true)`). Drop its relief pad, which is negligible at Earth scale
+   (C2), and with it the job system, so the test stays pure.
+   Pin the measured 5,118 — face 0, camera at `(u, v) = (20/256, 0)`, 2 m up — with a tolerance, so a
+   change to `SplitFactor` or `PreloadFactor` that quietly triples memory fails here rather than in the
+   profiler.
 
 ### Editor
 
@@ -242,7 +278,7 @@ which is fine at the scales it was built for.
 
 Compile `Sonoma.Core` and `Sonoma.Tests.EditMode` with Unity's own Roslyn and `.rsp` arguments, outputs
 redirected to scratch. Then compile every UnityEngine-free source plus a reflection runner and run it:
-all pure tests green, including the 53 that already pass this way. See the
+all pure tests green, including the 57 that already pass this way. See the
 `unity-verification-without-batchmode` note.
 
 Note that `LodMathSettings.cs` imports `Sonoma.Systems.Configuration`, so it needs `UnityEngine`
@@ -270,7 +306,7 @@ transitively even though it never says so — the harness must exclude it by tha
 - [ ] `EarthTerrainSettings.asset` exists with the C1–C3 values; `TerrainSettings.asset` is untouched.
 - [ ] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
 - [ ] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter.
-- [ ] 5 new tests pass; the 64 existing ones still pass; test 4 fails under the `position -= shift` mutation.
+- [ ] 5 new tests pass; the 69 existing ones still pass; test 4 fails under the `position -= shift` mutation.
 - [ ] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
 - [ ] `CLAUDE.md` updated; amendments section written.
 
