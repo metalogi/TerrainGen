@@ -18,11 +18,9 @@ namespace Sonoma.Systems.Configuration
                  "2 is NOT usable with the geomorph: it leaves a morph window under 1% wide on " +
                  "a cube sphere, which is a pop by another name. Costs scale with the square: " +
                  "measured worst case over a face at MaxDepth 8, the working set is 1898 " +
-                 "chunks at 3 and 2946 at 4 on geometry alone, and SampleScene's terrain takes " +
-                 "those to 2342 and 3546. What the extra buys is room for rough terrain -- it " +
-                 "raises both the MorphStartFraction ceiling and LodMath.MaxHalfRelief -- though " +
-                 "even at 4 a 300 m sphere with a 50 m height scale also needs MorphStartFraction " +
-                 "0.09 to clear its roughest node.")]
+                 "chunks at 3 and 2946 at 4 on geometry alone, and rough terrain adds to both. " +
+                 "What the extra buys is room for rough terrain -- it raises both the " +
+                 "MorphStartFraction ceiling and LodMath.MaxHalfRelief.")]
         public float SplitFactor = 4f;
         [Tooltip("Collapse distance as a multiple of the split distance. Must be at least 1; " +
                  "applies to the split decision only, never to the morph range. It does eat " +
@@ -35,11 +33,11 @@ namespace Sonoma.Systems.Configuration
                  "morphing before the fine side has finished, and the boundary cracks. " +
                  "LodMath.Create throws rather than let that ship. Terrain roughness spends the " +
                  "same budget and is checked separately, at runtime, because fbm relief cannot be " +
-                 "bounded tightly in advance: LodSelector warns once naming the numbers if the " +
-                 "generated terrain is rougher than LodMath.MaxHalfRelief allows. Lowering this " +
-                 "narrows the morph window and raises that allowance. SampleScene uses 0.09: its " +
-                 "roughest node needs 0.60 of the node size, and 0.15 allows 0.41 " +
-                 "(TerrainReliefTests).")]
+                 "bounded tightly in advance: LodSelector warns on the first chunk rougher than " +
+                 "LodMath.MaxHalfRelief allows, and names the roughest when the terrain shuts " +
+                 "down. Lowering this narrows the morph window and raises that allowance; size it " +
+                 "against the roughest node, measured over the whole surface as " +
+                 "TerrainReliefTests does, not a sample.")]
         [Range(0.02f, 0.5f)]
         public float MorphStartFraction = 0.15f;
         [Tooltip("A node asks for its four children once it is within this multiple of its own " +
@@ -49,8 +47,8 @@ namespace Sonoma.Systems.Configuration
                  "trades memory for latency directly, and above about 1.2 it is not cheap: " +
                  "measured on the default configuration, worst case over a face with every " +
                  "split hysteresis can hold, the working set is 2734 chunks at 1.0, 2946 at 1.15 " +
-                 "and 4350 at 1.5 on geometry alone -- 3322, 3546 and 5226 on SampleScene's " +
-                 "terrain. Keep MaxResidentChunks above whichever you pick.")]
+                 "and 4350 at 1.5 on geometry alone, and more on rough terrain. Keep " +
+                 "MaxResidentChunks above whichever you pick.")]
         public float PreloadFactor = 1.15f;
 
         [Header("Generation Pipeline")]
@@ -66,12 +64,13 @@ namespace Sonoma.Systems.Configuration
                  "visible ones. 0 = unlimited. The default LOD configuration (MaxDepth 8, " +
                  "SplitFactor 4, PreloadFactor 1.15) wants 2946 worst case over a face, 2430 " +
                  "near a face centre, on geometry alone. Terrain adds to that: a node's bounding " +
-                 "sphere is widened by half its relief, so rough ground splits further out, and " +
-                 "SampleScene (HeightScale 50 on a 300 m sphere) reaches 3546 -- hence 4000. A " +
-                 "budget below the working set makes the selector build and evict the same " +
-                 "chunks every frame, and it says so once in the console. At resolution 33 a " +
-                 "chunk is about 98 KB of vertex data, so this caps it at roughly 390 MB; " +
-                 "dropping PreloadFactor to 1.0 saves about 220 chunks of it.")]
+                 "sphere is widened by half its relief, so rough ground splits further out. " +
+                 "Measure the working set with the terrain, as WorkingSetTests does; the default " +
+                 "leaves about a third over the geometric figure for it. A budget below the " +
+                 "working set makes the selector build and evict the same chunks every frame; it " +
+                 "warns on the first frame over budget and reports the peak when the terrain " +
+                 "shuts down. At resolution 33 a chunk is about 98 KB of vertex data, so this " +
+                 "caps it at roughly 390 MB.")]
         public int MaxResidentChunks = 4000;
 
         [Header("Skirts")]

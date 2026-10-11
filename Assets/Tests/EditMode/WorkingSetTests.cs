@@ -1,4 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Jobs;
@@ -6,6 +10,7 @@ using Unity.Mathematics;
 using Sonoma.Core.Generation;
 using Sonoma.Core.Quadtree;
 using Sonoma.Core.Surface;
+using Sonoma.Systems.Configuration;
 using static Sonoma.Tests.TerrainReliefTests;
 
 namespace Sonoma.Tests
@@ -96,6 +101,61 @@ namespace Sonoma.Tests
                 "the same chunks every frame");
         }
 
+        // TerrainReliefTests' constants are hand copies of SampleScene's configuration -- that is
+        // what lets it run out of Editor -- and both files assert against them. This holds the
+        // copies to the real thing: the TerrainSettings asset the scene's TerrainRoot actually
+        // points at, and the topology it carries. Without it, reverting the asset to the
+        // configuration that overran would leave every test here green.
+        //
+        // The scene is read as text rather than opened, because opening it would replace
+        // whatever scene the Editor has open.
+        [Test]
+        public void ConstantsMatchSampleScene()
+        {
+            string scene    = File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Scenes", "SampleScene.unity"));
+            string rootGuid = UnityEditor.AssetDatabase.AssetPathToGUID("Assets/Scripts/Core/Quadtree/TerrainRoot.cs");
+            Assert.IsNotEmpty(rootGuid, "TerrainRoot.cs has moved; update the path here");
+
+            string root = null;
+            foreach (string doc in scene.Split(new[] { "\n--- " }, StringSplitOptions.None))
+                if (doc.Contains($"guid: {rootGuid},")) { root = doc; break; }
+            Assert.IsNotNull(root, "SampleScene has no TerrainRoot");
+
+            string settingsGuid = SceneField(root, "Settings",
+                @"\{fileID: \d+, guid: ([0-9a-f]{32}), type: \d+\}");
+            var settings = UnityEditor.AssetDatabase.LoadAssetAtPath<TerrainSettings>(
+                UnityEditor.AssetDatabase.GUIDToAssetPath(settingsGuid));
+            Assert.IsNotNull(settings, "SampleScene's TerrainRoot has no TerrainSettings asset");
+
+            var ci = CultureInfo.InvariantCulture;
+            Assert.AreEqual((int)SurfaceType.CubeSphere, int.Parse(SceneField(root, "Topology", @"(\d+)"), ci), "Topology");
+            Assert.AreEqual("1", SceneField(root, "TangentAdjust", @"(\d)"), "TangentAdjust");
+            Assert.AreEqual(Radius, double.Parse(SceneField(root, "Radius", @"(\S+)"), ci), "Radius");
+
+            Assert.AreEqual(Resolution,  settings.ChunkResolution,    "ChunkResolution");
+            Assert.AreEqual(MaxDepth,    settings.MaxDepth,           "MaxDepth");
+            Assert.AreEqual(HeightScale, settings.HeightScale,        "HeightScale");
+            Assert.AreEqual(SplitFactor, settings.SplitFactor,        "SplitFactor");
+            Assert.AreEqual(Hysteresis,  settings.HysteresisFactor,   "HysteresisFactor");
+            Assert.AreEqual(MorphStart,  settings.MorphStartFraction, "MorphStartFraction");
+            Assert.AreEqual(Preload,     settings.PreloadFactor,      "PreloadFactor");
+            Assert.AreEqual(Budget,      settings.MaxResidentChunks,  "MaxResidentChunks");
+            Assert.AreEqual(0.0,         settings.OctaveWavelength0,  "OctaveWavelength0");
+            Assert.AreEqual(OctaveCount, settings.OctaveCount,        "OctaveCount");
+            Assert.AreEqual(Persistence, settings.Persistence,        "Persistence");
+            Assert.AreEqual(Lacunarity,  settings.Lacunarity,         "Lacunarity");
+            Assert.AreEqual(Seed,        settings.Seed,               "Seed");
+        }
+
+        // One serialized field of a scene component, by name: the first capture group of
+        // `pattern` matched against the rest of its line.
+        static string SceneField(string component, string name, string pattern)
+        {
+            var m = Regex.Match(component, $@"^\s*{name}: {pattern}\s*$", RegexOptions.Multiline);
+            Assert.IsTrue(m.Success, $"SampleScene's TerrainRoot has no readable {name} field");
+            return m.Groups[1].Value;
+        }
+
         // LodSelector's wanted set in its steady state: every wanted node resident and padded by
         // its own relief, and every node held split that hysteresis can hold
         // (currentlySplit: true), which is what a camera that has just backed away leaves behind.
@@ -132,18 +192,12 @@ namespace Sonoma.Tests
             return _wanted.Count;
         }
 
-        // LodSelector.NodeDistance with the node resident.
+        // The selector's own distance, with the node resident -- the same function, not a copy,
+        // so a change to the pad moves this figure with it.
         double Distance(NodeId node, double3 camera)
         {
-            var r    = _relief[node];
-            var root = _roots[node.Quad];
-            SurfaceMath.SurfaceFrame(_surface, root,
-                0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax),
-                out double3 centre, out float3 normal);
-            centre += (double3)normal * (0.5 * (r.min + r.max));
-            double radius = 0.5 * SurfaceMath.NodeWorldSize(_surface, root, node)
-                          + 0.5 * (r.max - r.min);
-            return math.max(0.0, math.distance(camera, centre) - radius);
+            var r = _relief[node];
+            return LodMath.NodeDistance(_surface, _roots[node.Quad], node, camera, r.min, r.max);
         }
 
         // Each chunk's height range as the generation path produces it: HeightSampleJob over the

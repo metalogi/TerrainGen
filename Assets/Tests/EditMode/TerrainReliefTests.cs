@@ -31,9 +31,10 @@ namespace Sonoma.Tests
     // UnityEngine-free, so it runs in the out-of-Editor harness.
     public class TerrainReliefTests
     {
-        // SampleScene: TerrainRoot.Radius and Assets/Settings/TerrainSettings.asset. Kept in
-        // step with both; MorphStart is the asset's value, not TerrainSettings' C# default.
-        // WorkingSetTests reads these too, so there is one copy to keep in step.
+        // SampleScene: TerrainRoot.Radius and Assets/Settings/TerrainSettings.asset. Copies,
+        // so this file stays UnityEngine-free; MorphStart is the asset's value, not
+        // TerrainSettings' C# default. WorkingSetTests reads these too, and its
+        // ConstantsMatchSampleScene fails if they drift from the asset or the scene.
         internal const double Radius      = 300.0;
         internal const int    Resolution  = 33;
         internal const int    OctaveCount = 20;
@@ -48,12 +49,16 @@ namespace Sonoma.Tests
         internal const int    MaxDepth    = 8;
         internal const int    Budget      = 4000;   // MaxResidentChunks
 
-        // The worst node at each depth over all six faces, and its C. The depth-8 figure is the
-        // one LOD configuration has to clear: there is no deeper level in SampleScene.
+        // The worst node at each depth over all six faces, and its C, indexed by depth. The
+        // depth-8 figure is the one LOD configuration has to clear: there is no deeper level in
+        // SampleScene.
         public const double WorstReliefFactor = 5.88755;
 
         static readonly (NodeId node, double c)[] WorstPerDepth =
         {
+            (new NodeId(5, 0,   0,  0), 0.50080),
+            (new NodeId(5, 1,   0,  1), 0.94413),
+            (new NodeId(5, 2,   1,  2), 1.57156),
             (new NodeId(1, 3,   7,  0), 2.15915),
             (new NodeId(4, 4,  12,  9), 3.04403),
             (new NodeId(1, 5,  28,  4), 3.99718),
@@ -129,7 +134,7 @@ namespace Sonoma.Tests
         public void RecordedWorstIsTheMaximumOverItsFace()
         {
             Setup();
-            var (recorded, _) = WorstPerDepth[1];
+            var (recorded, _) = WorstPerDepth[4];
 
             NodeId worst = default;
             double most  = -1.0;
@@ -146,6 +151,33 @@ namespace Sonoma.Tests
                 $"the roughest node on face {recorded.Quad} at depth {recorded.Depth} is not the recorded one");
         }
 
+        // Depths 0..2 are 126 nodes in all, so the claim "worst over all six faces" is checked
+        // in full there rather than on one face. These are the depths with the most absolute
+        // relief, and the ones a coarse layer added later -- M5's macro maps -- would hit first.
+        [Test]
+        public void ShallowRecordsAreTheMaximumOverAllSixFaces()
+        {
+            Setup();
+
+            for (int d = 0; d <= 2; d++)
+            {
+                NodeId worst = default;
+                double most  = -1.0;
+                int    span  = 1 << d;
+                for (int q = 0; q < _roots.Length; q++)
+                for (int y = 0; y < span; y++)
+                for (int x = 0; x < span; x++)
+                {
+                    var    node = new NodeId(q, d, x, y);
+                    double half = HalfRelief(node);
+                    if (half > most) { most = half; worst = node; }
+                }
+
+                Assert.AreEqual(WorstPerDepth[d].node, worst,
+                    $"the roughest node at depth {d} over all six faces is not the recorded one");
+            }
+        }
+
         // SampleScene's configuration clears the worst node at every depth, and the configuration
         // it replaced did not. Both directions, so neither half can rot into a comment.
         //
@@ -159,6 +191,7 @@ namespace Sonoma.Tests
             Setup();
             var shipped  = Lod(MorphStart);
             var previous = Lod(0.15f);
+            var sf3      = LodMath.Create(_surface, _params, 3f, 0.15f, Hysteresis, Preload, MaxDepth);
 
             foreach (var (node, _) in WorstPerDepth)
             {
@@ -169,10 +202,16 @@ namespace Sonoma.Tests
                     $"depth {d}: {half:F3} m of half-relief against {shipped.MaxHalfRelief(d):F3} m " +
                     "allowed; LodSelector will warn and LOD boundaries in the roughest terrain may not close");
 
-                // Depths 3..5 cleared at 0.15 as well; 6..8 did not, by up to 45%.
+                // Depths 0..5 cleared at 0.15 as well; 6..8 did not, by up to 45%.
                 Assert.AreEqual(d >= 6, half > previous.MaxHalfRelief(d),
                     $"depth {d}: the MorphStartFraction 0.15 configuration should " +
                     (d >= 6 ? "overrun" : "clear") + " this node");
+
+                // And SplitFactor 3, which M3 shipped before 4, overran at seven of the nine
+                // depths -- 2..8 -- by up to 5.2x. CLAUDE.md quotes this; it is pinned here.
+                Assert.AreEqual(d >= 2, half > sf3.MaxHalfRelief(d),
+                    $"depth {d}: the SplitFactor 3 configuration should " +
+                    (d >= 2 ? "overrun" : "clear") + " this node");
             }
 
             double allowance = shipped.MaxHalfRelief(MaxDepth) / shipped.NominalSize(MaxDepth);

@@ -58,9 +58,9 @@ namespace Sonoma.Core.Quadtree
         // differently-sized neighbour cleanly, as a half-range in metres.
         //
         // The same bound as MaxMorphStartFraction, solved for the other unknown.
-        // LodSelector.NodeDistance centres a node's bounding sphere on its own mid-elevation
-        // and pads the radius by half its relief, so that pad enters the boundary condition in
-        // exactly the place SizeSpread does:
+        // NodeDistance centres a node's bounding sphere on its own mid-elevation and pads the
+        // radius by half its relief, so that pad enters the boundary condition in exactly the
+        // place SizeSpread does:
         //
         //     Hysteresis + (SizeSpread + 2*pad/S_d) / SplitFactor <= 2 * (1 - frac)
         //
@@ -71,11 +71,10 @@ namespace Sonoma.Core.Quadtree
         // property of the noise rather than of the configuration. Measured over every node on
         // all six faces, halfRelief / (nodeSize * HeightScale / S0) is independent of radius
         // but not of depth or persistence: flat across depth at persistence 0.4, growing
-        // slowly at 0.5 (the worst node is 4.00 at depth 5 and 5.89 at depth 8), and growing
-        // roughly as (2 * persistence)^depth above it. A bound fixed in advance either refuses
-        // worlds that are fine or passes ones that are not. So the check happens against the
-        // terrain that actually turns up, once, in LodSelector.OnChunkReady, and
-        // TerrainReliefTests pins the persistence-0.5 figures.
+        // slowly at 0.5, and growing roughly as (2 * persistence)^depth above it. A bound fixed
+        // in advance either refuses worlds that are fine or passes ones that are not. So the
+        // check happens against the terrain that actually turns up, in
+        // LodSelector.OnChunkReady, and TerrainReliefTests pins the persistence-0.5 figures.
         public double MaxHalfRelief(int depth)
             => NominalSize(depth) * (SplitFactor * (2.0 * (1.0 - MorphStartFraction) - Hysteresis)
                                      - SizeSpread) / 2.0;
@@ -159,6 +158,52 @@ namespace Sonoma.Core.Quadtree
         }
 
         public double CollapseDistance(int depth) => SplitDistance(depth) * Hysteresis;
+
+        // The distance selection compares against SplitDistance: from the camera to the node's
+        // bounding sphere, clamped at zero inside it. minHeight and maxHeight are the node's
+        // generated height range, or both zero for a node not yet built.
+        //
+        // Static and pure so LodSelector and the tests that model it run the same arithmetic;
+        // a replica of this is how WorkingSetTests would drift from the selector it measures.
+        //
+        // Measured NodeWorldSize here, not nominal: this is the distance, and it should
+        // follow the node's real geometry. Only the *threshold* it is compared against has
+        // to be depth-only (NominalSize).
+        public static double NodeDistance(in SurfaceDef surface, in RootQuad root, NodeId node,
+                                          double3 camera, float minHeight, float maxHeight)
+        {
+            SurfaceMath.SurfaceFrame(surface, root,
+                0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax),
+                out double3 centre, out float3 normal);
+
+            // Half the longer diagonal is the circumradius of the node's surface patch.
+            double radius = 0.5 * SurfaceMath.NodeWorldSize(surface, root, node);
+
+            // Terrain MOVES the sphere and widens it by its relief; it does not inflate the
+            // radius by the elevation.
+            //
+            // Padding with max(|MinHeight|, |MaxHeight|) -- the absolute elevation -- is what
+            // the selector did until it was measured. It bounds the geometry correctly but
+            // grows without limit relative to the node, because the elevation is fixed while
+            // the node halves every level: on the sample scene, a 300 m sphere with a 50 m
+            // height scale, the pad reached 10.5x the node size at depth 7 and 21x at depth 8.
+            // Every node within about forty metres of the camera then returned distance 0, so
+            // the whole hierarchy split to MaxDepth regardless of where the camera actually was.
+            //
+            // Centring on the node's own mid-elevation and padding by half its relief keeps
+            // the sphere in proportion to the node. It still grows with depth, but slowly, not
+            // by 2x a level, and it is still a containing sphere, up to the normal's divergence
+            // across the patch. The pad is also a real share of the working set: rough ground
+            // splits further out, so MaxResidentChunks has to clear the working set measured
+            // with it (WorkingSetTests), not the geometry alone.
+            //
+            // The float sum and difference are deliberate: they are what the selector computed
+            // from its stored float heights before this was shared, bit for bit.
+            centre += (double3)normal * (0.5 * (minHeight + maxHeight));
+            radius += 0.5 * (maxHeight - minHeight);
+
+            return math.max(0.0, math.distance(camera, centre) - radius);
+        }
 
         public static LodMath Create(in SurfaceDef surface, in HeightParams p, float splitFactor,
                                      float morphStartFraction, float hysteresis,

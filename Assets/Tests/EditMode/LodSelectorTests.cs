@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Sonoma.Core.Generation;
 using Sonoma.Core.Quadtree;
 using Sonoma.Core.Rendering;
@@ -33,12 +35,15 @@ namespace Sonoma.Tests
         ChunkPool           _pool;
         GenerationScheduler _scheduler;
         LodSelector         _selector;
+        LodMath             _lod;
         double3             _camera;
 
         // maxInFlightJobs is 1 only for the queue-ordering test, which needs results to arrive
         // in the order they were popped. Above 1 the scheduler holds several jobs at once and
         // CollectResults walks a Dictionary, so arrival order stops meaning anything.
-        void Build(int maxResidentChunks, int maxInFlightJobs = 16)
+        //
+        // morphStart is overridden only by the relief-report test, to leave no room for terrain.
+        void Build(int maxResidentChunks, int maxInFlightJobs = 16, float morphStart = 0.12f)
         {
             _surface = SurfaceDef.PlaneGrid(TileSize, 1, 1);
             _roots   = SurfaceMath.BuildRoots(_surface);
@@ -55,12 +60,12 @@ namespace Sonoma.Tests
             // Safe to change without re-deriving the preload geometry below: MorphStartFraction
             // feeds only MorphRange and MaxHalfRelief. Selection is SplitFactor, NominalSize,
             // Hysteresis and PreloadFactor, none of which move.
-            var lod = LodMath.Create(_surface, p, SplitFactor, 0.12f, 1.2f, 1.5f, MaxDepth);
+            _lod = LodMath.Create(_surface, p, SplitFactor, morphStart, 1.2f, 1.5f, MaxDepth);
 
             _host      = new GameObject("LodSelectorTestHost");
             _pool      = new ChunkPool(_host.transform, null, Resolution);
             _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, maxInFlightJobs, 100f);
-            _selector  = new LodSelector(_surface, _roots, lod, _scheduler, _pool, maxResidentChunks);
+            _selector  = new LodSelector(_surface, _roots, _lod, _scheduler, _pool, maxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
 
             // Above the middle of the tile, close enough that the tree descends to MaxDepth
@@ -284,6 +289,65 @@ namespace Sonoma.Tests
 
             Assert.IsTrue(sawEviction,
                 "the budget never bound, so eviction was never exercised");
+        }
+
+        // The budget warning names the first frame over budget, which is not the largest working
+        // set the session reaches: SampleScene's said 3202 where the worst case is 3546. Sizing
+        // MaxResidentChunks from the first figure leaves the churn in place, so the peak is
+        // reported at Dispose -- and it has to be the peak, not a repeat of the first number.
+        //
+        // The tile is centred on the origin and S0 on it is its diagonal, 1414 m. 1500 m above
+        // the centre, depth 1 splits (1187 m against 1414) and depth 2 neither splits nor
+        // preloads (1333 m against 1061), so the wanted set is the root and two full levels,
+        // 21 nodes. At 100 m it is the whole tree.
+        [Test]
+        public void BudgetReportNamesThePeakNotTheFirstOverrun()
+        {
+            Build(maxResidentChunks: 10);
+
+            _camera = new double3(0.0, 1500.0, 0.0);
+            Frame();
+            int first = _selector.WantedCount;
+            Assert.Greater(first, 10, "the high camera should already be over budget");
+
+            _camera = new double3(0.0, 100.0, 0.0);
+            Frame();
+            int peak = _selector.WantedCount;
+            Assert.Greater(peak, first, "descending should have grown the working set");
+
+            LogAssert.Expect(LogType.Warning, new Regex(Regex.Escape($"peaked at {peak} chunks")));
+            _selector.Dispose();
+        }
+
+        // Likewise the relief warning names the first chunk to overrun, and the report at Dispose
+        // has to name the roughest, whichever order the chunks arrived in. MorphStartFraction a
+        // hair under this configuration's 0.15 ceiling leaves 0.004 of each node's size for
+        // terrain, so nearly every chunk overruns and the ranking is exercised across depths.
+        [Test]
+        public void ReliefReportNamesTheRoughestChunk()
+        {
+            // Over the centre, every node is at least 344 m inside its split distance, so the
+            // wanted set is the whole tree from the first frame and no relief pad arriving later
+            // can drop a node the selector has already ranked.
+            Build(maxResidentChunks: 0, morphStart: 0.148f);
+            _camera = new double3(0.0, 100.0, 0.0);
+            DriveToSteadyState();
+
+            // Excess over the allowance as a fraction of node size: what the selector ranks on.
+            int    depth = -1;
+            double most  = double.MinValue, half = 0.0;
+            foreach (var node in _selector.ResidentNodes())
+            {
+                Assert.IsTrue(_selector.TryGetState(node, out var s));
+                double h      = 0.5 * (s.MaxHeight - s.MinHeight);
+                double excess = (h - _lod.MaxHalfRelief(node.Depth)) / _lod.NominalSize(node.Depth);
+                if (excess > most) { most = excess; depth = node.Depth; half = h; }
+            }
+            Assert.Greater(most, 0.0, "nothing overran, so the report was never exercised");
+
+            LogAssert.Expect(LogType.Warning, new Regex(Regex.Escape(
+                $"roughest terrain this session was at depth {depth}: a half-relief of {half:F2} m")));
+            _selector.Dispose();
         }
 
         // Re-requesting a node that is still queued must re-price it, not drop the new
