@@ -43,8 +43,30 @@ public class TopologyFlyCamera : MonoBehaviour
     [Tooltip("Hold right mouse to look. If false, look is always active and the cursor is locked.")]
     public bool RequireRightMouseToLook = true;
 
+    [Header("Clip Planes")]
+    [Tooltip("Set the camera's near and far planes every frame from its clearance above the " +
+             "terrain. Needed on an Earth-sized sphere, where no fixed pair serves both orbit and " +
+             "two metres above the ground: one that does needs a far/near ratio Unity's float " +
+             "frustum cannot represent, and then nothing draws at all. Off by default, leaving " +
+             "the camera's own planes alone.")]
+    public bool AutoClipPlanes = false;
+
+    // The near plane sits at this fraction of the clearance, so geometry closer than a tenth of
+    // the camera's height above the ground is clipped -- only ever the side of a cliff.
+    const float NearPerClearance = 0.1f;
+    const float MinNearClip      = 0.1f;
+
+    // Unity builds the projection matrix in float and takes the culling frustum from it. The
+    // far plane's normal comes out as 1 + m22, and m22 = -(far + near) / (far - near), so past
+    // a ratio of about 3.4e7 far + near rounds to far, m22 to exactly -1, and the far plane's
+    // normal to zero: the frustum is degenerate and every renderer is culled. EarthStress
+    // shipped at 0.3 m to 20,000 km, a ratio of 6.7e7, and showed nothing. At 1e6 the extracted
+    // plane is within about 2% of where it was asked for.
+    const float MaxClipRatio = 1e6f;
+
     InputAction _move, _look, _wheel, _sprint, _lookEnable;
-    float _wheelMult = 1f;
+    float  _wheelMult = 1f;
+    Camera _camera;
 
     void OnEnable()
     {
@@ -82,6 +104,7 @@ public class TopologyFlyCamera : MonoBehaviour
     {
         if (Terrain == null)
             Terrain = FindAnyObjectByType<TerrainRoot>();
+        _camera = GetComponent<Camera>();
     }
 
     void Update()
@@ -118,6 +141,40 @@ public class TopologyFlyCamera : MonoBehaviour
                               + transform.forward * mv.z;
             transform.position += worldMove * speed * Time.deltaTime;
         }
+
+        if (AutoClipPlanes && _camera != null)
+            SetClipPlanes(elevation);
+    }
+
+    // Near from the clearance; far from the horizon, capped at MaxClipRatio times the near.
+    //
+    // On a cube sphere the farthest terrain that can be in view is a peak of the greatest
+    // possible height just past the horizon of the lowest possible ground: the tangent from the
+    // camera to the sphere of radius R - hMax, continued to where it leaves the sphere of
+    // R + hMax. hMax is HeightScale / (1 - Persistence), the sum of every octave's amplitude --
+    // about 2.6 times the highest terrain actually generated, which only makes the far plane
+    // generous. The other topologies have no horizon, so they get the ratio cap alone.
+    //
+    // Near the ground the cap is what binds: at two metres the near plane is 0.2 m and the far
+    // 200 km, short of the 1,160 km horizon bound, so mountains beyond 200 km are not drawn.
+    void SetClipPlanes(float clearance)
+    {
+        float near = Mathf.Max(MinNearClip, NearPerClearance * clearance);
+        double far = near * (double)MaxClipRatio;
+
+        if (Terrain != null && Terrain.Settings != null && Terrain.Topology == SurfaceType.CubeSphere)
+        {
+            var    s    = Terrain.Settings;
+            double hMax = s.Persistence < 1f ? s.HeightScale / (1.0 - s.Persistence)
+                                             : (double)s.HeightScale * s.OctaveCount;
+            double lo   = math.max(0.0, Terrain.Radius - hMax), hi = Terrain.Radius + hMax;
+            double d    = math.length(RenderToAbsoluteWorld(transform.position));
+            double reach = math.sqrt(math.max(0.0, d * d - lo * lo)) + math.sqrt(hi * hi - lo * lo);
+            far = math.min(far, reach);
+        }
+
+        _camera.nearClipPlane = near;
+        _camera.farClipPlane  = (float)math.max(far, 2.0 * near);
     }
 
     // Yaw rotates the tangent-projected forward around topoUp; pitch tilts the result

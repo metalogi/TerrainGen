@@ -58,5 +58,30 @@ namespace Sonoma.Tests
             Assert.AreEqual("1", SceneConfig.Field(root, "TangentAdjust", @"(\d)"), "TangentAdjust");
             Assert.AreEqual(Radius, double.Parse(SceneConfig.Field(root, "Radius", @"(\S+)"), ci), "Radius");
         }
+
+        // Unity builds the projection matrix in float and takes the culling frustum from it. Past
+        // a far/near ratio of about 3.4e7, far + near rounds to far, the far plane's normal comes
+        // out zero, and every renderer is culled: EarthStress first shipped at 0.3 m to 20,000 km
+        // and showed nothing at all, with nothing in the log. Every scene camera's own planes must
+        // stay well inside that -- TopologyFlyCamera.MaxClipRatio, 1e6 -- and EarthStress, which
+        // flies from orbit to the ground, must hand them to the fly camera to manage.
+        [Test]
+        public void SceneCamerasKeepACullableFrustum()
+        {
+            var ci = CultureInfo.InvariantCulture;
+            foreach (string scene in new[] { "SampleScene", "EarthStress" })
+            {
+                string cam  = SceneConfig.Camera(scene);
+                double near = double.Parse(SceneConfig.Field(cam, "near clip plane", @"(\S+)"), ci);
+                double far  = double.Parse(SceneConfig.Field(cam, "far clip plane",  @"(\S+)"), ci);
+                Assert.LessOrEqual(far / near, 1e6,
+                    $"{scene}: a far/near ratio of {far / near:G3} leaves the float culling frustum " +
+                    "too imprecise, and past about 3.4e7 degenerate");
+            }
+
+            string fly = SceneConfig.Script("EarthStress", "Assets/Scripts/Tools/TopologyFlyCamera.cs");
+            Assert.AreEqual("1", SceneConfig.Field(fly, "AutoClipPlanes", @"(\d)"),
+                "EarthStress's fly camera must set its own clip planes; no fixed pair covers orbit and ground");
+        }
     }
 }
