@@ -7,7 +7,7 @@ using Sonoma.Systems.Configuration;
 
 namespace Sonoma.Tests
 {
-    // A scene's TerrainRoot read as text, for the tests that hold their copied constants to the
+    // A scene's components read as text, for the tests that hold their copied constants to the
     // scene they describe. Read rather than opened, because opening a scene would replace
     // whatever scene the Editor has open.
     //
@@ -15,17 +15,33 @@ namespace Sonoma.Tests
     static class SceneConfig
     {
         // The serialized TerrainRoot component of Assets/Scenes/<scene>.unity.
-        public static string TerrainRoot(string scene)
-        {
-            string text     = File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Scenes", scene + ".unity"));
-            string rootGuid = AssetDatabase.AssetPathToGUID("Assets/Scripts/Core/Quadtree/TerrainRoot.cs");
-            Assert.IsNotEmpty(rootGuid, "TerrainRoot.cs has moved; update the path in SceneConfig");
+        public static string TerrainRoot(string scene) =>
+            Script(scene, "Assets/Scripts/Core/Quadtree/TerrainRoot.cs");
 
-            foreach (string doc in text.Split(new[] { "\n--- " }, StringSplitOptions.None))
-                if (doc.Contains($"guid: {rootGuid},")) return doc;
-            Assert.Fail($"{scene} has no TerrainRoot");
+        // The first MonoBehaviour in the scene running the script at `scriptPath`.
+        public static string Script(string scene, string scriptPath)
+        {
+            string guid = AssetDatabase.AssetPathToGUID(scriptPath);
+            Assert.IsNotEmpty(guid, $"{scriptPath} has moved; update the path in the test");
+
+            foreach (string doc in Documents(scene))
+                if (doc.Contains($"guid: {guid},")) return doc;
+            Assert.Fail($"{scene} has nothing running {scriptPath}");
             return null;
         }
+
+        // The scene's first Camera component (class ID 20).
+        public static string Camera(string scene)
+        {
+            foreach (string doc in Documents(scene))
+                if (doc.StartsWith("!u!20 ", StringComparison.Ordinal)) return doc;
+            Assert.Fail($"{scene} has no camera");
+            return null;
+        }
+
+        static string[] Documents(string scene) =>
+            File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Scenes", scene + ".unity"))
+                .Split(new[] { "\n--- " }, StringSplitOptions.None);
 
         // The TerrainSettings asset a TerrainRoot component points at.
         public static TerrainSettings Settings(string terrainRoot, out string path)
@@ -42,7 +58,7 @@ namespace Sonoma.Tests
         public static string Field(string component, string name, string pattern)
         {
             var m = Regex.Match(component, $@"^\s*{name}: {pattern}\s*$", RegexOptions.Multiline);
-            Assert.IsTrue(m.Success, $"the TerrainRoot has no readable {name} field");
+            Assert.IsTrue(m.Success, $"the scene component has no readable {name} field");
             return m.Groups[1].Value;
         }
     }

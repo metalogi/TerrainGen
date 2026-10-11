@@ -419,10 +419,19 @@ rather than edited into the tasks, so the plan still reads as what was decided u
     a camera two metres above a 5 km peak at `HeightScale` 9000 flew at 5 km/s, which would have made
     the "nearby geometry" checks impossible. On `SampleScene` the two differ by tens of metres at most.
 11. **`EarthStress` camera:** at `(0, 0, −7,371,000)`, 1,000 km above a face centre, looking straight
-    down — the same framing as `SampleScene`'s camera on the −Z axis. Clip planes 0.3 m to 20,000 km,
-    static: `SampleScene`'s 1 m to 10 km would show nothing from orbit. The range is safe because URP's
-    default depth attachment on Windows is 32-bit float with reversed Z
-    (`CoreUtils.GetDefaultDepthStencilFormat`). `MaxSpeed` 50,000 m/s: the descent from 1,000 km takes
+    down — the same framing as `SampleScene`'s camera on the −Z axis. **The clip planes first shipped
+    static at 0.3 m to 20,000 km, and the scene drew nothing at all, with nothing in the log.** The
+    depth buffer was never the problem — URP's default on Windows is 32-bit float with reversed Z,
+    which takes any ratio. The culling frustum was. Unity builds the projection matrix in float and
+    extracts the frustum planes from it; at a far/near ratio of 6.7e7, `far + near` rounds to `far`,
+    `m22` to exactly −1, and the far plane's normal to zero, so the frustum is degenerate and every
+    renderer is culled. The threshold is about 3.4e7; at 1e6 the extracted plane is within 2%.
+    `TopologyFlyCamera.AutoClipPlanes` (off by default, on in `EarthStress`) now sets the planes every
+    frame: near at a tenth of the clearance above the terrain, far at the horizon bound for terrain up
+    to `HeightScale / (1 − Persistence)` high, capped at 1e6 × near. That is 100 km to 4,415 km at
+    orbit and 0.2 m to 200 km at two metres. `EarthSettingsAssetTests.SceneCamerasKeepACullableFrustum`
+    holds both scenes' static planes under 1e6 and `EarthStress`'s fly camera to managing its own.
+    `MaxSpeed` 50,000 m/s: the descent from 1,000 km takes
     about half a minute at the default wheel setting, and above about 60 km the camera covers most of
     `RebaseThreshold` every frame, so the origin rebases every frame or two -- the stress case.
 12. **Test 4's mutation check was run against an arithmetic replica, not yet in the Editor.** The same
@@ -431,7 +440,7 @@ rather than edited into the tasks, so the plan still reads as what was decided u
     comparisons. The in-Editor run of the real mutation is still owed.
 13. **`EarthSettingsAssetTests.EarthStressRunsTheEarthAsset`** holds the scene to the asset and the
     radius, as `ConstantsMatchSampleScene` does for `SampleScene`. Both now read scenes through a
-    shared `SceneConfig` helper. 82 tests in all, 63 pure.
+    shared `SceneConfig` helper. With the clip-plane test in 11, 83 tests in all, 63 pure.
 
 ## Out of scope for M4
 

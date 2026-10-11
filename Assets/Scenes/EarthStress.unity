@@ -178,8 +178,8 @@ Camera:
     y: 0
     width: 1
     height: 1
-  near clip plane: 0.3
-  far clip plane: 20000000
+  near clip plane: 1000
+  far clip plane: 10000000
   field of view: 60
   orthographic: 0
   orthographic size: 5
@@ -280,6 +280,7 @@ MonoBehaviour:
   WheelStep: 1.15
   LookSensitivity: 0.15
   RequireRightMouseToLook: 1
+  AutoClipPlanes: 1
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
