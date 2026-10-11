@@ -63,6 +63,14 @@ namespace Sonoma.Core.Quadtree
         bool    _budgetWarned;
         bool    _reliefWarned;
 
+        // The worst of each overrun this session, for ReportWorstOverruns. The warnings fire on
+        // the first overrun, and the first is rarely the worst -- a retune sized from it falls
+        // short (CLAUDE.md records the case that showed it).
+        int     _peakWanted;
+        double  _worstReliefExcess;   // (half-relief - allowance) / node size; scale-free
+        int     _worstReliefDepth;
+        double  _worstReliefHalf;
+
         public int ResidentCount { get; private set; }
         public int VisibleCount  => _visiblePrev.Count;
         public int WantedCount   => _nodes.Count;
@@ -295,9 +303,13 @@ namespace Sonoma.Core.Quadtree
         // on in silence. Only a budget below the six root quads ever reached it.
         //
         // Warn-once, and the working-set size is the number worth printing: it is what
-        // MaxResidentChunks has to clear.
+        // MaxResidentChunks has to clear. Once is also too few, because the first frame over
+        // budget is rarely the largest working set the session reaches, and sizing the budget
+        // from it leaves the churn in place. So the peak is tracked from then on and reported
+        // at Dispose.
         void WarnIfTheBudgetIsBelowTheWorkingSet()
         {
+            if (_nodes.Count > _peakWanted) _peakWanted = _nodes.Count;
             if (_budgetWarned || _nodes.Count <= _maxResident) return;
 
             _budgetWarned = true;
@@ -306,7 +318,30 @@ namespace Sonoma.Core.Quadtree
                 $"here ({ResidentCount} built so far) against a budget of {_maxResident}. Chunks " +
                 "the camera still needs will be evicted and rebuilt every frame, at a full " +
                 "generation job each. Raise MaxResidentChunks above the working set, or lower " +
-                "MaxDepth, SplitFactor or PreloadFactor to shrink it.");
+                "MaxDepth, SplitFactor or PreloadFactor to shrink it. The peak working set is " +
+                "reported when the terrain shuts down.");
+        }
+
+        // The other half of both warnings: the worst each overrun reached, once the session is
+        // over and the number is final. Logged only when its warning fired, and only once --
+        // Dispose clears the state it reads.
+        void ReportWorstOverruns()
+        {
+            if (_budgetWarned)
+                Debug.LogWarning(
+                    $"[LodSelector] the working set peaked at {_peakWanted} chunks this session, " +
+                    $"against a budget of {_maxResident}. Size MaxResidentChunks from this peak, " +
+                    "not from the first frame over budget.");
+
+            if (_reliefWarned)
+            {
+                double allowed = _lod.MaxHalfRelief(_worstReliefDepth);
+                Debug.LogWarning(
+                    $"[LodSelector] the roughest terrain this session was at depth {_worstReliefDepth}: " +
+                    $"a half-relief of {_worstReliefHalf:F2} m where this configuration allows " +
+                    $"{allowed:F2} m (node size {_lod.NominalSize(_worstReliefDepth):F2} m). Retune " +
+                    "against this chunk, not the first one to overrun.");
+            }
         }
 
         int CountResident()
@@ -409,7 +444,9 @@ namespace Sonoma.Core.Quadtree
         // its relief, but it cannot be checked at Create time: the relief of an fbm at a given
         // scale is a property of the noise, and an analytic bound safe across every persistence
         // runs several times the truth and would refuse worlds that are fine. So it is checked
-        // here, once, against the first chunk that actually overruns.
+        // here, against every chunk as it arrives: a warning on the first that overruns, so the
+        // problem shows up at once, and the worst one reported at Dispose, because that is the
+        // one a retune has to clear.
         //
         // A warning rather than a throw for the same reason it is not in Create: the bound is a
         // worst case over a whole face, the excess is usually small, and skirts cover a good
@@ -417,72 +454,58 @@ namespace Sonoma.Core.Quadtree
         // in the roughest terrain, which is worth knowing about and is very easy to misdiagnose.
         void WarnIfTerrainIsTooRoughToCloseBoundaries(in GenerationScheduler.Result result)
         {
-            if (_reliefWarned) return;
-
+            int    depth   = result.Node.Depth;
             double half    = 0.5 * (result.MaxHeight - result.MinHeight);
-            double allowed = _lod.MaxHalfRelief(result.Node.Depth);
+            double allowed = _lod.MaxHalfRelief(depth);
             if (half <= allowed) return;
+
+            // Measured against node size rather than as a ratio to the allowance, which can
+            // be zero or negative: a configuration with no room for terrain at a depth is a
+            // real answer (MaxHalfRelief), and every chunk there overruns it.
+            double excess = (half - allowed) / _lod.NominalSize(depth);
+            if (excess > _worstReliefExcess)
+            {
+                _worstReliefExcess = excess;
+                _worstReliefDepth  = depth;
+                _worstReliefHalf   = half;
+            }
+
+            if (_reliefWarned) return;
 
             _reliefWarned = true;
             Debug.LogWarning(
-                $"[LodSelector] terrain at depth {result.Node.Depth} has a half-relief of " +
+                $"[LodSelector] terrain at depth {depth} has a half-relief of " +
                 $"{half:F2} m where this configuration allows {allowed:F2} m " +
-                $"(node size {_lod.NominalSize(result.Node.Depth):F2} m). LOD boundaries in the " +
+                $"(node size {_lod.NominalSize(depth):F2} m). LOD boundaries in the " +
                 "roughest terrain may not close: the coarse side can begin morphing before the " +
                 "fine side has finished, leaving a hairline seam that skirts will mostly, but " +
                 "not always, cover. Lower MorphStartFraction, raise SplitFactor, lower " +
-                "HysteresisFactor, or reduce HeightScale or MaxDepth. See LodMath.MaxHalfRelief.");
+                "HysteresisFactor, or reduce HeightScale or MaxDepth. See LodMath.MaxHalfRelief. " +
+                "This is the first chunk to overrun, not the worst; the worst is reported when " +
+                "the terrain shuts down.");
         }
 
-        // Bounding-sphere distance, clamped at zero inside the sphere.
-        //
-        // Measured NodeWorldSize here, not nominal: this is the distance, and it should
-        // follow the node's real geometry. Only the *threshold* it is compared against has
-        // to be depth-only (LodMath.NominalSize).
+        // Bounding-sphere distance, padded by the node's relief once it has been built. The
+        // arithmetic, and why the pad moves the sphere rather than inflating it, live in
+        // LodMath.NodeDistance, which WorkingSetTests calls too. A node not yet built has no
+        // height range, and the default state's zeros leave the sphere unpadded.
         double NodeDistance(NodeId node)
         {
-            ref readonly RootQuad root = ref _roots[node.Quad];
-
-            SurfaceMath.SurfaceFrame(_surface, root,
-                0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax),
-                out double3 centre, out float3 normal);
-
-            // Half the longer diagonal is the circumradius of the node's surface patch.
-            double radius = 0.5 * SurfaceMath.NodeWorldSize(_surface, root, node);
-
-            // Terrain MOVES the sphere and widens it by its relief; it does not inflate the
-            // radius by the elevation.
-            //
-            // Padding with max(|MinHeight|, |MaxHeight|) -- the absolute elevation -- is what
-            // this did until it was measured. It bounds the geometry correctly but grows
-            // without limit relative to the node, because the elevation is fixed while the
-            // node halves every level: on the sample scene, a 300 m sphere with a 50 m height
-            // scale, the pad reached 10.5x the node size at depth 7 and 21x at depth 8. Every
-            // node within about forty metres of the camera then returned distance 0, so the
-            // whole hierarchy split to MaxDepth regardless of where the camera actually was.
-            //
-            // Centring on the node's own mid-elevation and padding by half its relief keeps
-            // the sphere in proportion to the node: on the same scene the pad at depth 8 is
-            // 0.16 of the node size on average and 0.60 at the roughest node of all six faces.
-            // It still grows with depth, but slowly, not by 2x a level. It is still a
-            // containing sphere, up to the normal's divergence across the patch.
-            //
-            // The pad is also a real share of the working set. Rough ground splits further
-            // out, so SampleScene wants 3546 chunks worst case where its geometry alone wants
-            // 2946; MaxResidentChunks has to clear the larger figure.
-            if (_nodes.TryGetValue(node, out var state))
-            {
-                centre += (double3)normal * (0.5 * (state.MinHeight + state.MaxHeight));
-                radius += 0.5 * (state.MaxHeight - state.MinHeight);
-            }
-
-            return math.max(0.0, math.distance(_camera, centre) - radius);
+            _nodes.TryGetValue(node, out var state);
+            return LodMath.NodeDistance(_surface, _roots[node.Quad], node, _camera,
+                                        state.MinHeight, state.MaxHeight);
         }
 
         // Play-mode teardown. The pool destroys the meshes; this only drops the references,
         // so a domain reload does not find a half-populated tree.
         public void Dispose()
         {
+            ReportWorstOverruns();
+            _budgetWarned      = false;
+            _reliefWarned      = false;
+            _peakWanted        = 0;
+            _worstReliefExcess = 0.0;
+
             foreach (var kv in _nodes)
                 if (kv.Value.Chunk != null) _pool.Release(kv.Value.Chunk);
 
