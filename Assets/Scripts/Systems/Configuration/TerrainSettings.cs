@@ -78,8 +78,22 @@ namespace Sonoma.Systems.Configuration
                  "than one depth apart across an edge. Geomorphing is the real mechanism; turn " +
                  "these off to prove it, then leave them on.")]
         public bool SkirtsEnabled = true;
-        [Tooltip("World-space depth of the skirt geometry hanging below each chunk edge.")]
+        [Tooltip("Absolute part of the skirt's drop below each chunk edge, in metres, the same " +
+                 "at every depth. On its own it suits one scale only: the gap a skirt has to " +
+                 "hide is on the order of the coarse node's relief, so a value sized for the " +
+                 "finest chunks hides nothing at coarse depths. One sized for coarse depths is " +
+                 "never seen -- the skirt drops along the heightfield's own direction, so it lies " +
+                 "underground and shows only through a crack -- but it pads every fine chunk's " +
+                 "culling bounds by the same kilometres. SkirtFraction scales with the node.")]
         public float SkirtDepth = 10f;
+        [Tooltip("Node-relative part of the skirt's drop: each chunk's skirt hangs " +
+                 "SkirtDepth + SkirtFraction x its nominal node size below its edge, and its " +
+                 "culling bounds are padded by the same. 0 leaves the skirt absolute and the " +
+                 "meshes bit-identical to a build without this field. Needed when the depths " +
+                 "span several orders of magnitude, as on an Earth-sized sphere, where the gap " +
+                 "runs from about half a metre at depth 19 to a kilometre at depth 8.")]
+        [Min(0f)]
+        public float SkirtFraction = 0f;
 
         [Header("Noise")]
         [Tooltip("World-space wavelength of octave 0, in metres. 0 means 'one root quad across'.")]

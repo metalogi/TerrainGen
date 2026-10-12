@@ -66,6 +66,18 @@ namespace Sonoma.Core.Generation
 
         public static int SkirtBottomIndex(int R, int edge, int k) => SkirtBase(R, edge) + k;
 
+        // How far a chunk's skirt hangs below its edge: an absolute floor plus a share of the
+        // node. The gap a skirt has to hide in a transient two-depth state is on the order of
+        // the coarse node's relief, which halves with every depth, so an absolute depth alone
+        // suits one scale only -- on an Earth-sized sphere the depths run from 20 m nodes to
+        // 10,400 km ones.
+        //
+        // In double and narrowed once, so a fraction of 0 returns skirtDepth to the bit: a
+        // float plus 0.0 is exact. That is what lets SampleScene, which sets no fraction, build
+        // the same meshes it always has.
+        public static float SkirtDrop(float skirtDepth, float skirtFraction, double nominalSize)
+            => (float)(skirtDepth + skirtFraction * nominalSize);
+
         // Grid triangulation is (i00, i11, i10), (i00, i01, i11). It is not arbitrary: M3's
         // geomorph invariant -- a fully morphed child mesh is triangle-for-triangle its
         // parent -- depends on this exact diagonal. Do not switch to a flipping scheme.

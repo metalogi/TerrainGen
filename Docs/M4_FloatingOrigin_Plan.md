@@ -354,13 +354,208 @@ transitively even though it never says so — the harness must exclude it by tha
 
 ## Definition of done
 
-- [ ] `EarthTerrainSettings.asset` exists with the C1–C3 and C5 values; `TerrainSettings.asset` is untouched apart from gaining `SkirtFraction: 0`.
-- [ ] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
-- [ ] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
+- [x] `EarthTerrainSettings.asset` exists with the C1–C3 and C5 values; `TerrainSettings.asset` is untouched apart from gaining `SkirtFraction: 0`.
+- [x] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
+- [x] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
 - [ ] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter or cracks.
-- [ ] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
-- [ ] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
-- [ ] `CLAUDE.md` updated; amendments section written.
+- [x] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
+- [x] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
+- [x] `CLAUDE.md` updated; amendments section written.
+
+## Amendments from implementing M4
+
+The plan above is the plan as written. Building it changed the following; they are recorded here
+rather than edited into the tasks, so the plan still reads as what was decided up front.
+
+### M4a
+
+1. **Test 3 reproduces C2's current replica — which on its own reconciled nothing.** Task 4 test 3's
+   `Select` calls `LodMath.NodeDistance`, the selector's own distance, and over face 0 (257 × 257
+   cameras at 0.5, 2 and 10 m) it reproduces the current replica exactly: **5,118** with
+   hysteresis-held splits, at `(20/256, 0)`, and **4,458** without, at the corner `(0, 0)`. This was
+   first written up as settling C2 in the second replica's favour. It did not: test 3's `Select` *is*
+   that replica's algorithm, so it agreeing is a replica agreeing with itself, and sharing the distance
+   covers none of the split, preload and depth logic where two replicas can differ. (C2's own wording,
+   "so its figure is the selector's", invited the mistake.) The independent check came in review —
+   item 17: the real `LodSelector` wants exactly what a fresh `Select` counts, 4,458 at the corner
+   included, which is what retires the first replica's 4,942. One small correction to the table's
+   claim that all three altitudes give the same worst: at 10 m it is 5,110, at the same camera.
+   `EarthScaleTests.WorkingSetFitsTheResidentBudget` pins 5,118 at that camera with a 1% tolerance, and
+   walks a descent from 10,000 km to 2 m asserting every step is under budget and none is above the
+   ground figure.
+   **The budget stays 6400 for now.** C2 names two conditions for bringing it down to about 5,800;
+   this is the first. The second is the `EarthStress` peak report, which needs M4b and a play session.
+2. **An absolute 2 m skirt covers depths 18 and 19, not "nothing coarser than about depth 17".** At
+   `C` 15 the coarse-node gap at depth 17 is 2.06 m. `SkirtFraction` 0.03 clears the 2.6% estimate at
+   every depth; `EarthScaleTests.SkirtCoversTheTransientGapAtEveryDepth` asserts both.
+3. **Octave starvation also warns at runtime, not only in a test.** C3 made it a test. It is also
+   `HeightParams.IsOctaveStarved(depth)`, and `TerrainRoot.Start` logs a warning naming the depth the
+   octaves run out at and the `OctaveCount` that would fix it, because the next scene to raise
+   `MaxDepth` will not have a test of its own. Not a throw: a deliberately smooth world is legitimate.
+4. **`EarthTerrainSettings.asset` was written by hand, not through the menu**, because the Editor
+   held the project open. The ground rule's trap — a stale field set — is covered by
+   `EarthSettingsAssetTests.ConstantsMatchTheEarthAsset`, which holds every constant `EarthScaleTests`
+   copies to the asset, `SkirtFraction` included, and so fails on a missing field whose C# default
+   differs. `WorkingSetTests.ConstantsMatchSampleScene` now also asserts `SampleScene`'s
+   `SkirtFraction` is 0.
+5. **`LodMath.NominalSize` gained a static `(s0, depth)` overload**, which the instance method calls.
+   `GenerationScheduler` sizes skirts with it and has `S0` but no `LodMath`; one expression means the
+   two cannot disagree on a node's size.
+6. **Test count.** M4a adds six: four in `EarthScaleTests` (the plan's three pure tests, plus the
+   skirt), `ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction` for C5's bit-identical claim, and the
+   Editor-only asset check. 79 in all, 63 of them pure.
+
+### M4b
+
+7. **C4 understated the triplanar error: the sum is quantised, not merely offset.**
+   `positionWS + _SonomaWorldOrigin` is a float the size of the world, so at Earth radius *every
+   fragment within half a metre* gets the same sample coordinate, and the pattern jumps by up to 0.25 m
+   per rebase. The decision stands — no textures, nothing visible — but the shader header, `CLAUDE.md`
+   and §4.5 record the quantisation, and that the current 0.05 scales (20 m periods) would not meet the
+   power-of-two constraint the fix implies.
+8. **`WorldOriginSystem.OnDestroy` zeroes the origin.** Not in the plan. The origin is static, and the
+   Editor does not reload the domain on leaving play mode, so after an `EarthStress` session it would
+   otherwise sit megametres out for the next session or EditMode test run. Before M4 nothing moved it.
+9. **`WorldOriginSystem.ShiftOrigin(Vector3)` is public**, split out of `LateUpdate`, so the rebase test
+   drives the real rebase without a camera. `LateUpdate` calls it, then zeroes the camera.
+10. **`TopologyFlyCamera` flies by clearance above the terrain**, through a new `TerrainRoot.HeightAt`,
+    and works out its absolute position in double. The plan said leave the speed model alone, and the
+    clamping is unchanged; what changed is what "elevation" measures. Measured from the base surface,
+    a camera two metres above a 5 km peak at `HeightScale` 9000 flew at 5 km/s, which would have made
+    the "nearby geometry" checks impossible. On `SampleScene` the two differ by tens of metres at most.
+11. **`EarthStress` camera:** 1,000 km above a sunlit coastline at direction
+    `(−0.1545, 0.6691, −0.7269)`, looking straight down. It first started above the −Z face centre,
+    which turned out to be the middle of the planet's largest basin: everything in view 2.4 to 4.9 km
+    below the base sphere, nothing above 1 km within 3,000 km, so one flat green — useless for spotting
+    cracks or jitter. The coastline was chosen by search for relief of a kilometre or more on both
+    sides within 300 km and the sun at least 30° up; the 500 km around it runs from −1,265 m to
+    +1,691 m, half above the white band and half below the green, so all three colour bands are in
+    view and any crack or wobble shows against them. (Only about 25% of this seed's surface is above
+    the white threshold, and the bands were tuned for `SampleScene`'s 50 m relief, so on Earth they
+    read as below and above sea level.) **The clip planes first shipped
+    static at 0.3 m to 20,000 km, and the scene drew nothing at all, with nothing in the log.** The
+    depth buffer was never the problem — URP's default on Windows is 32-bit float with reversed Z,
+    which takes any ratio. The culling frustum was. Unity builds the projection matrix in float and
+    extracts the frustum planes from it; at a far/near ratio of 6.7e7, `far + near` rounds to `far`,
+    `m22` to exactly −1, and the far plane's normal to zero, so the frustum is degenerate and every
+    renderer is culled. The threshold is about 3.4e7; at 1e6 the extracted plane is within 2%.
+    `TopologyFlyCamera.AutoClipPlanes` (off by default, on in `EarthStress`) now sets the planes every
+    frame: near at a tenth of the clearance above the terrain, far at the horizon bound for terrain up
+    to `HeightScale / (1 − Persistence)` high, capped at 1e6 × near. That is 100 km to 4,415 km at
+    orbit and 0.2 m to 200 km at two metres. `EarthSettingsAssetTests.SceneCamerasKeepACullableFrustum`
+    holds both scenes' static planes under 1e6 and `EarthStress`'s fly camera to managing its own.
+    `MaxSpeed` 50,000 m/s: the descent from 1,000 km takes
+    about half a minute at the default wheel setting, and above about 60 km the camera covers most of
+    `RebaseThreshold` every frame, so the origin rebases every frame or two -- the stress case.
+12. **Test 4's mutation check was run against an arithmetic replica, not yet in the Editor.** The same
+    random sequence with `Transform` replaced by a `float3`: `position -= shift` disagrees with the
+    recomputed position on the first shift, for near and far chunks alike, in 127,469 of 128,000
+    comparisons. The real mutation was then run in batchmode on 2026-10-11: with `ShiftOrigin` doing
+    `chunk.transform.position -= shift`, `RebaseIsExactAfterAThousandShifts` fails on shift 1, a chunk
+    5,500 km out landing one float step (0.5 m) from where it belongs; `TrackedTransformsMoveWithTheOrigin`
+    still passes, as it should. All 83 EditMode tests pass in batchmode without it, in 9.3 s, the Burst
+    witness compiled rather than ignored.
+13. **`EarthSettingsAssetTests.EarthStressRunsTheEarthAsset`** holds the scene to the asset and the
+    radius, as `ConstantsMatchSampleScene` does for `SampleScene`. Both now read scenes through a
+    shared `SceneConfig` helper. With the clip-plane test in 11, 83 tests in all, 63 pure.
+
+### Review
+
+Code review of the M4 pull request found the following; items 8, 11 and 1 above are superseded where
+these say so.
+
+14. **Every rebase frame morphed against the wrong point.** `TerrainRoot.Update` pushes
+    `_SonomaViewPosition`; the rebase lands in `WorldOriginSystem.LateUpdate`, before rendering. So the
+    frame of each rebase drew chunks moved by −shift around a camera at zero, while the morph still
+    measured from the pre-rebase point, a whole threshold away. From orbit, where the scene had been
+    looked at, morph windows are hundreds of kilometres and it cannot show. Near the ground, with windows
+    a few hundred metres wide, it would have popped the near field to its parents' geometry once per
+    rebase — the jitter this milestone exists to rule out, landing in the fly-down still owed.
+    `ShiftOrigin` now moves the global by the same delta, so it names the same absolute point the
+    selector ran from; `WorldOriginTests.ShiftCarriesTheViewPositionWithIt`.
+15. **One camera.** `WorldOriginSystem` rebased around `Camera.main` while `TerrainRoot` measured from
+    its own `ViewCamera` when set, so pointing that anywhere else would have left selection and the morph
+    a threshold off after every rebase. The field moved to `WorldOriginSystem.ViewCamera` (empty means
+    `Camera.main`) and `TerrainRoot` reads `WorldOriginSystem.ActiveCamera`. No scene serialized the old
+    field.
+16. **The rebase threshold scales with clearance.** At a fixed 1000 m the 50 km/s descent rebased every
+    frame above about 60 km, each a pass over every chunk. `RebasePerClearance × ViewClearance` now
+    raises it above `RebaseThreshold`, with `TopologyFlyCamera` reporting the clearance. The error a
+    rebase guards against is about 6e-8 of the render-space distance, against a pixel at the nearest
+    geometry of about 1e-3 of the clearance; at 10× the clearance that is under a thousandth of a pixel.
+    `EarthStress` runs 10; `SampleScene`, at 0, is unchanged. The profiler pass is still owed, and should
+    now find rebases a few times a second rather than every frame.
+17. **The Earth replica is held to the real selector.** `LodSelectorTests.EarthReplicaWantsWhatTheSelectorWants`
+    runs a fresh `LodSelector` at Earth scale — first frame, so no relief pad and no held split — at the
+    pinned camera, the corner, a face centre, 500 m and 100 km, and asserts its `WantedCount` equals a
+    fresh `EarthScaleTests.Select` exactly, and is 4,458 at the corner. The held variant the budget is
+    sized from differs only in the flag handed to the same `ShouldSplit`. With the runtime peak report,
+    that is C2's two conditions for lowering the budget toward 5,800 resting on independent evidence.
+18. **The near plane is a hundredth of the clearance, not a tenth** (item 11). Terrain *ahead* can be far
+    nearer than the ground below — a ridge rising past a camera flying level 3 km up was cut open at
+    300 m. At the auto-speed a hundredth of the clearance is under a frame's travel, so only terrain the
+    camera is about to hit is clipped. A 0.2 m floor keeps the ground behaviour (0.2 m to 200 km at two
+    metres); orbit becomes 10 km to 4,415 km. The arithmetic is `TopologyFlyCamera.ClipPlanes`, pure, and
+    `EarthSettingsAssetTests.FlyCameraClipPlanesStayCullableAndTight` sweeps it from the ground to
+    beyond orbit.
+19. **The origin is reset at play-mode boundaries, not in `OnDestroy`** (item 8). `OnDestroy` ran whenever
+    the component went away, so an additive unload or a deleted object mid-session would have zeroed the
+    origin under live terrain. `WorldOriginSystem.ResetOrigin` now runs on entering play
+    (`RuntimeInitializeOnLoadMethod`) and on returning to edit mode
+    (`Assets/Editor/WorldOriginPlayModeReset.cs`, which needs `UnityEditor` and so is not in the runtime
+    assembly).
+20. **C5 was wrong that a long skirt hangs out of hillsides.** A skirt drops along the heightfield's own
+    direction, so it lies directly beneath its edge, underground, and a continuous surface hides it from
+    every viewpoint; it shows only through a crack, which is its job. The cost of one large absolute
+    skirt is culling bounds padded by the same kilometres, not visible curtains. `SkirtFraction` stands,
+    on that reason alone; the tooltip and `CLAUDE.md` say so.
+21. **`WorldOriginTests` restores the shader globals it moves**, not just the static, so a test run no
+    longer leaves the Editor's `_SonomaWorldOrigin` megametres out while the C# side says zero. Six new
+    tests in all: three in `WorldOriginTests`, two in `EarthSettingsAssetTests`, one in
+    `LodSelectorTests`. 89 EditMode tests, 63 of them pure.
+
+### Flying low
+
+22. **The first low flight over `EarthStress` showed long straight lines on the ground, converging on
+    the horizon.** Not rendering: a hillshade of the bare height function had them too, along the
+    `x`, `y` and `z = const` lattice planes. `LatticeNoise.Gradient3D` narrowed the fractional cell
+    coordinate to float on M2's reasoning that it is in `[0,1)` and so independent of distance from the
+    origin. It is — but it is 24 bits *of a cell*, and octave 0's cell here is 10,400 km, so 2⁻²⁴ of it
+    is 0.62 m. Every coarse octave was an axis-aligned staircase (0.62 m treads for octave 0, halving
+    each octave to about octave 16), with millimetre risers that Earth's metre-scale slopes of a few
+    thousandths turned into visible shading lines whenever the view ran along a lattice plane. Column
+    striping in the hillshade was 68× row striping at 0.5 m sampling; with the noise in double, 0.98.
+    The fraction, interpolation and octave sum are now double and `Height` narrows once; per-octave
+    float values were the same error along contours (0.5 mm for octave 0 at `HeightScale` 9000). The
+    remaining roughness is the float height's own ULP, 0.06 mm at 800 m and 0.5 mm at 5 km — noise,
+    not lines; storing heights in double through the mesh job would remove it, and is not done.
+    `HeightFunctionTests.EarthScaleHeightHasNoAxisAlignedSteps` guards it: the original code fails it on
+    every axis at every point it samples, by 2.4× to 110×, and narrowing the fraction alone fails it
+    at the start point by 4×. The existing `PrecisionDoesNotCollapseAtLargeCoordinates` steps 1e-3 of a cell and
+    could never have seen it. `SampleScene`'s cells are 490 m, which is why the M3 work never did. Its
+    pinned relief figures moved by far less than their tolerance. Managed code runs the double noise
+    no slower than the float one; Burst's cost is unmeasured. 90 EditMode tests, 64 of them pure.
+23. **The session reports are now unconditional, and the rebase has its own.** The selector's peak
+    working set first printed only when the budget warning had fired, so a descent that stayed under
+    budget — the one that says by how much — printed nothing. It now prints every session, a plain log
+    under budget. `WorldOriginSystem` logs the session's rebase count, rate, busiest second and slowest
+    rebase when play ends, and marks each rebase `WorldOriginSystem.ShiftOrigin` for the Profiler. It
+    times with `Stopwatch`: Unity re-bases `Time.realtimeSinceStartupAsDouble` between entering play
+    and the teardown on leaving it, and the first cut reported a −4 s session.
+    The descent from orbit to the ground, measured: **5 rebases** at `RebasePerClearance` 10, about one
+    per 11× fall in altitude, against one every frame or two above 60 km at a fixed 1000 m. The slowest
+    took **2.48 ms over 3,818 chunks** in Editor play mode, about 0.65 µs a chunk — over the 2 ms
+    terrain budget for that one frame, harmless at five a descent, and what makes the per-frame rate
+    the clearance scaling removed a real cost rather than a theoretical one. The working set **peaked
+    at 4,430**, under the 5,118 worst case.
+24. **`MaxResidentChunks` is 5,800** (amendment 1 left it at 6,400). Both of C2's conditions now hold on
+    independent evidence: the real `LodSelector` wants exactly what the replica counts (item 17), and
+    the runtime peak over a full descent stayed under the replica's 5,118 (item 23). 5,800 is 13% over
+    that worst case, the same headroom `SampleScene`'s 4,000 has over its 3,546, and about 570 MB of
+    vertex data at the limit. The flight did not pass the worst camera — a face edge with every split
+    hysteresis can hold — so the margin is over the analysis, not over the flight.
+    `EarthScaleTests.Budget` and the asset moved together; `EarthSettingsAssetTests` holds them to
+    each other.
 
 ## Out of scope for M4
 

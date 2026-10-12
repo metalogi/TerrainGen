@@ -52,6 +52,8 @@ The robust fix is to never bake neighbour state into a chunk. Make heights a pur
 
 Fix: a lattice noise that takes `double3`, computes the integer cell with a double `floor`, hashes the cell as `int3`, and evaluates the fractional part in float. Precision is then independent of coordinate magnitude. Burst handles double math natively.
 
+**Corrected during M4:** independent of magnitude, but not of cell size. A float fraction resolves 2⁻²⁴ of a cell, and at Earth radius octave 0's cell is 10,400 km — 0.62 m, which made every coarse octave an axis-aligned staircase and drew long straight lines on `EarthStress`'s ground. The fraction, the interpolation and the octave sum are all double now; only the final height is float.
+
 ### 2.4 Synchronous, unprioritised generation with no cancellation
 
 `ProcessGenerationQueue` dequeues three nodes per frame and runs noise (≈8,000 simplex evaluations per chunk at resolution 33, six octaves), mesh building with managed arrays, and `mesh.vertices =` on the main thread. At the design's 129×129 resolution that is ≈100,000 evaluations per chunk. The 2 ms frame budget is unreachable on this path.
@@ -159,6 +161,7 @@ Rules:
 
 - **Pure and deterministic.** Same `(surfacePos, maxOctave, seed)` → same bits, on any thread, in any order. This is what makes shared edge vertices agree without stitching, and what makes the whole pipeline trivially parallel.
 - **Double-precision lattice noise.** `LatticeNoise.Gradient3D(double3 p, uint seed)`: `int3 cell = (int3)floor(p)` in double, `float3 f = (float3)(p − cell)`, gradient hash from `(cell, seed)`. Simplex is not required; 3D Perlin-style gradient noise with quintic fade is fine and easy to make exact.
+  - **Corrected during M4: `f` must stay double.** 2⁻²⁴ of octave 0's 10,400 km cell at Earth radius is 0.62 m, so a float `f` stepped the coarse octaves along every world axis. See §2.3's correction and `HeightFunctionTests.EarthScaleHeightHasNoAxisAlignedSteps`.
 - **Band-limited per depth.** Octave k has wavelength `λ0 / 2^k`. A chunk at depth d with vertex spacing `s_d` includes octaves with `λ_k ≥ 2·s_d`. `maxOctave(d)` is a settings-derived lookup.
 - **Zero-mean.** Use `snoise`-style signed noise so the base surface is the mean.
 - **Macro layer in, not up.** `MacroSample` is a bicubic read of the persistent Level-0 maps (§4.6); at first it is a constant zero and the function is plain fBm.
@@ -214,6 +217,8 @@ This replaces both "T-junction stitching" (Phase 2) and "LOD transition morphing
 - Every chunk keeps `double3 Anchor`. Mesh vertices are chunk-local, so their float magnitude never exceeds the chunk size regardless of world position.
 - `WorldOriginSystem` on rebase sets `position = (float3)(Anchor − WorldOrigin)` for every resident chunk from the double anchor (no accumulation), moves the camera and any tracked rigs, and pushes the origin to the shader as now.
 - Triplanar sampling continues to use `positionWS + _SonomaWorldOrigin`; at planetary scale this float sum is imprecise, so switch the shader to sample texture coordinates from the chunk-local position plus a per-chunk low-precision offset, or accept slight texture swimming far from the origin. Decide when textures are real.
+  - **Deferred in M4, deliberately.** At Earth radius the sum is quantised to 0.5 m — worse than swimming: every fragment within half a metre samples the same texel, and the pattern jumps by up to 0.25 m per rebase. It is invisible only because `TerrainTriplaner.mat` has no textures. The likely fix is to push the origin reduced modulo a large power of two (computed in double), which keeps the sum small but tiles seamlessly only when every triplanar period divides the modulus — so texture periods must be powers of two metres. That is a texture-authoring constraint, and it belongs with the textures (M7 or whenever they land). Recorded in the shader header and `CLAUDE.md`; see `Docs/M4_FloatingOrigin_Plan.md` C4.
+- **The camera must be a root object** (M4). A rebase zeroes its world position, which leaves any rig it is parented under behind. Rigs and other render-space objects go in `WorldOriginSystem.Tracked` and are shifted by the delta; unlike chunks they have no double anchor, so they carry float rounding across rebases.
 
 ### 4.6 Macro layer and biomes (the real "Level 0")
 

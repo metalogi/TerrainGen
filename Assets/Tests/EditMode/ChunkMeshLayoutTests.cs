@@ -229,5 +229,26 @@ namespace Sonoma.Tests
             Check(SurfaceDef.PlaneGrid(100.0, 2, 2),      "PlaneGrid");
             Check(SurfaceDef.Cylinder(1000.0, 4000.0, 8), "Cylinder");
         }
+
+        // SkirtFraction arrived in M4 for the Earth-sized scene, and SampleScene sets none. A
+        // fraction of 0 must give back the absolute depth to the bit at every node size, or every
+        // existing chunk's skirt moves by a rounding error and the scene is no longer the one the
+        // M3 figures were measured on.
+        [Test]
+        public void SkirtDropIsExactWithNoFraction()
+        {
+            foreach (float depth in new[] { 0f, 1e-3f, 1f, 2f, 10f, 1234.567f })
+            for (int d = 0; d <= 62; d++)
+            foreach (double s0 in new[] { 489.9, 10403799.0, 1.0 / 3.0 })
+            {
+                double size = s0 / (double)(1L << d);
+                Assert.AreEqual(BitConverter.SingleToInt32Bits(depth),
+                                BitConverter.SingleToInt32Bits(ChunkMeshLayout.SkirtDrop(depth, 0f, size)),
+                                $"skirt depth {depth} at node size {size} changed with no fraction");
+            }
+
+            // And the fraction does scale with the node.
+            Assert.AreEqual(1.0 + 0.03 * 1000.0, ChunkMeshLayout.SkirtDrop(1f, 0.03f, 1000.0), 1e-3);
+        }
     }
 }

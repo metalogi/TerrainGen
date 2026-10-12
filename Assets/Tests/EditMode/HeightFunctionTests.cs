@@ -313,5 +313,63 @@ namespace Sonoma.Tests
             Assert.Less(math.abs(mean), 0.02 * HeightScale,
                 $"mean height over {n} samples was {mean:F4} m; expected ~0");
         }
+
+        // The noise's fractional cell coordinate must not be float. It is in [0,1), so a float
+        // holds it to 2^-24 of a cell -- but octave 0's cell at Earth radius is 10,400 km, and
+        // 2^-24 of that is 0.62 m. Octave 0 then rises in 0.62 m steps along every world axis,
+        // octave 1 in 0.31 m steps, and so on; the risers are about a millimetre, and on ground
+        // as smooth as Earth's at metre scale the shading draws them as long straight lines
+        // along the x, y and z lattice planes. That is what EarthStress showed flying low.
+        //
+        // Heights along each world axis, 5 cm apart over 6 m, at four places on EarthStress's
+        // sphere, the first its start. The second difference of smooth terrain is tens of
+        // microns at that spacing; what is left above it is the float height's own rounding,
+        // allowed for as two ULPs of |height|. Measured with the float fraction: 0.98 to 5.7 mm,
+        // failing on every axis at every point. With the noise in double: 0.019 mm at the start
+        // (-15 m), and exactly one height ULP elsewhere (0.06 mm at 817 m, 0.49 mm at 5.1 km).
+        //
+        // Mutation check: narrowing f = p - fl to float in LatticeNoise.Gradient3D fails this.
+        [Test]
+        public void EarthScaleHeightHasNoAxisAlignedSteps()
+        {
+            var p = HeightParams.Create(Sphere(), Resolution, 0.0, 24, 9000f, 0.5f, 2f, 42u);
+            const int    MaxOctave = 23;      // depth 19's band limit on the Earth configuration
+            const double Step      = 0.05;
+
+            var points = new[]
+            {
+                new double3(-0.1545, 0.6691, -0.7269),   // EarthStress's start, near sea level
+                new double3( 0.31,   0.52,    0.79),
+                new double3( 0.9,   -0.3,     0.2),
+                new double3(-0.5,   -0.5,     0.7),
+            };
+
+            foreach (var dir in points)
+            {
+                double3 origin = math.normalize(dir) * EarthRadius;
+                float   h      = TerrainHeightFunction.Height(origin, MaxOctave, MacroSample.Zero, p);
+                float   mag    = math.abs(h);
+                double  ulp    = math.asfloat(math.asuint(mag) + 1u) - mag;
+                double  limit  = 2.0 * ulp + 5e-5;
+
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    var    a     = axis == 0 ? new double3(1, 0, 0) : axis == 1 ? new double3(0, 1, 0) : new double3(0, 0, 1);
+                    double worst = 0.0;
+                    for (int i = 1; i < 120; i++)
+                    {
+                        double h0 = TerrainHeightFunction.Height(origin + a * ((i - 1) * Step), MaxOctave, MacroSample.Zero, p);
+                        double h1 = TerrainHeightFunction.Height(origin + a * (i * Step),       MaxOctave, MacroSample.Zero, p);
+                        double h2 = TerrainHeightFunction.Height(origin + a * ((i + 1) * Step), MaxOctave, MacroSample.Zero, p);
+                        worst = math.max(worst, math.abs(h2 - 2.0 * h1 + h0));
+                    }
+
+                    Assert.LessOrEqual(worst, limit,
+                        $"at {dir} (height {h:F1} m) along {"xyz"[axis]}: a second difference of " +
+                        $"{worst * 1000:F3} mm over {Step} m, against {limit * 1000:F3} mm allowed. The " +
+                        "noise is stepping along a lattice axis -- check its fraction is double.");
+                }
+            }
+        }
     }
 }

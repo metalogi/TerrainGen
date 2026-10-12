@@ -14,6 +14,16 @@
 //   positionWS so triplanar samples on true world coordinates and stays continuous
 //   through floating-origin rebases.
 //
+//   PRECISION LIMIT, deliberately not fixed (Docs/M4_FloatingOrigin_Plan.md C4). The sum is
+//   a float the size of the world, so at Earth radius it is quantised to 0.5 m: every
+//   fragment within half a metre samples the same texel, and the pattern jumps by up to
+//   0.25 m each time the origin rebases. Invisible today only because TerrainTriplaner.mat
+//   has no textures, so every sample is the default white. The fix, when textures are real:
+//   reduce the origin modulo a large power of two, in double, before it is pushed, so the
+//   sum stays small. That tiles seamlessly only if every triplanar period (1 / _*Scale)
+//   divides the modulus, so texture periods must be powers of two metres -- the current
+//   0.05 scales are 20 m periods and would not qualify.
+//
 //   _SonomaMorphRanges (float4[32]), from TerrainRoot.PushShaderGlobals — (start, end) per
 //   depth. A global array rather than a per-chunk MaterialPropertyBlock, because a
 //   property block breaks SRP batching; that is the whole reason depth travels in a
@@ -21,7 +31,8 @@
 //
 //   _SonomaViewPosition (float3), from TerrainRoot.PushShaderGlobals — the position the
 //   morph measures distance from, in render space, and the same one LodSelector selected
-//   with this frame. NOT _WorldSpaceCameraPos: URP restores that for the main-light
+//   with this frame; WorldOriginSystem.ShiftOrigin moves it with the world when a rebase
+//   lands after the push. NOT _WorldSpaceCameraPos: URP restores that for the main-light
 //   shadow pass but not for the additional-lights one, so a scene with a shadow-casting
 //   point or spot light and no shadowed directional light renders the terrain's shadow
 //   caster against a stale camera and morphs it by a different k than ForwardLit used.
@@ -273,6 +284,7 @@ Shader "Sonoma/TerrainTriplanar"
             {
                 float3 N     = normalize(input.normalWS);
                 float3 absN  = abs(N);
+                // Quantised to 0.5 m at Earth radius; see PRECISION LIMIT in the header.
                 float3 wpTri = input.positionWS + _SonomaWorldOrigin;
 
                 half3 lo  = _LowColor.rgb   * SampleTriplanar(_LowTex,   sampler_LowTex,   wpTri, absN, _LowScale);

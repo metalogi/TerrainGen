@@ -32,13 +32,17 @@ namespace Sonoma.Core.Generation
             // in double so the cell index stays exact at planetary distances.
             double3 n = surfacePos / p.OctaveWavelength0;
 
-            float fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed);
+            double fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed);
 
             // Signed noise, so the base surface is the mean and the terrain sits around it.
             // The prototype summed amp * (snoise * 0.5 + 0.5), which biases every sample
             // positive and floats the whole surface above the sphere -- SonomaRevisedPlan.md
             // section 2.6.
-            return p.HeightScale * fbm + macro.BaseHeight;
+            //
+            // The noise and its sum are double, and this is the one narrowing. What is left is
+            // the float height itself -- one ULP of |height|, 0.06 mm at 800 m and 0.5 mm at
+            // 5 km -- which is noise, not the axis-aligned staircase a float fraction made.
+            return (float)(p.HeightScale * fbm + macro.BaseHeight);
         }
     }
 }
