@@ -11,10 +11,24 @@ namespace Sonoma.Core.Generation
     // samples per lattice cell and every finer octave is worse than noise. See
     // SonomaRevisedPlan.md section 2.3.
     //
-    // The fix is structural rather than a wider float: the integer cell is taken with a
-    // double floor, and only the fractional part -- always in [0,1) -- becomes a float.
-    // Precision is then independent of how far from the origin the sample is. The cost is
-    // one double floor and one subtract per octave; the gradient evaluation stays float.
+    // The integer cell is taken with a double floor, and everything after it -- the
+    // fractional part, the fade, the corner dots, the interpolation -- stays in double too.
+    //
+    // M2 narrowed the fractional part to float on the reasoning that it is always in [0,1),
+    // so its 24 bits are "independent of how far from the origin the sample is". True, and not
+    // enough: they are 24 bits of a CELL, and a cell is as wide as its octave's wavelength. At
+    // Earth radius octave 0's cell is 10,400 km, so 2^-24 of it is 0.62 m -- octave 0 became a
+    // staircase with 0.62 m treads along each world axis, octave 1 one with 0.31 m treads, and
+    // so on down to about octave 16. The risers are around a millimetre, which would not matter
+    // on rough ground; Earth's at metre scale has slopes of a few thousandths, so the shading
+    // showed them as long straight lines along the x, y and z lattice planes, visible flying low
+    // when looking along one. SampleScene's 490 m cells resolve to 0.03 mm and never showed it.
+    // HeightFunctionTests.EarthScaleHeightHasNoAxisAlignedSteps is the regression test.
+    //
+    // The result is double as well, and Fbm sums in double: narrowing each octave's value to
+    // float re-quantises octave 0 at 9000 m x 2^-24 = 0.5 mm, which terraces along contours
+    // instead of axes but is the same species of error. TerrainHeightFunction narrows once,
+    // at the end. Measured in managed code, the double path costs no more than the float one.
     public static class LatticeNoise
     {
         // Ken Perlin's improved-noise gradient set: the 12 cube-edge directions, with 4
@@ -69,41 +83,41 @@ namespace Sonoma.Core.Generation
         // Do not normalise the result. The textbook bound of sqrt(3)/2 ~ 0.866 quoted for
         // 3D Perlin does not hold for this 16-entry gradient table (hill-climbing reaches
         // 1.000000), so scaling by 2/sqrt(3) would clip. Amplitude belongs to HeightScale.
-        public static float Gradient3D(double3 p, uint seed)
+        public static double Gradient3D(double3 p, uint seed)
         {
             double3 fl = math.floor(p);
             int3    c  = (int3)fl;
 
-            // The one and only narrowing. p - fl is evaluated in double and is in [0,1),
-            // so the float carries its full 24 bits no matter how large |p| is. Writing
-            // this as (float3)p - (float3)fl reintroduces the section 2.3 bug and is what
+            // In double from here to the return; see the class comment for why a float
+            // fraction is not enough. Writing this as (float3)p - (float3)fl reintroduces the
+            // section 2.3 bug as well, and is what
             // LatticeNoiseTests.PrecisionDoesNotCollapseAtLargeCoordinates mutation-checks.
-            float3 f = (float3)(p - fl);
+            double3 f = p - fl;
 
-            float3 t = f * f * f * (f * (f * 6f - 15f) + 10f);   // quintic fade
+            double3 t = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);   // quintic fade
 
-            float n000 = Corner(c, 0, 0, 0, f, seed);
-            float n100 = Corner(c, 1, 0, 0, f, seed);
-            float n010 = Corner(c, 0, 1, 0, f, seed);
-            float n110 = Corner(c, 1, 1, 0, f, seed);
-            float n001 = Corner(c, 0, 0, 1, f, seed);
-            float n101 = Corner(c, 1, 0, 1, f, seed);
-            float n011 = Corner(c, 0, 1, 1, f, seed);
-            float n111 = Corner(c, 1, 1, 1, f, seed);
+            double n000 = Corner(c, 0, 0, 0, f, seed);
+            double n100 = Corner(c, 1, 0, 0, f, seed);
+            double n010 = Corner(c, 0, 1, 0, f, seed);
+            double n110 = Corner(c, 1, 1, 0, f, seed);
+            double n001 = Corner(c, 0, 0, 1, f, seed);
+            double n101 = Corner(c, 1, 0, 1, f, seed);
+            double n011 = Corner(c, 0, 1, 1, f, seed);
+            double n111 = Corner(c, 1, 1, 1, f, seed);
 
-            float x00 = math.lerp(n000, n100, t.x);
-            float x10 = math.lerp(n010, n110, t.x);
-            float x01 = math.lerp(n001, n101, t.x);
-            float x11 = math.lerp(n011, n111, t.x);
+            double x00 = math.lerp(n000, n100, t.x);
+            double x10 = math.lerp(n010, n110, t.x);
+            double x01 = math.lerp(n001, n101, t.x);
+            double x11 = math.lerp(n011, n111, t.x);
 
             return math.lerp(math.lerp(x00, x10, t.y),
                              math.lerp(x01, x11, t.y), t.z);
         }
 
-        static float Corner(int3 c, int i, int j, int k, float3 f, uint seed)
+        static double Corner(int3 c, int i, int j, int k, double3 f, uint seed)
         {
-            float3 g = Gradient(Hash(new int3(c.x + i, c.y + j, c.z + k), seed));
-            return math.dot(g, new float3(f.x - i, f.y - j, f.z - k));
+            double3 g = Gradient(Hash(new int3(c.x + i, c.y + j, c.z + k), seed));
+            return math.dot(g, new double3(f.x - i, f.y - j, f.z - k));
         }
 
         // Summed octaves. octaveCount comes from HeightParams.MaxOctave(depth) + 1.
@@ -112,12 +126,12 @@ namespace Sonoma.Core.Generation
         // evaluation is a strict prefix of a finer one at the same point. That is what lets
         // a chunk and its parent agree on the terms they share, and it is the property M3's
         // geomorph target depends on.
-        public static float Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed)
+        public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed)
         {
             double lac = lacunarity;
             double3 q  = p;
-            float sum  = 0f;
-            float amp  = 1f;
+            double sum = 0.0;
+            double amp = 1.0;
 
             for (int k = 0; k < octaveCount; k++)
             {

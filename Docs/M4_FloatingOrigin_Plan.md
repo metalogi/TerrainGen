@@ -514,6 +514,28 @@ these say so.
     tests in all: three in `WorldOriginTests`, two in `EarthSettingsAssetTests`, one in
     `LodSelectorTests`. 89 EditMode tests, 63 of them pure.
 
+### Flying low
+
+22. **The first low flight over `EarthStress` showed long straight lines on the ground, converging on
+    the horizon.** Not rendering: a hillshade of the bare height function had them too, along the
+    `x`, `y` and `z = const` lattice planes. `LatticeNoise.Gradient3D` narrowed the fractional cell
+    coordinate to float on M2's reasoning that it is in `[0,1)` and so independent of distance from the
+    origin. It is — but it is 24 bits *of a cell*, and octave 0's cell here is 10,400 km, so 2⁻²⁴ of it
+    is 0.62 m. Every coarse octave was an axis-aligned staircase (0.62 m treads for octave 0, halving
+    each octave to about octave 16), with millimetre risers that Earth's metre-scale slopes of a few
+    thousandths turned into visible shading lines whenever the view ran along a lattice plane. Column
+    striping in the hillshade was 68× row striping at 0.5 m sampling; with the noise in double, 0.98.
+    The fraction, interpolation and octave sum are now double and `Height` narrows once; per-octave
+    float values were the same error along contours (0.5 mm for octave 0 at `HeightScale` 9000). The
+    remaining roughness is the float height's own ULP, 0.06 mm at 800 m and 0.5 mm at 5 km — noise,
+    not lines; storing heights in double through the mesh job would remove it, and is not done.
+    `HeightFunctionTests.EarthScaleHeightHasNoAxisAlignedSteps` guards it: the original code fails it on
+    every axis at every point it samples, by 2.4× to 110×, and narrowing the fraction alone fails it
+    at the start point by 4×. The existing `PrecisionDoesNotCollapseAtLargeCoordinates` steps 1e-3 of a cell and
+    could never have seen it. `SampleScene`'s cells are 490 m, which is why the M3 work never did. Its
+    pinned relief figures moved by far less than their tolerance. Managed code runs the double noise
+    no slower than the float one; Burst's cost is unmeasured. 90 EditMode tests, 64 of them pure.
+
 ## Out of scope for M4
 
 - **Fixing triplanar precision.** C4. Revisit when textures are real — M7, or whenever they land.
