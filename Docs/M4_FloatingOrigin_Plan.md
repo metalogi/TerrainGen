@@ -358,7 +358,7 @@ transitively even though it never says so — the harness must exclude it by tha
 - [x] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
 - [x] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
 - [ ] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter or cracks.
-- [ ] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
+- [x] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
 - [x] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
 - [x] `CLAUDE.md` updated; amendments section written.
 
@@ -445,7 +445,11 @@ rather than edited into the tasks, so the plan still reads as what was decided u
 12. **Test 4's mutation check was run against an arithmetic replica, not yet in the Editor.** The same
     random sequence with `Transform` replaced by a `float3`: `position -= shift` disagrees with the
     recomputed position on the first shift, for near and far chunks alike, in 127,469 of 128,000
-    comparisons. The in-Editor run of the real mutation is still owed.
+    comparisons. The real mutation was then run in batchmode on 2026-10-11: with `ShiftOrigin` doing
+    `chunk.transform.position -= shift`, `RebaseIsExactAfterAThousandShifts` fails on shift 1, a chunk
+    5,500 km out landing one float step (0.5 m) from where it belongs; `TrackedTransformsMoveWithTheOrigin`
+    still passes, as it should. All 83 EditMode tests pass in batchmode without it, in 9.3 s, the Burst
+    witness compiled rather than ignored.
 13. **`EarthSettingsAssetTests.EarthStressRunsTheEarthAsset`** holds the scene to the asset and the
     radius, as `ConstantsMatchSampleScene` does for `SampleScene`. Both now read scenes through a
     shared `SceneConfig` helper. With the clip-plane test in 11, 83 tests in all, 63 pure.
