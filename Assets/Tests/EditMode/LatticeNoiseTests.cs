@@ -24,7 +24,7 @@ namespace Sonoma.Tests
 
                 // Every gradient dots against a zero offset vector at its own corner, and
                 // the fade weights put all of it on that corner. Exactly zero, not nearly.
-                Assert.AreEqual(0f, LatticeNoise.Gradient3D(c, Seed),
+                Assert.AreEqual(0.0, LatticeNoise.Gradient3D(c, Seed),
                     $"noise is not exactly zero at lattice point {c}");
             }
         }
@@ -32,8 +32,8 @@ namespace Sonoma.Tests
         [Test]
         public void NoiseRangeIsWithinUnitInterval()
         {
-            var   rng = new Unity.Mathematics.Random(23456);
-            float peak = 0f;
+            var    rng  = new Unity.Mathematics.Random(23456);
+            double peak = 0.0;
 
             for (int i = 0; i < 200000; i++)
             {
@@ -41,10 +41,10 @@ namespace Sonoma.Tests
                                     rng.NextDouble(-1000.0, 1000.0),
                                     rng.NextDouble(-1000.0, 1000.0));
 
-                float n = LatticeNoise.Gradient3D(p, Seed);
+                double n = LatticeNoise.Gradient3D(p, Seed);
                 peak = math.max(peak, math.abs(n));
 
-                Assert.LessOrEqual(math.abs(n), 1.0f + 1e-5f,
+                Assert.LessOrEqual(math.abs(n), 1.0 + 1e-9,
                     $"noise escaped [-1, 1] at {p}: {n}");
             }
 
@@ -55,7 +55,7 @@ namespace Sonoma.Tests
             //
             // The textbook sqrt(3)/2 ~ 0.866 bound for 3D Perlin does not apply to the
             // 16-entry improved-noise table. Do not "correct" the amplitude to match it.
-            Assert.Greater(peak, 0.9f,
+            Assert.Greater(peak, 0.9,
                 $"peak |noise| over 200k samples was only {peak:F4}; expected ~0.93");
         }
 
@@ -92,18 +92,18 @@ namespace Sonoma.Tests
                                      rng.NextDouble(-1e6, 1e6),
                                      rng.NextDouble(-1e6, 1e6));
 
-            var expected = new uint[pts.Length];
+            var expected = new ulong[pts.Length];
             for (int i = 0; i < pts.Length; i++)
-                expected[i] = math.asuint(LatticeNoise.Gradient3D(pts[i], Seed));
+                expected[i] = math.asulong(LatticeNoise.Gradient3D(pts[i], Seed));
 
-            var tasks = new Task<uint[]>[4];
+            var tasks = new Task<ulong[]>[4];
             for (int t = 0; t < tasks.Length; t++)
             {
                 tasks[t] = Task.Run(() =>
                 {
-                    var got = new uint[pts.Length];
+                    var got = new ulong[pts.Length];
                     for (int i = 0; i < pts.Length; i++)
-                        got[i] = math.asuint(LatticeNoise.Gradient3D(pts[i], Seed));
+                        got[i] = math.asulong(LatticeNoise.Gradient3D(pts[i], Seed));
                     return got;
                 });
             }
