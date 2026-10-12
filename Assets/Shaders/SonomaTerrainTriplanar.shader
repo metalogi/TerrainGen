@@ -31,7 +31,8 @@
 //
 //   _SonomaViewPosition (float3), from TerrainRoot.PushShaderGlobals — the position the
 //   morph measures distance from, in render space, and the same one LodSelector selected
-//   with this frame. NOT _WorldSpaceCameraPos: URP restores that for the main-light
+//   with this frame; WorldOriginSystem.ShiftOrigin moves it with the world when a rebase
+//   lands after the push. NOT _WorldSpaceCameraPos: URP restores that for the main-light
 //   shadow pass but not for the additional-lights one, so a scene with a shadow-casting
 //   point or spot light and no shadowed directional light renders the terrain's shadow
 //   caster against a stale camera and morphs it by a different k than ForwardLit used.

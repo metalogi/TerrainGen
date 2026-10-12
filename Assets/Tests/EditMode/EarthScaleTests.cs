@@ -42,13 +42,13 @@ namespace Sonoma.Tests
         // when the terrain shuts down. If that ever exceeds this, raise it here and re-check.
         const double EarthReliefFactor = 15.0;
 
-        static SurfaceDef Earth => SurfaceDef.CubeSphere(Radius);
+        internal static SurfaceDef Earth => SurfaceDef.CubeSphere(Radius);
 
-        static HeightParams Params(int octaveCount) =>
+        internal static HeightParams Params(int octaveCount) =>
             HeightParams.Create(Earth, Resolution, 0.0, octaveCount, HeightScale, Persistence,
                                 Lacunarity, Seed);
 
-        static LodMath Lod(in HeightParams p) =>
+        internal static LodMath Lod(in HeightParams p) =>
             LodMath.Create(Earth, p, SplitFactor, MorphStart, Hysteresis, Preload, MaxDepth);
 
         // C3: at depth 19 the band limit wants octave 23. With the OctaveCount of 20 every other
@@ -173,9 +173,12 @@ namespace Sonoma.Tests
         }
 
         // WorkingSetTests.Select, minus the relief and the job system: every wanted node, every
-        // preloaded child, and every split hysteresis can hold (currentlySplit: true), which is
-        // what a camera that has just backed away leaves behind.
-        static int Select(in SurfaceDef s, RootQuad[] roots, in LodMath lod, double3 camera)
+        // preloaded child, and -- with `held` -- every split hysteresis can hold
+        // (currentlySplit: true), which is what a camera that has just backed away leaves behind.
+        // Without `held` it is a fresh selection, which LodSelectorTests checks against the real
+        // selector so that this replica's figures stand on more than agreeing with themselves.
+        internal static int Select(in SurfaceDef s, RootQuad[] roots, in LodMath lod, double3 camera,
+                                   bool held = true)
         {
             var wanted = new HashSet<NodeId>();
             var level  = new List<NodeId>();
@@ -191,7 +194,7 @@ namespace Sonoma.Tests
                 foreach (var node in level)
                 {
                     double dist = LodMath.NodeDistance(s, roots[node.Quad], node, camera, 0f, 0f);
-                    if (lod.ShouldSplit(dist, depth, currentlySplit: true))
+                    if (lod.ShouldSplit(dist, depth, currentlySplit: held))
                         for (int i = 0; i < 4; i++) next.Add(node.Child(i));
                     else if (dist < lod.PreloadDistance(depth))
                         for (int i = 0; i < 4; i++) wanted.Add(node.Child(i));

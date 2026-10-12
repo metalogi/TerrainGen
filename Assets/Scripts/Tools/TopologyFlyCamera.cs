@@ -51,10 +51,17 @@ public class TopologyFlyCamera : MonoBehaviour
              "the camera's own planes alone.")]
     public bool AutoClipPlanes = false;
 
-    // The near plane sits at this fraction of the clearance, so geometry closer than a tenth of
-    // the camera's height above the ground is clipped -- only ever the side of a cliff.
-    const float NearPerClearance = 0.1f;
-    const float MinNearClip      = 0.1f;
+    // The near plane sits at a hundredth of the clearance above the ground directly below.
+    //
+    // Terrain AHEAD can be much nearer than the ground below -- a ridge rising past a camera
+    // flying level over a valley -- and nothing bounds how near, so the fraction is set by what
+    // the camera can do rather than by where the ground is. At the auto-speed, clearance x
+    // SpeedPerMetre (1 /s in EarthStress), a hundredth of the clearance is under one frame's
+    // travel at 60 fps: terrain nearer than that is terrain the camera is about to fly into. A
+    // tenth, as this first shipped, cut a ridge open at 300 m in front of a camera 3 km up. The
+    // floor keeps the ground behaviour of that first cut: at two metres, 0.2 m to 200 km.
+    public const float NearPerClearance = 0.01f;
+    public const float MinNearClip      = 0.2f;
 
     // Unity builds the projection matrix in float and takes the culling frustum from it. The
     // far plane's normal comes out as 1 + m22, and m22 = -(far + near) / (far - near), so past
@@ -62,11 +69,12 @@ public class TopologyFlyCamera : MonoBehaviour
     // normal to zero: the frustum is degenerate and every renderer is culled. EarthStress
     // shipped at 0.3 m to 20,000 km, a ratio of 6.7e7, and showed nothing. At 1e6 the extracted
     // plane is within about 2% of where it was asked for.
-    const float MaxClipRatio = 1e6f;
+    public const float MaxClipRatio = 1e6f;
 
     InputAction _move, _look, _wheel, _sprint, _lookEnable;
     float  _wheelMult = 1f;
     Camera _camera;
+    WorldOriginSystem _origin;
 
     void OnEnable()
     {
@@ -105,6 +113,7 @@ public class TopologyFlyCamera : MonoBehaviour
         if (Terrain == null)
             Terrain = FindAnyObjectByType<TerrainRoot>();
         _camera = GetComponent<Camera>();
+        _origin = FindAnyObjectByType<WorldOriginSystem>();
     }
 
     void Update()
@@ -115,6 +124,11 @@ public class TopologyFlyCamera : MonoBehaviour
 
         Vector3 topoUp    = ComputeTopoUp(transform.position);
         float   elevation = ComputeElevation(transform.position);
+
+        // The origin system scales its rebase threshold by this when RebasePerClearance is set;
+        // only the camera it rebases around has a say.
+        if (_origin != null && _camera != null && WorldOriginSystem.ActiveCamera == _camera)
+            _origin.ViewClearance = Mathf.Max(0f, elevation);
 
         float wheel = _wheel.ReadValue<float>();
         if (wheel >  0.001f) _wheelMult = Mathf.Clamp(_wheelMult * WheelStep, WheelMultMin, WheelMultMax);
@@ -159,22 +173,41 @@ public class TopologyFlyCamera : MonoBehaviour
     // 200 km, short of the 1,160 km horizon bound, so mountains beyond 200 km are not drawn.
     void SetClipPlanes(float clearance)
     {
-        float near = Mathf.Max(MinNearClip, NearPerClearance * clearance);
-        double far = near * (double)MaxClipRatio;
-
-        if (Terrain != null && Terrain.Settings != null && Terrain.Topology == SurfaceType.CubeSphere)
+        bool   sphere = Terrain != null && Terrain.Settings != null && Terrain.Topology == SurfaceType.CubeSphere;
+        double hMax   = 0.0, radius = 0.0, d = 0.0;
+        if (sphere)
         {
-            var    s    = Terrain.Settings;
-            double hMax = s.Persistence < 1f ? s.HeightScale / (1.0 - s.Persistence)
-                                             : (double)s.HeightScale * s.OctaveCount;
-            double lo   = math.max(0.0, Terrain.Radius - hMax), hi = Terrain.Radius + hMax;
-            double d    = math.length(RenderToAbsoluteWorld(transform.position));
-            double reach = math.sqrt(math.max(0.0, d * d - lo * lo)) + math.sqrt(hi * hi - lo * lo);
-            far = math.min(far, reach);
+            var s = Terrain.Settings;
+            hMax   = s.Persistence < 1f ? s.HeightScale / (1.0 - s.Persistence)
+                                        : (double)s.HeightScale * s.OctaveCount;
+            radius = Terrain.Radius;
+            d      = math.length(RenderToAbsoluteWorld(transform.position));
         }
 
+        ClipPlanes(clearance, sphere, d, radius, hMax, out float near, out float far);
         _camera.nearClipPlane = near;
-        _camera.farClipPlane  = (float)math.max(far, 2.0 * near);
+        _camera.farClipPlane  = far;
+    }
+
+    // The arithmetic of SetClipPlanes, pure so EarthSettingsAssetTests can sweep it from the
+    // ground to beyond orbit. `distanceFromCentre`, `radius` and `hMax` describe a cube sphere
+    // and are ignored when `sphere` is false: the other topologies have no horizon, so the
+    // ratio cap alone sets their far plane.
+    public static void ClipPlanes(float clearance, bool sphere, double distanceFromCentre,
+                                  double radius, double hMax, out float near, out float far)
+    {
+        near = Mathf.Max(MinNearClip, NearPerClearance * clearance);
+        double f = near * (double)MaxClipRatio;
+
+        if (sphere)
+        {
+            double lo    = math.max(0.0, radius - hMax), hi = radius + hMax;
+            double d     = distanceFromCentre;
+            double reach = math.sqrt(math.max(0.0, d * d - lo * lo)) + math.sqrt(hi * hi - lo * lo);
+            f = math.min(f, reach);
+        }
+
+        far = (float)math.max(f, 2.0 * near);
     }
 
     // Yaw rotates the tangent-projected forward around topoUp; pitch tilts the result

@@ -350,6 +350,63 @@ namespace Sonoma.Tests
             _selector.Dispose();
         }
 
+        // The Earth working-set figures come from a replica of the selection,
+        // EarthScaleTests.Select, and the M4 plan first called them reconciled because a copy of
+        // that replica reproduced them -- which is a replica agreeing with itself. Sharing
+        // LodMath.NodeDistance covers the distance, not the split, preload and depth logic the
+        // replica copies from Descend and Preload. This holds the replica to the real selector.
+        //
+        // A first frame -- nothing resident, so no relief pad and no split held by hysteresis --
+        // must want exactly the nodes a fresh Select counts. The held variant the budget is sized
+        // from differs only in the flag it hands the same ShouldSplit, so agreement here carries
+        // to it. Each camera gets a fresh selector, because a second Run would inherit the first
+        // camera's splits.
+        [Test]
+        public void EarthReplicaWantsWhatTheSelectorWants()
+        {
+            var s     = EarthScaleTests.Earth;
+            var roots = SurfaceMath.BuildRoots(s);
+            var p     = EarthScaleTests.Params(EarthScaleTests.OctaveCount);
+            var lod   = EarthScaleTests.Lod(p);
+
+            _host      = new GameObject("LodSelectorTestHost");
+            _pool      = new ChunkPool(_host.transform, null, EarthScaleTests.Resolution);
+            _scheduler = new GenerationScheduler(s, roots, p, _pool, EarthScaleTests.SkirtDepth,
+                                                 EarthScaleTests.SkirtFraction, 8, 1.5f);
+
+            // The pinned camera, the corner the first replica named, a face centre, and two
+            // altitudes on the way down.
+            var cameras = new[]
+            {
+                (u: 20.0 / 256.0, v: 0.0, alt: 2.0),
+                (u: 0.0,          v: 0.0, alt: 2.0),
+                (u: 0.5,          v: 0.5, alt: 2.0),
+                (u: 0.3,          v: 0.7, alt: 500.0),
+                (u: 0.1,          v: 0.9, alt: 1.0e5),
+            };
+
+            foreach (var c in cameras)
+            {
+                SurfaceMath.SurfaceFrame(s, roots[0], c.u, c.v, out double3 ground, out float3 up);
+                double3 camera = ground + (double3)up * c.alt;
+
+                _selector?.Dispose();
+                _selector = new LodSelector(s, roots, lod, _scheduler, _pool, 0);
+                _selector.Run(camera);
+
+                int replica = EarthScaleTests.Select(s, roots, lod, camera, held: false);
+                Assert.AreEqual(replica, _selector.WantedCount,
+                    $"camera at ({c.u}, {c.v}), {c.alt} m: the replica counts {replica} nodes " +
+                    $"where LodSelector wants {_selector.WantedCount}");
+
+                // The corner is where the first replica put its worst fresh case, 4,942. The
+                // selector itself wants this many there.
+                if (c.u == 0.0 && c.v == 0.0)
+                    Assert.AreEqual(4458, _selector.WantedCount,
+                        "the fresh working set at the face corner has moved; C2 quotes 4,458");
+            }
+        }
+
         // Re-requesting a node that is still queued must re-price it, not drop the new
         // priority.
         //

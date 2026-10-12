@@ -81,8 +81,10 @@ namespace Sonoma.Systems.Configuration
         [Tooltip("Absolute part of the skirt's drop below each chunk edge, in metres, the same " +
                  "at every depth. On its own it suits one scale only: the gap a skirt has to " +
                  "hide is on the order of the coarse node's relief, so a value sized for the " +
-                 "finest chunks hides nothing at coarse depths, and one sized for coarse depths " +
-                 "hangs out of every hillside below a fine chunk. SkirtFraction scales with the node.")]
+                 "finest chunks hides nothing at coarse depths. One sized for coarse depths is " +
+                 "never seen -- the skirt drops along the heightfield's own direction, so it lies " +
+                 "underground and shows only through a crack -- but it pads every fine chunk's " +
+                 "culling bounds by the same kilometres. SkirtFraction scales with the node.")]
         public float SkirtDepth = 10f;
         [Tooltip("Node-relative part of the skirt's drop: each chunk's skirt hangs " +
                  "SkirtDepth + SkirtFraction x its nominal node size below its edge, and its " +

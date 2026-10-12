@@ -21,8 +21,6 @@ namespace Sonoma.Core.Quadtree
         [Header("Settings")]
         public TerrainSettings Settings;
         public Material ChunkMaterial;
-        [Tooltip("Camera driving LOD selection. Falls back to Camera.main.")]
-        public Camera ViewCamera;
 
         [Header("Topology")]
         public SurfaceType Topology = SurfaceType.CubeSphere;
@@ -55,7 +53,7 @@ namespace Sonoma.Core.Quadtree
         // draw permanently morphed onto its parent rather than unmorphed.
         const  int              MorphRangeCount = 32;
         static readonly int     MorphRangesId   = Shader.PropertyToID("_SonomaMorphRanges");
-        static readonly int     ViewPositionId  = Shader.PropertyToID("_SonomaViewPosition");
+        static readonly int     ViewPositionId  = Shader.PropertyToID(WorldOriginSystem.ViewPositionGlobal);
         readonly        Vector4[] _morphRanges  = new Vector4[MorphRangeCount];
 
         // Terrain height above the base surface at a base-surface point, in metres, at full
@@ -127,7 +125,8 @@ namespace Sonoma.Core.Quadtree
         // not for the additional-lights one, so a point or spot light casting shadows with no
         // shadowed directional light in the scene would morph the shadow geometry against a
         // stale camera. It is also the same value passed to LodSelector.Run below, so
-        // selection and the morph cannot drift apart within a frame.
+        // selection and the morph cannot drift apart within a frame -- including a frame that
+        // rebases, because WorldOriginSystem.ShiftOrigin moves this value with the world.
         void PushShaderGlobals(Vector3 viewPosition)
         {
             for (int d = 0; d < MorphRangeCount; d++)
@@ -165,9 +164,14 @@ namespace Sonoma.Core.Quadtree
         // wants unmodified. LOD selection works in absolute world space, because node centres
         // do, so Update adds the origin back before calling Run -- skipping that would
         // collapse the whole tree the first time WorldOriginSystem rebases.
+        //
+        // The camera is WorldOriginSystem's, not one of TerrainRoot's own: the rebase moves that
+        // camera and only that one, so measuring from any other would put selection and the
+        // morph a whole RebaseThreshold off after every rebase. A rebase in LateUpdate also
+        // carries the view position pushed here along with the world.
         Vector3 ViewPositionRenderSpace()
         {
-            var cam = ViewCamera != null ? ViewCamera : Camera.main;
+            var cam = WorldOriginSystem.ActiveCamera;
             return cam != null ? cam.transform.position : Vector3.zero;
         }
 
