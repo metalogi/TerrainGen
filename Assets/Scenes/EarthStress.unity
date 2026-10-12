@@ -539,7 +539,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eaf47521b4bc8bb4aa9ee89b8d17ece4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Core.CoordinateSpace.WorldOriginSystem
+  ViewCamera: {fileID: 0}
   RebaseThreshold: 1000
+  RebasePerClearance: 10
   Tracked: []
 --- !u!4 &2004370130
 Transform:

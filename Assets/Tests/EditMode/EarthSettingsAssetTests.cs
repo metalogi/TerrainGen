@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using NUnit.Framework;
 using UnityEditor;
@@ -82,6 +83,48 @@ namespace Sonoma.Tests
             string fly = SceneConfig.Script("EarthStress", "Assets/Scripts/Tools/TopologyFlyCamera.cs");
             Assert.AreEqual("1", SceneConfig.Field(fly, "AutoClipPlanes", @"(\d)"),
                 "EarthStress's fly camera must set its own clip planes; no fixed pair covers orbit and ground");
+        }
+
+        // The planes TopologyFlyCamera.AutoClipPlanes sets, swept from below the ground to beyond
+        // orbit over EarthStress's sphere. Everywhere the ratio stays cullable, and the near
+        // plane stays within a hundredth of the clearance (above its floor): terrain ahead can be
+        // nearer than the ground below, and a tenth -- as the planes first shipped -- cut open a
+        // ridge 300 m in front of a camera 3 km up.
+        [Test]
+        public void FlyCameraClipPlanesStayCullableAndTight()
+        {
+            double hMax = HeightScale / (1.0 - Persistence);
+            for (double clearance = 0.05; clearance < 2.0e7; clearance *= 1.3)
+            {
+                TopologyFlyCamera.ClipPlanes((float)clearance, true, Radius + clearance, Radius, hMax,
+                                             out float near, out float far);
+                Assert.LessOrEqual(far / (double)near, TopologyFlyCamera.MaxClipRatio * 1.0001,
+                    $"clearance {clearance:G3} m: far/near {far / (double)near:G3} is not cullable");
+                Assert.Greater(far, near, $"clearance {clearance:G3} m");
+                double ceiling = Math.Max(TopologyFlyCamera.MinNearClip,
+                                          TopologyFlyCamera.NearPerClearance * clearance);
+                Assert.LessOrEqual(near, ceiling * 1.0001,
+                    $"clearance {clearance:G3} m: a near plane at {near:G3} m clips terrain ahead");
+            }
+
+            TopologyFlyCamera.ClipPlanes(3000f, true, Radius + 3000.0, Radius, hMax, out float n3k, out _);
+            Assert.AreEqual(30f, n3k, 1e-3f, "3 km up: the near plane is 30 m out, not 300");
+
+            // Two metres up the first cut's ground behaviour stands: 0.2 m to 200 km.
+            TopologyFlyCamera.ClipPlanes(2f, true, Radius + 2.0, Radius, hMax, out float n2, out float f2);
+            Assert.AreEqual(0.2f, n2, 1e-6f);
+            Assert.AreEqual(200000f, f2, 1f);
+        }
+
+        // EarthStress rebases by clearance: at a fixed 1000 m its descent at up to 50 km/s would
+        // rebase every frame, each a pass over every chunk.
+        [Test]
+        public void EarthStressScalesItsRebaseThreshold()
+        {
+            string origin = SceneConfig.Script("EarthStress", "Assets/Scripts/Core/CoordinateSpace/WorldOriginSystem.cs");
+            var ci = CultureInfo.InvariantCulture;
+            Assert.AreEqual(1000.0, double.Parse(SceneConfig.Field(origin, "RebaseThreshold", @"(\S+)"), ci), "RebaseThreshold");
+            Assert.AreEqual(10.0, double.Parse(SceneConfig.Field(origin, "RebasePerClearance", @"(\S+)"), ci), "RebasePerClearance");
         }
     }
 }
