@@ -179,7 +179,7 @@ All runtime systems use the `Sonoma.Core.*` or `Sonoma.Systems.*` namespace. Too
 ### Performance Targets
 - **Frame Budget**: < 2ms per frame for all terrain updates
 - **Generation Time**: Chunks ready before player arrival at max camera velocity
-- **Memory Budget**: `MaxResidentChunks`, sized above the measured worst-case working set *including* the terrain's relief pad — 4000 for `SampleScene` (worst case 3546), 6400 for the Earth configuration (worst case 5118, geometry only, from a replica `LodSelectorTests.EarthReplicaWantsWhatTheSelectorWants` holds to the real selector; the pad is about 1% of a node there), about 98 KB of vertex data each at resolution 33
+- **Memory Budget**: `MaxResidentChunks`, sized above the measured worst-case working set *including* the terrain's relief pad — 4000 for `SampleScene` (worst case 3546), 5800 for the Earth configuration (13% over a worst case of 5118, geometry only, from a replica `LodSelectorTests.EarthReplicaWantsWhatTheSelectorWants` holds to the real selector, the pad being about 1% of a node there; a descent from orbit peaked at 4,430), about 98 KB of vertex data each at resolution 33
 - **Visible Triangles**: 50K-500K depending on LOD
 
 ### Mesh Specifications

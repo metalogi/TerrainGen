@@ -548,6 +548,14 @@ these say so.
     terrain budget for that one frame, harmless at five a descent, and what makes the per-frame rate
     the clearance scaling removed a real cost rather than a theoretical one. The working set **peaked
     at 4,430**, under the 5,118 worst case.
+24. **`MaxResidentChunks` is 5,800** (amendment 1 left it at 6,400). Both of C2's conditions now hold on
+    independent evidence: the real `LodSelector` wants exactly what the replica counts (item 17), and
+    the runtime peak over a full descent stayed under the replica's 5,118 (item 23). 5,800 is 13% over
+    that worst case, the same headroom `SampleScene`'s 4,000 has over its 3,546, and about 570 MB of
+    vertex data at the limit. The flight did not pass the worst camera — a face edge with every split
+    hysteresis can hold — so the margin is over the analysis, not over the flight.
+    `EarthScaleTests.Budget` and the asset moved together; `EarthSettingsAssetTests` holds them to
+    each other.
 
 ## Out of scope for M4
 

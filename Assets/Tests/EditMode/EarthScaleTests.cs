@@ -25,7 +25,7 @@ namespace Sonoma.Tests
         internal const float  Hysteresis    = 1.1f;
         internal const float  MorphStart    = 0.15f;
         internal const float  Preload       = 1f;
-        internal const int    Budget        = 6400;   // MaxResidentChunks
+        internal const int    Budget        = 5800;   // MaxResidentChunks
         internal const float  SkirtDepth    = 1f;
         internal const float  SkirtFraction = 0.03f;
         internal const int    OctaveCount   = 24;
