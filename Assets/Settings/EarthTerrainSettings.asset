@@ -21,7 +21,7 @@ MonoBehaviour:
   PreloadFactor: 1
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
-  MaxResidentChunks: 6400
+  MaxResidentChunks: 5800
   SkirtsEnabled: 1
   SkirtDepth: 1
   SkirtFraction: 0.03
