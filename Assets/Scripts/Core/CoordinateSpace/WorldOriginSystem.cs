@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
+using Unity.Profiling;
 using UnityEngine;
 using Sonoma.Core.Rendering;
 
@@ -92,15 +93,44 @@ namespace Sonoma.Core.CoordinateSpace
         public static Camera ActiveCamera =>
             _active != null && _active.ViewCamera != null ? _active.ViewCamera : Camera.main;
 
+        // How often the world moved and what it cost, for the summary logged when the session
+        // ends, and a marker so each rebase can be found in the Profiler. A rebase is a pass over
+        // every chunk, which is the one cost here that scales with the working set; these are
+        // what tell whether RebasePerClearance is doing its job.
+        static readonly ProfilerMarker ShiftMarker = new ProfilerMarker("WorldOriginSystem.ShiftOrigin");
+
+        // Timed with Stopwatch, not Time.realtimeSinceStartupAsDouble: Unity re-bases that clock
+        // between entering play mode and the teardown on leaving it, so a duration measured
+        // from Awake to OnDestroy came out negative.
+        public int RebaseCount { get; private set; }
+        long   _sessionStart = -1, _windowStart = long.MinValue;
+        double _slowestMs;
+        int    _inWindow, _busiestWindow, _slowestChunks;
+
+        static double Seconds(long from, long to) =>
+            (to - from) / (double)System.Diagnostics.Stopwatch.Frequency;
+
         void Awake()
         {
-            _active = this;
+            _active       = this;
+            _sessionStart = System.Diagnostics.Stopwatch.GetTimestamp();
             PushOriginToShader();
         }
 
         void OnDestroy()
         {
             if (_active == this) _active = null;
+            if (_sessionStart < 0) return;   // never awoke: a component added in edit mode
+
+            double seconds = Seconds(_sessionStart, System.Diagnostics.Stopwatch.GetTimestamp());
+            string scaling = RebasePerClearance > 0f
+                ? $"max({RebaseThreshold} m, {RebasePerClearance} x clearance)"
+                : $"{RebaseThreshold} m";
+            Debug.Log(
+                $"[WorldOriginSystem] {RebaseCount} rebases in {seconds:F0} s " +
+                $"({RebaseCount / math.max(seconds, 1e-9):F2} per second on average, at most " +
+                $"{_busiestWindow} within one second); the slowest took {_slowestMs:F2} ms over " +
+                $"{_slowestChunks} chunks. Threshold: {scaling}.");
         }
 
         // The origin is static, so it outlives the scene that moved it: the Editor does not
@@ -145,14 +175,19 @@ namespace Sonoma.Core.CoordinateSpace
         // LateUpdate zeroes it.
         public void ShiftOrigin(Vector3 shift)
         {
+            using var marker = ShiftMarker.Auto();
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+
             WorldOrigin += new double3(shift.x, shift.y, shift.z);
 
             // Every chunk, including any held inactive, so a chunk shown later is already
             // in the right place.
+            int chunks = 0;
             foreach (var chunk in TerrainChunk.AllChunks)
             {
                 if (chunk == null) continue;
                 chunk.Rebase(WorldOrigin);
+                chunks++;
             }
 
             foreach (var t in Tracked)
@@ -170,6 +205,17 @@ namespace Sonoma.Core.CoordinateSpace
                 new Vector4(view.x - shift.x, view.y - shift.y, view.z - shift.z, view.w));
 
             PushOriginToShader();
+
+            long   now = System.Diagnostics.Stopwatch.GetTimestamp();
+            double ms  = Seconds(started, now) * 1000.0;
+            if (ms > _slowestMs) { _slowestMs = ms; _slowestChunks = chunks; }
+
+            // Busiest second, counted in one-second windows that open at a rebase: close enough
+            // to say whether rebases are a few a second or one a frame, which is the question.
+            if (_windowStart == long.MinValue || Seconds(_windowStart, now) >= 1.0) { _windowStart = now; _inWindow = 0; }
+            _inWindow++;
+            if (_inWindow > _busiestWindow) _busiestWindow = _inWindow;
+            RebaseCount++;
         }
 
         static void PushOriginToShader()
