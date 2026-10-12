@@ -535,6 +535,19 @@ these say so.
     could never have seen it. `SampleScene`'s cells are 490 m, which is why the M3 work never did. Its
     pinned relief figures moved by far less than their tolerance. Managed code runs the double noise
     no slower than the float one; Burst's cost is unmeasured. 90 EditMode tests, 64 of them pure.
+23. **The session reports are now unconditional, and the rebase has its own.** The selector's peak
+    working set first printed only when the budget warning had fired, so a descent that stayed under
+    budget — the one that says by how much — printed nothing. It now prints every session, a plain log
+    under budget. `WorldOriginSystem` logs the session's rebase count, rate, busiest second and slowest
+    rebase when play ends, and marks each rebase `WorldOriginSystem.ShiftOrigin` for the Profiler. It
+    times with `Stopwatch`: Unity re-bases `Time.realtimeSinceStartupAsDouble` between entering play
+    and the teardown on leaving it, and the first cut reported a −4 s session.
+    The descent from orbit to the ground, measured: **5 rebases** at `RebasePerClearance` 10, about one
+    per 11× fall in altitude, against one every frame or two above 60 km at a fixed 1000 m. The slowest
+    took **2.48 ms over 3,818 chunks** in Editor play mode, about 0.65 µs a chunk — over the 2 ms
+    terrain budget for that one frame, harmless at five a descent, and what makes the per-frame rate
+    the clearance scaling removed a real cost rather than a theoretical one. The working set **peaked
+    at 4,430**, under the 5,118 worst case.
 
 ## Out of scope for M4
 

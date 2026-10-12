@@ -246,6 +246,7 @@ namespace Sonoma.Core.Quadtree
         void EvictToBudget()
         {
             ResidentCount = CountResident();
+            if (_nodes.Count > _peakWanted) _peakWanted = _nodes.Count;
             if (_maxResident <= 0) return;
 
             WarnIfTheBudgetIsBelowTheWorkingSet();
@@ -305,11 +306,10 @@ namespace Sonoma.Core.Quadtree
         // Warn-once, and the working-set size is the number worth printing: it is what
         // MaxResidentChunks has to clear. Once is also too few, because the first frame over
         // budget is rarely the largest working set the session reaches, and sizing the budget
-        // from it leaves the churn in place. So the peak is tracked from then on and reported
-        // at Dispose.
+        // from it leaves the churn in place. So the peak is tracked every frame, in
+        // EvictToBudget, and reported at Dispose whether or not this ever fired.
         void WarnIfTheBudgetIsBelowTheWorkingSet()
         {
-            if (_nodes.Count > _peakWanted) _peakWanted = _nodes.Count;
             if (_budgetWarned || _nodes.Count <= _maxResident) return;
 
             _budgetWarned = true;
@@ -323,8 +323,11 @@ namespace Sonoma.Core.Quadtree
         }
 
         // The other half of both warnings: the worst each overrun reached, once the session is
-        // over and the number is final. Logged only when its warning fired, and only once --
-        // Dispose clears the state it reads.
+        // over and the number is final. Only once -- Dispose clears the state it reads.
+        //
+        // The peak working set is reported every session, not only one that overran: it is the
+        // number a budget is sized from, and a session that stayed under budget is exactly the
+        // one that says how far under. A warning when it overran, a plain log when it did not.
         void ReportWorstOverruns()
         {
             if (_budgetWarned)
@@ -332,6 +335,10 @@ namespace Sonoma.Core.Quadtree
                     $"[LodSelector] the working set peaked at {_peakWanted} chunks this session, " +
                     $"against a budget of {_maxResident}. Size MaxResidentChunks from this peak, " +
                     "not from the first frame over budget.");
+            else if (_peakWanted > 0)
+                Debug.Log(
+                    $"[LodSelector] the working set peaked at {_peakWanted} chunks this session" +
+                    (_maxResident > 0 ? $", under the budget of {_maxResident}." : " (no budget set)."));
 
             if (_reliefWarned)
             {
