@@ -21,6 +21,32 @@ namespace Sonoma.Core.Generation
         public float  Lacunarity;
         public uint   Seed;
 
+        // The detail noise's octave bands, which biomes scale separately (Biomes.BandGain):
+        // octaves 0 .. LowBandEnd-1 are the low band, LowBandEnd .. MidBandEnd-1 the mid band,
+        // the rest the high band. Both zero, as Create leaves them, puts every octave in the high
+        // band; WithBands sets them from wavelengths.
+        public int    LowBandEnd;
+        public int    MidBandEnd;
+
+        // The band boundaries as wavelengths in metres, so a band means the same scale of
+        // feature on any planet: each band end is the number of octaves at least that long.
+        // Octave k has wavelength OctaveWavelength0 / 2^k, so the count is
+        // floor(log2(OctaveWavelength0 / edge)) + 1, read off the exponent as K0 is. On Earth,
+        // 50 km and 500 m put octaves 0-7 in the low band and 8-14 in the mid band.
+        public HeightParams WithBands(double lowEdge, double midEdge)
+        {
+            if (!(midEdge > 0.0) || !(lowEdge > midEdge) || double.IsInfinity(lowEdge))
+                throw new ArgumentOutOfRangeException(nameof(lowEdge),
+                    "HeightParams: band edges must be finite wavelengths with the low edge above the mid.");
+
+            var p = this;
+            p.LowBandEnd = BandEnd(lowEdge);
+            p.MidBandEnd = BandEnd(midEdge);
+            return p;
+        }
+
+        int BandEnd(double edge) => math.clamp(FloorLog2(OctaveWavelength0 / edge) + 1, 0, OctaveCount);
+
         // Octaves representable at this depth's vertex spacing.
         //
         // Octave k has wavelength lambda0 / 2^k; a chunk at depth d has nominal vertex

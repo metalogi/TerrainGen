@@ -54,12 +54,39 @@ namespace Sonoma.Tests
         internal const float  RuggednessNoise   = 1.5f;
         internal const uint   MacroSeed         = 7u;
 
+        // ── The biomes, shared by all four ───────────────────────────────────
+        //
+        // Hand copies of Assets/Settings/Biomes/*.asset. Every band amplitude is at most 1:
+        // biomes shape and smooth the terrain, and each scene's ruggedness range decides how far
+        // above its configured HeightScale anything goes, sized against its own relief allowance
+        // (MaxAmplitude, Demand). A table that amplified would have to fit the tightest scene, the
+        // terrarium, with no room at all.
+        internal const int   BiomeSharpness   = 2;
+        internal const float TemperatureScale = 15f;
+        internal const float MoistureScale    = 0.25f;
+
+        internal static readonly (string Asset, float3 Color, BiomeConfig Config)[] BiomeTable =
+        {
+            ("Assets/Settings/Biomes/Grassland.asset",  new float3(0.36f, 0.52f, 0.22f), Biome(15f,  0.55f, 0.7f, 0.6f, 0.7f)),
+            ("Assets/Settings/Biomes/Desert.asset",     new float3(0.82f, 0.70f, 0.45f), Biome(27f,  0.15f, 0.6f, 0.4f, 0.8f)),
+            ("Assets/Settings/Biomes/Tundra.asset",     new float3(0.70f, 0.72f, 0.70f), Biome(-8f,  0.40f, 1.0f, 0.9f, 0.9f)),
+            ("Assets/Settings/Biomes/Rainforest.asset", new float3(0.12f, 0.33f, 0.13f), Biome(24f,  0.85f, 0.8f, 0.8f, 0.6f)),
+        };
+
+        internal static BiomeConfig[] BiomeConfigs => Array.ConvertAll(BiomeTable, b => b.Config);
+
+        // From amplitudes, as the assets hold them, to gains relative to one, as the runtime does.
+        static BiomeConfig Biome(float t, float m, float low, float mid, float high)
+            => new BiomeConfig { Temperature = t, Moisture = m, Gain = new float3(low, mid, high) - 1f };
+
         internal sealed class SceneMacro
         {
             public string     Scene, Settings, Asset;
             public SurfaceDef Surface;
             public int        Levels, MaxDepth;
             public float      BaseHeightScale, EquatorTemperature;
+            public double     LowBandEdge, MidBandEdge;
+            public float      RuggednessMin, RuggednessMax;   // amplitudes, as the asset holds them
 
             public MacroConfig Config => new MacroConfig
             {
@@ -67,27 +94,45 @@ namespace Sonoma.Tests
                 BaseHeightScale = BaseHeightScale, EquatorTemperature = EquatorTemperature,
                 PoleTemperature = PoleTemperature, LapseRate = LapseRate, TemperatureNoise = TemperatureNoise,
                 MoistureNoise = MoistureNoise, RuggednessNoise = RuggednessNoise, Seed = MacroSeed,
+                Biomes = BiomeConfigs, BiomeSharpness = BiomeSharpness,
+                TemperatureScale = TemperatureScale, MoistureScale = MoistureScale,
+                RuggednessGainMin = RuggednessMin - 1f, RuggednessGainMax = RuggednessMax - 1f,
             };
+
+            // The largest band amplitude anywhere in this scene (MacroParams.MaxAmplitude).
+            public float MaxAmplitude =>
+                MacroParams.Create(Surface, HeightParams.Create(Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), Config)
+                           .MaxAmplitude;
         }
 
         // The cylinders have no poles, so EquatorTemperature is their temperature everywhere at
         // zero base height: temperate rather than tropical. The terrarium stops at three levels,
         // because its 32 roots would make four 48 MB, and level 2's 60 m texels are already
         // finer than anything a macro layer is for in a 10 km world.
+        //
+        // Band edges are 50 km and 500 m on the planets and the ring, 2 km and 50 m in the
+        // terrarium, whose whole world is 10 km across. The ruggedness ranges (mid and high
+        // bands) put the largest amplitude anywhere at 2.25 on Earth and the ring, 1.44 on the
+        // small planet and 1.0 in the terrarium: each about as much as its relief allowance takes
+        // at the relief tests' margins (ReliefAllowanceLeavesTwiceTheEstimatedDemand).
         internal static readonly SceneMacro[] StressMacros =
         {
             new SceneMacro { Scene = "EarthStress", Settings = "Assets/Settings/EarthTerrainSettings.asset",
                              Asset = "Assets/Settings/EarthMacro.asset", Surface = EarthScaleTests.Earth, MaxDepth = EarthScaleTests.MaxDepth,
-                             Levels = 4, BaseHeightScale = 3000f, EquatorTemperature = 30f },
+                             Levels = 4, BaseHeightScale = 3000f, EquatorTemperature = 30f,
+                             LowBandEdge = 50000.0, MidBandEdge = 500.0, RuggednessMin = 0.5f, RuggednessMax = 2.5f },
             new SceneMacro { Scene = "SmallPlanetStress", Settings = StressSceneTests.SmallPlanet.Asset,
                              Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface, MaxDepth = StressSceneTests.SmallPlanet.MaxDepth,
-                             Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f },
+                             Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f,
+                             LowBandEdge = 50000.0, MidBandEdge = 500.0, RuggednessMin = 0.5f, RuggednessMax = 1.6f },
             new SceneMacro { Scene = "RingworldStress", Settings = StressSceneTests.Ringworld.Asset,
                              Asset = "Assets/Settings/RingworldMacro.asset", Surface = StressSceneTests.Ringworld.Surface, MaxDepth = StressSceneTests.Ringworld.MaxDepth,
-                             Levels = 4, BaseHeightScale = 1500f, EquatorTemperature = 18f },
+                             Levels = 4, BaseHeightScale = 1500f, EquatorTemperature = 18f,
+                             LowBandEdge = 50000.0, MidBandEdge = 500.0, RuggednessMin = 0.5f, RuggednessMax = 2.5f },
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
-                             Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f },
+                             Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
+                             LowBandEdge = 2000.0, MidBandEdge = 50.0, RuggednessMin = 0.5f, RuggednessMax = 1f },
         };
 
         internal static SceneMacro For(string scene)
@@ -106,13 +151,18 @@ namespace Sonoma.Tests
         // the largest, the margin each scene's C has over its own sample.
         internal const double MacroReliefFactor = 7.0;
 
+        // The detail noise's relief demand, as a fraction of node size, at the largest amplitude
+        // any biome and ruggedness give it (C7): C x HeightScale x MaxAmplitude / S0.
+        internal static double DetailDemand(double reliefFactor, float heightScale, string scene, double s0)
+            => reliefFactor * heightScale * For(scene).MaxAmplitude / s0;
+
         // The relief demand with the macro layer, as a fraction of node size: the detail estimate
         // plus the macro's. Half-relief is subadditive, so the sum bounds the relief of the two
-        // together -- conservatively, since it assumes each one's roughest node is the other's.
-        // Measured, the terrarium's combined worst was 4.63 in units of HeightScale / S0 against
-        // the sum's 16.
+        // together -- conservatively, since it assumes each one's roughest node is the other's,
+        // and in the most amplified biome. Measured before biomes, the terrarium's combined worst
+        // was 4.63 in units of HeightScale / S0 against the sum's 16.
         internal static double Demand(double reliefFactor, float heightScale, string scene, double s0)
-            => (reliefFactor * heightScale + MacroReliefFactor * For(scene).BaseHeightScale) / s0;
+            => DetailDemand(reliefFactor, heightScale, scene, s0) + MacroReliefFactor * For(scene).BaseHeightScale / s0;
 
         // What the relief tests ask of the allowance against Demand. Not the 2x they ask against
         // the detail estimate alone: Demand already stacks two worst cases padded by half again
@@ -134,6 +184,9 @@ namespace Sonoma.Tests
                 Assert.AreEqual(3, p.K0, $"{m.Scene}: macro octave 0 at S0 gives octaves 0-3 at level 0");
                 Assert.AreEqual(m.Surface.Type == SurfaceType.CubeSphere, p.HasLatitude, $"{m.Scene}: latitude term");
                 Assert.AreEqual(0, p.UnreadLevels(m.MaxDepth), $"{m.Scene}: builds levels no depth reads");
+                Assert.AreEqual(Biomes.MaxBiomes, p.BiomeCount, $"{m.Scene}: the shared biome table");
+                // C7: the largest effective amplitude stays at or under 3.
+                Assert.LessOrEqual(p.MaxAmplitude, 3f, $"{m.Scene}: largest band amplitude");
             }
         }
 
@@ -153,15 +206,19 @@ namespace Sonoma.Tests
             foreach (var s in new[] { SurfaceDef.CubeSphere(6371000.0), SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4) })
             {
                 var roots = SurfaceMath.BuildRoots(s);
-                var hp    = Params(s);
-                var p     = MacroParams.Create(s, hp, Config());
+                var hp    = Params(s).WithBands(s.Radius * 0.05, s.Radius * 0.0005);
+                var c     = Config();
+                c.Biomes = BiomeConfigs; c.BiomeSharpness = BiomeSharpness;
+                c.TemperatureScale = TemperatureScale; c.MoistureScale = MoistureScale;
+                c.RuggednessGainMin = -0.5f; c.RuggednessGainMax = 1.5f;
+                var p     = MacroParams.Create(s, hp, c);
                 var maps  = new ArrayTexels(MacroGenerator.Build(s, roots, p));
                 var rng   = new Unity.Mathematics.Random(77u);
                 const int MaxDepth = 12, Samples = 2000;
                 int top   = p.Layout.MacroLevel(MaxDepth);
                 int oct   = hp.MaxOctave(MaxDepth);
                 int span  = 1 << MaxDepth;
-                int levelZeroCaught = 0, zeroCaught = 0;
+                int levelZeroCaught = 0, zeroCaught = 0, unmodulatedCaught = 0;
 
                 for (int k = 0; k < Samples; k++)
                 {
@@ -176,22 +233,29 @@ namespace Sonoma.Tests
                     ChunkGrid.VertexUV(node, i, j, Resolution, out double u, out double v);
                     double3 point = SurfaceMath.SurfacePoint(s, roots[q], u, v);
 
-                    float chunk = TerrainHeightFunction.Height(point, oct,
-                                      MacroSampler.Read(maps, p, q, top, u, v), hp);
+                    // What the sample job computes for this vertex: the read, modulated by the
+                    // biomes and ruggedness there.
+                    var   raw   = MacroSampler.Read(maps, p, q, top, u, v);
+                    float chunk = TerrainHeightFunction.Height(point, oct, Biomes.Modulate(raw, p, out _), hp);
                     float tool  = TerrainHeightFunction.HeightAtPoint(s, point, MaxDepth, hp, p, maps);
                     double tolerance = 2.0 * (math.asfloat(math.asuint(math.abs(chunk)) + 1u) - math.abs(chunk));
                     Assert.AreEqual(chunk, tool, tolerance, $"{s.Type} {node} vertex ({i}, {j})");
 
-                    float atLevelZero = TerrainHeightFunction.Height(point, oct, MacroSampler.Read(maps, p, q, 0, u, v), hp);
+                    float atLevelZero = TerrainHeightFunction.Height(point, oct,
+                                            Biomes.Modulate(MacroSampler.Read(maps, p, q, 0, u, v), p, out _), hp);
                     float noMacro     = TerrainHeightFunction.Height(point, oct, MacroSample.Zero, hp);
+                    float unmodulated = TerrainHeightFunction.Height(point, oct, raw, hp);
                     if (math.abs(atLevelZero - chunk) > tolerance) levelZeroCaught++;
                     if (math.abs(noMacro - chunk) > tolerance) zeroCaught++;
+                    if (math.abs(unmodulated - chunk) > tolerance) unmodulatedCaught++;
                 }
 
                 Assert.Greater(levelZeroCaught, Samples * 9 / 10,
                     $"{s.Type}: reading level 0 would pass almost unnoticed; the test cannot catch it");
                 Assert.Greater(zeroCaught, Samples * 9 / 10,
                     $"{s.Type}: dropping the macro would pass almost unnoticed; the test cannot catch it");
+                Assert.Greater(unmodulatedCaught, Samples * 9 / 10,
+                    $"{s.Type}: dropping the biome band gains would pass almost unnoticed");
             }
         }
 

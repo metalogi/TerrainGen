@@ -27,7 +27,7 @@ namespace Sonoma.Tests
         internal const float  Preload       = 1f;
         internal const int    Budget        = 5800;   // MaxResidentChunks
         internal const float  SkirtDepth    = 1f;
-        internal const float  SkirtFraction = 0.033f;
+        internal const float  SkirtFraction = 0.07f;
         internal const int    OctaveCount   = 24;
         internal const float  Persistence   = 0.5f;
         internal const float  Lacunarity    = 2f;
@@ -100,17 +100,20 @@ namespace Sonoma.Tests
             // MaxHalfRelief is a fixed fraction of the node at every depth; demand is not, since C
             // grows with depth at persistence 0.5. EarthReliefFactor is taken at the deepest
             // level and applied to all of them, which is conservative everywhere above it.
-            double demand = EarthReliefFactor * HeightScale / p.S0;
-            Assert.AreEqual(0.0130, demand, 1e-4, "Earth relief demand as a fraction of node size");
+            double plain = EarthReliefFactor * HeightScale / p.S0;
+            Assert.AreEqual(0.0130, plain, 1e-4, "Earth relief demand as a fraction of node size");
+            // At EarthMacro's largest band amplitude, 2.25 (C7), and with its base height added.
+            double demand   = MacroTests.DetailDemand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
             double combined = MacroTests.Demand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
-            Assert.AreEqual(0.0150, combined, 1e-4, "Earth relief demand with EarthMacro, as a fraction of node size");
+            Assert.AreEqual(0.0292, demand,   1e-4, "Earth relief demand at the largest biome amplitude");
+            Assert.AreEqual(0.0312, combined, 1e-4, "Earth relief demand with EarthMacro, as a fraction of node size");
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);
                 Assert.AreEqual(0.1146, allowance, 1e-4, $"depth {d}: allowance as a fraction of node size");
                 // Twice over, because the demand is an estimate rather than a bound. Raising
-                // HeightScale to about 40,000 fails here; at 100,000 the allowance is overrun
-                // outright, as asserted below.
+                // HeightScale to about 40,000 fails here without biomes, about 17,000 with them; at
+                // 100,000 the allowance is overrun outright, as asserted below.
                 Assert.Greater(allowance, 2.0 * demand,
                     $"depth {d}: the Earth configuration leaves less than 2x the estimated relief demand");
                 // And with EarthMacro's base height added, by the margin StressSceneTests asks.
@@ -212,10 +215,11 @@ namespace Sonoma.Tests
 
         // C5: on Earth the skirt has to scale with the node. The gap it hides in a transient
         // two-depth state is on the order of the coarse node's relief, twice the demand of its
-        // size -- 3.0% at EarthReliefFactor with EarthMacro's base height (MacroTests.Demand), 2.6%
-        // without -- which is about half a metre at depth 19 and a kilometre at depth 8.
-        // SampleScene's absolute 2 m would hide nothing coarser than depth 18; SkirtFraction 0.033
-        // covers the estimate at every depth, 10% over.
+        // size -- 6.2% at EarthReliefFactor, at the largest biome amplitude and with EarthMacro's
+        // base height (MacroTests.Demand); 2.6% for the detail noise alone -- which is about a
+        // metre at depth 19 and two kilometres at depth 8. SampleScene's absolute 2 m would hide
+        // nothing coarser than depth 19; SkirtFraction 0.07 covers the estimate at every depth,
+        // 12% over.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
@@ -230,11 +234,11 @@ namespace Sonoma.Tests
                     $"depth {d}: the skirt is shorter than the relief of a node there");
             }
 
-            // An absolute 2 m skirt, as SampleScene has, covers only the two finest depths.
+            // An absolute 2 m skirt, as SampleScene has, covers only the finest depth.
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double gap = 2.0 * demand * LodMath.NominalSize(p.S0, d);
-                Assert.AreEqual(d >= 18, 2.0 > gap, $"depth {d}: an absolute 2 m skirt");
+                Assert.AreEqual(d >= 19, 2.0 > gap, $"depth {d}: an absolute 2 m skirt");
             }
         }
     }

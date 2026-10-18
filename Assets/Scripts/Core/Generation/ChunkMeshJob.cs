@@ -20,10 +20,12 @@ namespace Sonoma.Core.Generation
         [ReadOnly] public NativeArray<double3> BasePoints;
         [ReadOnly] public NativeArray<float3>  BaseNormals;
         [ReadOnly] public NativeArray<float>   Heights;
+        [ReadOnly] public NativeArray<uint>    Splats;
 
         [ReadOnly] public NativeArray<double3> CoarseBasePoints;
         [ReadOnly] public NativeArray<float3>  CoarseBaseNormals;
         [ReadOnly] public NativeArray<float>   CoarseHeights;
+        [ReadOnly] public NativeArray<uint>    CoarseSplats;
 
         public Mesh.MeshData Mesh;
         [WriteOnly] public NativeArray<float> HeightBounds;   // [0] = min, [1] = max
@@ -72,7 +74,10 @@ namespace Sonoma.Core.Generation
                 {
                     Position      = pos,
                     Normal        = n,
-                    Uv            = new float2(i / (float)(R - 1), j / (float)(R - 1)),
+                    Splat         = Splats[s],
+                    // The even vertex's weights from the coarse job, as the position and the
+                    // elevation are: what the parent draws there.
+                    MorphSplat    = CoarseSplats[cs],
                     TopoElevation = new float4(baseN, h),
                     MorphPosition = new float4(CoarseLocal(cs), Depth),
                     // The coarse height, not the fine one: this is what the shader blends

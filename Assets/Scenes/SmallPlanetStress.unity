@@ -487,7 +487,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Core.Quadtree.TerrainRoot
   Settings: {fileID: 11400000, guid: 033b9466cfa94f7fb35b0da98f513880, type: 2}
-  ChunkMaterial: {fileID: 2100000, guid: 011c216fef1872648b9826af582db113, type: 2}
+  ChunkMaterial: {fileID: 2100000, guid: 88e937715513481da1cef86466482340, type: 2}
   Topology: 1
   Radius: 1592750
   TileSize: 1000

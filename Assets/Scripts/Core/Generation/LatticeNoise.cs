@@ -144,5 +144,33 @@ namespace Sonoma.Core.Generation
 
             return sum;
         }
+
+        // The same sum with each octave band's amplitude scaled: octaves below lowBandEnd by
+        // 1 + bandGain.x, those below midBandEnd by 1 + bandGain.y, the rest by 1 + bandGain.z
+        // (Biomes.BandGain). Linear in the octaves and fixed in order, so it keeps the
+        // strict-prefix property the geomorph depends on, and the gains are a function of the
+        // macro sample alone, the same at a chunk's depth and its parent's.
+        //
+        // With zero gains it is the sum above to the bit: 1 + 0 is exactly 1, and amp * 1 is
+        // exactly amp. HeightFunctionTests holds it to that, and TerrainHeightFunction still
+        // calls the original when the gains are zero.
+        public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed,
+                                 float3 bandGain, int lowBandEnd, int midBandEnd)
+        {
+            double lac = lacunarity;
+            double3 q  = p;
+            double sum = 0.0;
+            double amp = 1.0;
+
+            for (int k = 0; k < octaveCount; k++)
+            {
+                float gain = k < lowBandEnd ? bandGain.x : k < midBandEnd ? bandGain.y : bandGain.z;
+                sum += amp * (1.0 + gain) * Gradient3D(q, seed + (uint)k);
+                amp *= persistence;
+                q   *= lac;
+            }
+
+            return sum;
+        }
     }
 }

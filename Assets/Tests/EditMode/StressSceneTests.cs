@@ -66,7 +66,7 @@ namespace Sonoma.Tests
         {
             Name = "SmallPlanetStress", Asset = "Assets/Settings/SmallPlanetTerrainSettings.asset",
             Surface = SurfaceDef.CubeSphere(1592750.0),
-            MaxDepth = 17, OctaveCount = 22, Budget = 5100, HeightScale = 6000f, SkirtFraction = 0.09f,
+            MaxDepth = 17, OctaveCount = 22, Budget = 5100, HeightScale = 6000f, SkirtFraction = 0.12f,
             ReliefFactor = 15.0,
             WorstQuad = 0, WorstU = 20.0 / 256.0, WorstV = 0.0, Worst = 4510,
         };
@@ -78,7 +78,7 @@ namespace Sonoma.Tests
         {
             Name = "RingworldStress", Asset = "Assets/Settings/RingworldTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1),
-            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 4000f, SkirtFraction = 0.09f,
+            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 4000f, SkirtFraction = 0.18f,
             ReliefFactor = 15.0,
             WorstQuad = 0, WorstU = 42.0 / 512.0, WorstV = 213.0 / 512.0, Worst = 4944,
         };
@@ -137,7 +137,7 @@ namespace Sonoma.Tests
                 var lod = sc.Lod(p);
                 Assert.Less(MorphStart, LodMath.MaxMorphStartFraction(SplitFactor, Hysteresis, lod.SizeSpread), sc.Name);
 
-                double demand   = sc.ReliefFactor * sc.HeightScale / p.S0;
+                double demand   = MacroTests.DetailDemand(sc.ReliefFactor, sc.HeightScale, sc.Name, p.S0);
                 double combined = MacroTests.Demand(sc.ReliefFactor, sc.HeightScale, sc.Name, p.S0);
                 for (int d = 0; d <= sc.MaxDepth; d++)
                 {
@@ -219,7 +219,8 @@ namespace Sonoma.Tests
 
         // The skirt hides the transient gap between two depths, on the order of the coarse node's
         // relief: twice the demand, macro layer included (MacroTests.Demand), of its size.
-        // SkirtFraction covers that at every depth, about 10% over. The terrarium's is large, 0.66
+        // SkirtFraction covers that at every depth, about 10% over: 0.12 on the small planet, 0.18
+        // on the ring, at their largest biome amplitudes. The terrarium's is large, 0.66
         // of a node, because its hills and its base height are each a fiftieth of its radius; a
         // skirt is underground and its only cost is culling bounds.
         [Test]

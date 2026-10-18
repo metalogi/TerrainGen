@@ -57,6 +57,13 @@ namespace Sonoma.Core.Quadtree
         static readonly int     ViewPositionId  = Shader.PropertyToID(WorldOriginSystem.ViewPositionGlobal);
         readonly        Vector4[] _morphRanges  = new Vector4[MorphRangeCount];
 
+        // The biome colours the _SONOMA_BIOMES shader path blends by the vertex's weights, one
+        // per biome slot. A global, like _SonomaMorphRanges, for the same SRP-batcher reason;
+        // and written into a material instead they would, in the Editor, permanently edit the
+        // .mat asset from play mode. Linear, as the shader works.
+        static readonly int     BiomeColorsId   = Shader.PropertyToID("_SonomaBiomeColors");
+        readonly        Vector4[] _biomeColors  = new Vector4[Biomes.MaxBiomes];
+
         // Terrain height above the base surface at a base-surface point, in metres, at full
         // detail. For tools: TopologyFlyCamera scales its speed by clearance above the ground,
         // and at Earth scale the ground is kilometres from the base surface. Zero until the
@@ -90,7 +97,12 @@ namespace Sonoma.Core.Quadtree
             _params = HeightParams.Create(Surface, Settings.ChunkResolution, Settings.OctaveWavelength0,
                                           Settings.OctaveCount, Settings.HeightScale,
                                           Settings.Persistence, Settings.Lacunarity, Settings.Seed);
+            // The octave bands biomes scale separately. Without a macro layer every band gain is
+            // zero, so where the bands fall changes nothing and they are left unset.
+            if (Settings.Macro != null)
+                _params = _params.WithBands(Settings.Macro.LowBandEdge, Settings.Macro.MidBandEdge);
             _lod    = LodMath.Create(Surface, Settings, _params);
+            FillBiomeColors();
 
             if (_params.IsOctaveStarved(Settings.MaxDepth))
                 Debug.LogWarning(
@@ -146,6 +158,20 @@ namespace Sonoma.Core.Quadtree
             }
             Shader.SetGlobalVectorArray(MorphRangesId, _morphRanges);
             Shader.SetGlobalVector(ViewPositionId, viewPosition);
+            Shader.SetGlobalVectorArray(BiomeColorsId, _biomeColors);
+        }
+
+        // Unused slots are black, which the shader never weights: a vertex's weights are zero
+        // there.
+        void FillBiomeColors()
+        {
+            var biomes = Settings.Macro != null ? Settings.Macro.Biomes : null;
+            bool linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
+            for (int b = 0; b < _biomeColors.Length; b++)
+            {
+                Color c = biomes != null && b < biomes.Length && biomes[b] != null ? biomes[b].Color : Color.black;
+                _biomeColors[b] = linear ? c.linear : c;
+            }
         }
 
         // No MacroLayerSettings means no macro layer: a disabled one-texel map, and the height

@@ -61,36 +61,57 @@ namespace Sonoma.Tests
         // out of every four child cells collapse to zero area, and the fourth reproduces a
         // parent cell with the same winding.
         //
-        // Run twice: with no macro layer, and over a real one. With a base height, the invariant
-        // also needs the coarse job to read the *parent's* macro level -- the child's own level
-        // carries one more macro octave, and every swap up to the top level would pop by it. The
-        // child here is at depth 3, the top of a four-level pyramid, where the two levels differ.
+        // Run twice: with no macro layer, and over a real one with biomes. With a base height,
+        // the invariant also needs the coarse job to read the *parent's* macro level -- the
+        // child's own level carries one more macro octave, and every swap up to the top level
+        // would pop by it. The child here is at depth 3, the top of a four-level pyramid, where
+        // the two levels differ. With biomes, the band gains and the splat weights come from that
+        // level too: the morph target's weights are the parent's, byte for byte (C6), and its
+        // height carries the parent's band gains.
         [Test]
         public void ChildAtFullMorphEqualsParent()
         {
             using var none = MacroMaps.Disabled();
             CheckChildAtFullMorphEqualsParent(none, "no macro layer");
 
+            // Four biomes around the climate this layer generates, temperature 15 +- 5 degrees and
+            // moisture across 0..1, each scaling the bands differently, and ruggedness on top.
+            _params = _params.WithBands(1000.0, 100.0);
             var config = new MacroConfig
             {
                 LevelCount = 4, Wavelength0 = 0.0, Persistence = 0.5f, BaseHeightScale = 400f,
                 EquatorTemperature = 15f, PoleTemperature = 15f, LapseRate = 6.5f, TemperatureNoise = 5f,
                 MoistureNoise = 1.5f, RuggednessNoise = 1.5f, Seed = 7u,
+                Biomes = new[]
+                {
+                    new BiomeConfig { Temperature = 10f, Moisture = 0.3f, Gain = new float3(-0.2f, -0.5f, 0.2f) },
+                    new BiomeConfig { Temperature = 20f, Moisture = 0.3f, Gain = new float3(0.3f, 0.0f, -0.4f) },
+                    new BiomeConfig { Temperature = 10f, Moisture = 0.7f, Gain = new float3(0.0f, 0.4f, 0.0f) },
+                    new BiomeConfig { Temperature = 20f, Moisture = 0.7f, Gain = new float3(-0.5f, 0.2f, 0.5f) },
+                },
+                BiomeSharpness = 2, TemperatureScale = 5f, MoistureScale = 0.25f,
+                RuggednessGainMin = -0.5f, RuggednessGainMax = 0.5f,
             };
             using var macro = MacroMaps.Build(_surface, _roots, MacroParams.Create(_surface, _params, config));
             var layout = macro.Params.Layout;
             Assert.AreNotEqual(layout.MacroLevel(Depth), layout.MacroLevel(Depth + 1),
                 "the parent and child read the same macro level, so the test cannot tell them apart");
 
-            // The layer really moves the ground, or the second run proves nothing new.
+            // The layer really moves the ground and mixes the biomes, or the second run proves
+            // nothing new.
             var flat  = Build(new NodeId(0, Depth, 1, 2), none);
             var hilly = Build(new NodeId(0, Depth, 1, 2), macro);
             int moved = 0;
+            var splats = new System.Collections.Generic.HashSet<uint>();
             for (int k = 0; k < Resolution * Resolution; k++)
+            {
                 if (math.abs(hilly.Verts[k].TopoElevation.w - flat.Verts[k].TopoElevation.w) > 1f) moved++;
+                splats.Add(hilly.Verts[k].Splat);
+            }
             Assert.Greater(moved, Resolution * Resolution / 2, "the macro layer barely changes the heights");
+            Assert.Greater(splats.Count, Resolution, "the biome weights barely vary across the chunk");
 
-            CheckChildAtFullMorphEqualsParent(macro, "a four-level macro layer");
+            CheckChildAtFullMorphEqualsParent(macro, "a four-level macro layer with biomes");
         }
 
         void CheckChildAtFullMorphEqualsParent(MacroMaps macro, string label)
@@ -149,6 +170,13 @@ namespace Sonoma.Tests
                     // bit-identical surface position.
                     Assert.AreEqual(pv.TopoElevation.w, cv.MorphNormalElevation.w, 0f,
                         $"{label}, quadrant {q} vertex ({i},{j}): morph elevation is not the parent's");
+
+                    // And the biome weights the shader blends towards are the parent's own, byte
+                    // for byte, for the same reason: without them the colour pops at the swap
+                    // where the geometry does not.
+                    Assert.AreEqual(pv.Splat, cv.MorphSplat,
+                        $"{label}, quadrant {q} vertex ({i},{j}): morph splat {cv.MorphSplat:X8} is not " +
+                        $"the parent's {pv.Splat:X8}");
                 }
 
                 // Claim 2: the fully morphed child triangulates exactly as the parent does.
@@ -260,6 +288,49 @@ namespace Sonoma.Tests
             }
         }
 
+        // C6 and C9, from the shader source: ForwardLit reads the biome weights and their morph
+        // target only under _SONOMA_BIOMES, a local shader_feature, and blends them on the same
+        // k as the geometry. Colour is read only there, so the other passes stay as they were.
+        // A source check, like the one above, because every way this goes wrong is silent: an
+        // unmorphed splat pops colour at the swap, a global keyword leaks between scenes in the
+        // Editor, and a multi_compile builds the variant for SampleScene's material too.
+        [Test]
+        public void ShaderMorphsTheSplat()
+        {
+            string path   = Path.Combine(Application.dataPath, "Shaders", "SonomaTerrainTriplanar.shader");
+            string source = File.ReadAllText(path);
+
+            int start = source.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
+            int end   = source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal);
+            Assert.Greater(start, 0, "ForwardLit is missing");
+            string lit = source.Substring(start, end - start);
+
+            StringAssert.Contains("#pragma shader_feature_local _SONOMA_BIOMES", lit,
+                "the biome path must be a local shader_feature, not a global or a multi_compile");
+            // Both declarations inside one #if block -- [^#] keeps the match from running past its
+            // #endif, and lets the declarations carry trailing comments.
+            StringAssert.IsMatch(@"#if defined\(_SONOMA_BIOMES\)[^#]*float4 splat\s*:\s*COLOR;[^#]*float4 morphSplat\s*:\s*TEXCOORD0;[^#]*#endif",
+                lit, "ForwardLit does not read COLOR and TEXCOORD0 under the keyword");
+            StringAssert.IsMatch(@"o\.splat\s*=\s*lerp\(input\.splat,\s*input\.morphSplat,\s*k\)", lit,
+                "the splat is not blended towards its morph target on the morph's k");
+            StringAssert.Contains("_SonomaBiomeColors", lit, "the ground colour does not read the biome colours");
+
+            // The colours are a global, outside the per-material constant buffer.
+            int cbStart = source.IndexOf("CBUFFER_START(UnityPerMaterial)", System.StringComparison.Ordinal);
+            int cbEnd   = source.IndexOf("CBUFFER_END", cbStart, System.StringComparison.Ordinal);
+            StringAssert.DoesNotContain("_SonomaBiomeColors", source.Substring(cbStart, cbEnd - cbStart),
+                "_SonomaBiomeColors is in UnityPerMaterial; it is a global TerrainRoot pushes");
+            StringAssert.Contains("float4 _SonomaBiomeColors[4];", source);
+
+            foreach (string pass in new[] { "ShadowCaster", "DepthOnly", "DepthNormals" })
+            {
+                int s = source.IndexOf("Name \"" + pass + "\"", System.StringComparison.Ordinal);
+                int e = source.IndexOf("ENDHLSL", s, System.StringComparison.Ordinal);
+                StringAssert.DoesNotContain("_SONOMA_BIOMES", source.Substring(s, e - s),
+                    $"{pass} has no colour to blend, and a keyword there only multiplies variants");
+            }
+        }
+
         // -- Building a chunk through the real job path ------------------------
 
         struct Built
@@ -283,6 +354,8 @@ namespace Sonoma.Tests
             var coarsePoints  = new NativeArray<double3>(coarse,  Allocator.TempJob);
             var coarseNormals = new NativeArray<float3>(coarse,   Allocator.TempJob);
             var coarseHeights = new NativeArray<float>(coarse,    Allocator.TempJob);
+            var splats        = new NativeArray<uint>(samples,    Allocator.TempJob);
+            var coarseSplats  = new NativeArray<uint>(coarse,     Allocator.TempJob);
             var heightBounds  = new NativeArray<float>(2,         Allocator.TempJob);
 
             var meshData = Mesh.AllocateWritableMeshData(1);
@@ -302,7 +375,7 @@ namespace Sonoma.Tests
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = _params.MaxOctave(node.Depth), Resolution = R,
                 Macro = macro.Params, MacroTexels = macro.Texels,
-                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights,
+                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
             }.Schedule(samples, 64).Complete();
 
             new CoarseHeightSampleJob
@@ -311,14 +384,15 @@ namespace Sonoma.Tests
                 MaxOctave = _params.MaxOctave(node.Depth - 1), Resolution = R,
                 Macro = macro.Params, MacroTexels = macro.Texels,
                 BasePoints = coarsePoints, BaseNormals = coarseNormals, Heights = coarseHeights,
+                Splats = coarseSplats,
             }.Schedule(coarse, 64).Complete();
 
             new ChunkMeshJob
             {
                 Resolution = R, Anchor = anchor, SkirtDepth = 0f, Depth = node.Depth,
-                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights,
+                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
                 CoarseBasePoints = coarsePoints, CoarseBaseNormals = coarseNormals,
-                CoarseHeights = coarseHeights,
+                CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
                 Mesh = data, HeightBounds = heightBounds,
             }.Schedule().Complete();
 
@@ -327,6 +401,7 @@ namespace Sonoma.Tests
             meshData.Dispose();
             basePoints.Dispose(); baseNormals.Dispose(); heights.Dispose();
             coarsePoints.Dispose(); coarseNormals.Dispose(); coarseHeights.Dispose();
+            splats.Dispose(); coarseSplats.Dispose();
             heightBounds.Dispose();
 
             return new Built { Anchor = anchor, Verts = verts };
