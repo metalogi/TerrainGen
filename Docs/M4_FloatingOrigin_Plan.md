@@ -557,11 +557,44 @@ these say so.
     `EarthScaleTests.Budget` and the asset moved together; `EarthSettingsAssetTests` holds them to
     each other.
 
+### Profiler pass
+
+25. **The terrain's main thread runs at three times its budget, and the cost is selection, not
+    generation.** Measured on 2026-10-17 on a Mono development build of `EarthStress` with the
+    Profiler attached, over the last 2,000 frames of a descent from orbit (about 17 s, ending at the
+    ground). Exported with `Assets/Editor/ProfilerCaptureExport.cs` (Tools → Sonoma → Export Profiler
+    Capture), which writes per-frame, per-marker and per-allocation-site CSVs to `Logs/`, because the
+    Profiler window shows one frame at a time. Against verification item 4:
+    - **Terrain work within budget: fails.** `TerrainRoot.Update` took a median 5.85 ms, p95 7.56,
+      p99 8.17, worst 10.19, over 2 ms in every frame, let alone `UploadBudgetMs`' 1.5. About 98% of
+      it is the terrain's own C#: the Unity calls beneath it (mesh creation, `AddComponent`,
+      activation) come to about 0.13 ms a frame. It is paid whether or not anything generates: 5.83
+      ms in frames with no job running, 6.20 in frames with one. It climbed from 4.5 to 7.2 ms across
+      the capture as the working set grew. That is the shape of `LodSelector.Run`'s walk: every frame,
+      each of ~4,400 nodes recomputes `LodMath.NodeDistance` (`SurfaceFrame` at its centre and four
+      corner `SurfacePoint`s for `NodeWorldSize`, two `tan` apiece) and does about ten dictionary and
+      set operations. Inferred from that shape; nothing inside `TerrainRoot.Update` has a marker yet.
+    - **Zero GC per frame: fails while generating.** `TerrainRoot.Update` allocated 2.98 MB over 1,055
+      frames. Of that, 2.49 MB is in 26,899 allocations in its own body, about six a chunk if
+      `Mesh.CreateMesh`'s 4,238 calls are the uploads. Another 0.40 MB is in `AddComponent` and
+      `TerrainChunk.Awake` as `ChunkPool` grew. Five `GC.Collect`s, the longest 1.34 ms. The known
+      per-chunk sources are `ChunkMeshBuffers.VertexAttributes()`, a fresh array on every `Schedule`,
+      and the `gameObject.name` interpolation in `Upload`, which boxes four ints. `Pending` is a
+      struct and is not one. Those two do not obviously account for all of it.
+    - **Rebases not a spike: passes.** 1.06 and 1.29 ms, about 0.34 µs a chunk (half the Editor's
+      0.65), five a descent. The session's working set peaked at 4,394.
+
+    For scale: rendering took 1.7 ms a frame and the main thread 8.3 ms in all, and the generation
+    jobs ran in 800 of the 2,000 frames, at most 13 ms of worker time in one, on a four-core CPU. The
+    fixes are M6's, listed under it in `SonomaRevisedPlan.md` §5. A faster backend will not close the
+    gap by itself: IL2CPP would cut the per-node constant, but the walk is linear in the working set.
+
 ## Out of scope for M4
 
 - **Fixing triplanar precision.** C4. Revisit when textures are real — M7, or whenever they land.
 - **The macro layer, biomes, erosion.** M5; `MacroSample` stays zero.
-- **Colliders, the debug overlay, the heightmap cache, the profiling pass.** M6.
+- **Colliders, the debug overlay, the heightmap cache, the 2 ms profiling pass**, and the fixes for
+  what M4's profiler pass found (item 25). M6.
 - **Retuning `SampleScene`.** Ground rule 1.
 - **Lazy infinite plane-grid roots.** Deferred since M1, and a cube sphere does not need them.
 - **2:1 quadtree balancing.** Optional, M6 at the earliest.

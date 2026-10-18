@@ -287,6 +287,14 @@ Each milestone ends with something runnable and a test that would catch regressi
 - Colliders at the finest depths via `Physics.BakeMesh` jobs; NavMesh surface hook.
 - Debug overlay: resident/in-flight counts, upload time, per-depth node counts, LOD freeze, jump-to-coordinate, force-regenerate.
 - Heightmap cache for revisited nodes; profiling pass against the 2 ms budget.
+- **Fixes for what M4's profiler pass found.** Near the ground on `EarthStress`, `TerrainRoot.Update` ran at a median 5.85 ms and was over budget in every frame; generating, it made about six allocations per chunk built. The numbers are in `Docs/M4_FloatingOrigin_Plan.md`, amendment 25. In order:
+  1. **Markers first.** Add Profiler markers inside `TerrainRoot.Update`: the selector's descent, release, eviction and visibility passes, then the scheduler's scheduling and its collection and upload. The 98% it spends in its own code is unattributed, and the rest of this list is inferred from how the cost scales.
+  2. **Cache each node's bounding sphere.** Its centre and radius depend on the node and its height range, never on the camera, yet `LodMath.NodeDistance` rebuilds them every frame for every node: five tangent-adjusted surface evaluations. Compute the sphere when the node is created and again when its chunk's heights arrive, and per frame take only the distance to it. Split `NodeDistance` into the sphere and the distance so `LodSelector` and the working-set tests still share one piece of arithmetic. Keep its expressions as they are, the float height sum included, so selection stays bit-identical and no pinned working-set count moves.
+  3. **Cut the per-node hash traffic.** That is about ten dictionary and set operations per node per frame. Use a frame stamp on the node instead of rebuilding `_wanted`, so `ReleaseUnwanted` stops probing a set for every node. Stop the `TryGetValue`-then-write-back of the struct `NodeState` on every visit.
+  4. **Allocation-free uploads.** Build `ChunkMeshBuffers.VertexAttributes()` once instead of per `Schedule`, and name chunk GameObjects only in the Editor; the name's interpolation boxes four ints a chunk. Those two may not be all of it, so attribute what remains with the exporter's allocation-site table. Consider pre-warming `ChunkPool`, whose growth allocates through `AddComponent`.
+  5. **Re-measure, on IL2CPP as well as Mono,** before anything structural. If the walk is still over budget, a Burst selection pass over flat `NodeId`-keyed arrays is the next step.
+
+  Measure each step with Tools → Sonoma → Export Profiler Capture (`Assets/Editor/ProfilerCaptureExport.cs`).
 
 ### M7 — Content (original Phase 5, unchanged in scope)
 - Vegetation and rock scattering from the same deterministic per-node RNG, driven by biome density curves and slope.
