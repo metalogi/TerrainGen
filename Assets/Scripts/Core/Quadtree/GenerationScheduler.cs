@@ -67,6 +67,8 @@ namespace Sonoma.Core.Quadtree
         readonly int          _maxInFlight;
         readonly float        _uploadBudgetMs;
         readonly bool         _flipWinding;
+        readonly MacroMaps    _macro;
+        readonly bool         _ownsMacro;
 
         readonly List<Request>                _heap     = new List<Request>();
         // Where each queued node sits in _heap, maintained by every swap. It is what makes
@@ -98,9 +100,13 @@ namespace Sonoma.Core.Quadtree
         public int QueuedCount   => _heap.Count;
         public int InFlightCount => _inFlight.Count;
 
+        // macro is the terrain's macro maps, which must outlive this scheduler: Dispose
+        // completes every job that reads them, and only then may they be freed. Null means no
+        // macro layer, and the scheduler then makes and owns a disabled one-texel map, because
+        // the sample jobs need a constructed array either way.
         public GenerationScheduler(in SurfaceDef surface, RootQuad[] roots, in HeightParams p,
                                    ChunkPool pool, float skirtDepth, float skirtFraction,
-                                   int maxInFlight, float uploadBudgetMs)
+                                   int maxInFlight, float uploadBudgetMs, MacroMaps macro = null)
         {
             _surface        = surface;
             _roots          = roots;
@@ -112,6 +118,8 @@ namespace Sonoma.Core.Quadtree
             _maxInFlight    = math.max(1, maxInFlight);
             _uploadBudgetMs = math.max(0.1f, uploadBudgetMs);
             _flipWinding    = SurfaceMath.UvFrameIsRightHanded(surface);
+            _ownsMacro      = macro == null;
+            _macro          = macro ?? MacroMaps.Disabled();
         }
 
         // Requests a node, or re-prices one already queued.
@@ -211,10 +219,15 @@ namespace Sonoma.Core.Quadtree
             data.SetIndexBufferParams(ChunkMeshLayout.IndexCount(R), IndexFormat.UInt16);
             data.subMeshCount = 1;
 
+            // Each job reads the macro at its own band's level, as it takes its own octaves:
+            // the fine one at this depth's, the coarse one at the parent's.
+            var macro = _macro.Params;
+
             var fine = new HeightSampleJob
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = oct, Resolution = R,
+                Macro = macro, MacroLevel = macro.Layout.MacroLevel(node.Depth), MacroTexels = _macro.Texels,
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
             }.Schedule(samples, 64);
 
@@ -222,6 +235,7 @@ namespace Sonoma.Core.Quadtree
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = coarseOct, Resolution = R,
+                Macro = macro, MacroLevel = macro.Layout.MacroLevel(node.Depth - 1), MacroTexels = _macro.Texels,
                 BasePoints = p.CoarsePoints, BaseNormals = p.CoarseNormals, Heights = p.CoarseHeights,
             }.Schedule(coarse, 64);
 
@@ -305,7 +319,8 @@ namespace Sonoma.Core.Quadtree
         }
 
         // Play-mode teardown. Every in-flight job must be completed before its buffers are
-        // freed, or the job system logs a leak for each one.
+        // freed, or the job system logs a leak for each one -- and before the macro maps they
+        // read are, which is why TerrainRoot disposes those after this.
         public void Dispose()
         {
             foreach (var kv in _inFlight)
@@ -319,6 +334,9 @@ namespace Sonoma.Core.Quadtree
             _heap.Clear();
             _heapAt.Clear();
             _wanted.Clear();
+
+            // After the jobs above, never before: they read it.
+            if (_ownsMacro) _macro.Dispose();
         }
 
         // ── Indexed binary min-heap ──────────────────────────────────────────

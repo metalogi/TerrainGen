@@ -263,10 +263,14 @@ namespace Sonoma.Tests
             double3 anchor = SurfaceMath.SurfacePoint(_surface, root,
                                  0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax));
 
+            // No macro layer, as SampleScene has none; the jobs still need a constructed array.
+            using var macro = MacroMaps.Disabled();
+
             new HeightSampleJob
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = _params.MaxOctave(node.Depth), Resolution = R,
+                Macro = macro.Params, MacroTexels = macro.Texels,
                 BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights,
             }.Schedule(samples, 64).Complete();
 
@@ -274,6 +278,7 @@ namespace Sonoma.Tests
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = _params.MaxOctave(node.Depth - 1), Resolution = R,
+                Macro = macro.Params, MacroTexels = macro.Texels,
                 BasePoints = coarsePoints, BaseNormals = coarseNormals, Heights = coarseHeights,
             }.Schedule(coarse, 64).Complete();
 

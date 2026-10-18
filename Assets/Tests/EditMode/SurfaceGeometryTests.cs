@@ -241,5 +241,68 @@ namespace Sonoma.Tests
                 Assert.That(p.z, Is.InRange(-1e-9, s.Length + 1e-9), "cylinder point is outside the axial range");
             }
         }
+
+        // Locate inverts SurfacePoint on every topology: an interior point comes back on its own
+        // quad at its own (u, v), from the base surface or anywhere along its normal, which is
+        // where TerrainRoot.HeightAt's callers are. A point on an edge or corner may come back on
+        // any quad sharing it, so there the check is the point, not the address.
+        //
+        // A tool path, so a tolerance rather than bits: atan(tan(x)) and atan2 leave about 1e-15.
+        [Test]
+        public void LocateInvertsSurfacePoint()
+        {
+            var surfaces = new[]
+            {
+                SurfaceDef.CubeSphere(6371000.0, true),
+                SurfaceDef.CubeSphere(300.0, false),
+                SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1),
+                SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4),
+                SurfaceDef.PlaneGrid(1000.0, 3, 2),
+            };
+            var rng = new Unity.Mathematics.Random(0xC0FFEEu);
+
+            foreach (var s in surfaces)
+            {
+                var    roots = SurfaceMath.BuildRoots(s);
+                double scale = s.Type == SurfaceType.PlaneGrid ? s.TileSize : s.Radius;
+
+                for (int q = 0; q < roots.Length; q++)
+                for (int k = 0; k < 200; k++)
+                {
+                    double u = rng.NextDouble(0.001, 0.999), v = rng.NextDouble(0.001, 0.999);
+                    double3 p = SurfaceMath.SurfacePoint(s, roots[q], u, v);
+
+                    // Off the surface along the exact radial direction. The float normal is good
+                    // to 6e-8, which at a 1% offset of Earth's radius puts the probe 4 mm off the
+                    // ray -- 4e-10 in u, the test's error rather than Locate's.
+                    double3 radial = s.Type == SurfaceType.CubeSphere ? p / math.length(p)
+                                   : s.Type == SurfaceType.Cylinder   ? math.normalize(new double3(p.x, p.y, 0.0))
+                                   :                                    new double3(0.0, 1.0, 0.0);
+                    double3 off = p + radial * (rng.NextDouble(-0.01, 0.01) * scale);
+
+                    foreach (var probe in new[] { p, off })
+                    {
+                        SurfaceMath.Locate(s, probe, out int lq, out double lu, out double lv);
+                        string at = $"{s.Type} quad {q} ({u}, {v})";
+                        Assert.AreEqual(q, lq, $"{at}: located on quad {lq}");
+                        Assert.AreEqual(u, lu, 1e-12, $"{at}: u");
+                        Assert.AreEqual(v, lv, 1e-12, $"{at}: v");
+                    }
+                }
+
+                // Edges and corners: whichever quad comes back, its (u, v) must name the point.
+                for (int q = 0; q < roots.Length; q++)
+                foreach (var (u, v) in new[] { (0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0),
+                                               (0.5, 0.0), (1.0, 0.25), (0.75, 1.0), (0.0, 0.5) })
+                {
+                    double3 p = SurfaceMath.SurfacePoint(s, roots[q], u, v);
+                    SurfaceMath.Locate(s, p, out int lq, out double lu, out double lv);
+                    Assert.That(lq, Is.InRange(0, roots.Length - 1));
+                    double3 back = SurfaceMath.SurfacePoint(s, roots[lq], lu, lv);
+                    Assert.Less(math.distance(p, back), 1e-12 * scale,
+                        $"{s.Type} quad {q} ({u}, {v}) located on quad {lq} ({lu}, {lv})");
+                }
+            }
+        }
     }
 }

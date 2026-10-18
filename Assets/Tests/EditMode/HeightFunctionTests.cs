@@ -371,5 +371,80 @@ namespace Sonoma.Tests
                 }
             }
         }
+
+        // TerrainHeightFunction.Height and LatticeNoise.Fbm exactly as M4 shipped them, copied
+        // verbatim, with M4's float MacroSample.Zero.BaseHeight written as the 0f it was. Not
+        // to be tidied or kept in step with the real ones: being frozen is the point.
+        static float M4Height(in double3 surfacePos, int maxOctave, in HeightParams p)
+        {
+            double3 n = surfacePos / p.OctaveWavelength0;
+
+            double fbm = M4Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed);
+
+            return (float)(p.HeightScale * fbm + 0f);
+        }
+
+        static double M4Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed)
+        {
+            double lac = lacunarity;
+            double3 q  = p;
+            double sum = 0.0;
+            double amp = 1.0;
+
+            for (int k = 0; k < octaveCount; k++)
+            {
+                sum += amp * LatticeNoise.Gradient3D(q, seed + (uint)k);
+                amp *= persistence;
+                q   *= lac;
+            }
+
+            return sum;
+        }
+
+        // Ground rule 1 of M5 as an assertion: with no macro layer -- default(MacroSample), which
+        // is what every scene without one passes -- the height is M4's to the bit, on SampleScene's
+        // configuration and Earth's, at every depth. That is what keeps SampleScene unchanged and
+        // every relief and working-set figure pinned against it valid without re-measurement.
+        //
+        // The trap it guards is MacroSample's default. A field stored as a multiplier defaults to
+        // zero and flattens the world on any path that forgets to set it; stored relative to one,
+        // as M5b's band gains are, the default is the identity.
+        [Test]
+        public void HeightIsBitIdenticalWithoutAMacroLayer()
+        {
+            var configs = new[]
+            {
+                (name: "SampleScene", s: SurfaceDef.CubeSphere(TerrainReliefTests.Radius),
+                 p: HeightParams.Create(SurfaceDef.CubeSphere(TerrainReliefTests.Radius),
+                        TerrainReliefTests.Resolution, 0.0, TerrainReliefTests.OctaveCount,
+                        TerrainReliefTests.HeightScale, TerrainReliefTests.Persistence,
+                        TerrainReliefTests.Lacunarity, TerrainReliefTests.Seed),
+                 maxDepth: TerrainReliefTests.MaxDepth),
+                (name: "EarthStress", s: EarthScaleTests.Earth,
+                 p: EarthScaleTests.Params(EarthScaleTests.OctaveCount),
+                 maxDepth: EarthScaleTests.MaxDepth),
+            };
+            var rng = new Unity.Mathematics.Random(0x5EEDu);
+
+            foreach (var (name, s, p, maxDepth) in configs)
+            {
+                var roots = SurfaceMath.BuildRoots(s);
+                for (int k = 0; k < 400; k++)
+                {
+                    var     q     = roots[rng.NextInt(0, roots.Length)];
+                    double3 point = SurfaceMath.SurfacePoint(s, q, rng.NextDouble(), rng.NextDouble());
+                    int     depth = rng.NextInt(0, maxDepth + 1);
+                    int     oct   = p.MaxOctave(depth);
+
+                    float now = TerrainHeightFunction.Height(point, oct, default(MacroSample), p);
+                    float m4  = M4Height(point, oct, p);
+                    Assert.AreEqual(math.asuint(m4), math.asuint(now),
+                        $"{name} at {point}, depth {depth}: {now} where M4 gave {m4}");
+                    Assert.AreEqual(math.asuint(now),
+                        math.asuint(TerrainHeightFunction.Height(point, oct, MacroSample.Zero, p)),
+                        "MacroSample.Zero is not default(MacroSample)");
+                }
+            }
+        }
     }
 }

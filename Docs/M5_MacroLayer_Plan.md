@@ -571,6 +571,89 @@ terrarium's rows meet at four-root corners.
 The plan above is the plan as written. Building it will change some of it; record those changes here
 rather than editing them into the tasks, so the plan still reads as what was decided up front.
 
+### M5a (2026-10-18)
+
+1. **`QuadEdgeLink` is a try-form**, `bool QuadEdgeLink(in SurfaceDef, int quad, Edge, out EdgeLink)`,
+   because a plane grid's rim and a cylinder's ends have no neighbour. `Neighbour` now crosses quads
+   through it, so root-quad adjacency lives in one place and the existing neighbour tests cover the new
+   function. `EdgeLink.Face` is the neighbouring quad's index on every topology.
+2. **`EdgeSource` returns the source texel and whether it is a copy**, and `MacroLayout.EdgeCopies`
+   lists every (destination, source) pair. `MacroMaps.Build` and the tests' managed builder apply the
+   same list. Every source is a texel nothing copies into, so the copies run once, in any order;
+   `EdgeCopiesReadOnlyOwnedTexels` holds that. A cylinder of one column links its East edge to its own
+   West, so ownership is the lower `(quad, edge)` and a corner the lowest `(quad, i, j)`.
+3. **The caller does not fetch the sixteen texels.** `MacroSampler.Sample<T>` is generic over an
+   `IMacroTexels` struct, a `NativeArray` reader in the jobs and an array reader in the tests. That way
+   the whole read, indices included, is pure code, and Burst specialises it, so there is no virtual call.
+4. **`MacroSample.BaseHeight` is a double**, so the height narrows once (C3). The climate fields are
+   floats. `default(MacroSample)` still adds exactly nothing; `HeightIsBitIdenticalWithoutAMacroLayer`
+   compares against frozen copies of M4's `Height` *and* `Fbm`, so a later change to either is caught.
+5. **The edge test's mutation check needs deep depths.** At up to two depths past the top level, the
+   cell fraction has only a few bits. Every weight, and every product of a weight with a float texel,
+   is then exact in double, so the textbook read *passes*. At Earth's depth 19, level 3, the fraction
+   has 16 bits and the products round. On reversed links the test samples every edge vertex while an
+   edge has at most 1,024 intervals, then the four at each end and a fixed random 128, down to depth 24.
+   There the textbook read disagrees on 5,552 of the 34,880 reversed-link samples, and the real one on
+   none. Non-reversed links stop two depths past the top level, since both sides do the same arithmetic
+   there. The test fills the maps
+   with independent random texels rather than the generator, because the edge rule must hold whatever
+   fills them; a second test runs it on generated maps.
+6. **Exactness across a reversed link assumes `R − 1` is a power of two**, true of every shipped
+   resolution. `ChunkGrid.VertexUV` then gives dyadic `u`, and `1 − u` is exact. At other resolutions
+   the two sides differ by rounding, sub-micrometre, and bounded, as the vertex positions already are.
+7. **The coarse job's depth-0 border reaches two texels past the edge**, one more than the stored
+   border allows for. The sampler clamps its cell to −1 … n, so every read stays inside the stored
+   −2 … n + 2 for any coordinate. That read extrapolates, and like the rest of a depth-0 morph target it
+   is unused.
+8. **Generator details the plan left open.**
+   - The macro's lacunarity is fixed at 2, which `MaxOctave(level) = K0 + level` assumes.
+   - Its seeds are offset from the detail noise's. With the same seed, the macro would otherwise reuse
+     detail octaves 0–6's lattices at the same scale.
+   - Channels are a seed stride apart.
+   - Climate is `centre + amplitude × fBm`: moisture and ruggedness centre on 0.5 and are clamped, and
+     temperature centres on `EquatorTemperature`, which on a surface with no poles holds everywhere.
+   - `MacroParams.Create` refuses a configuration whose top level would carry no octave.
+9. **All four stress scenes get a macro layer in M5a**, not just `EarthStress`, so the cylinder edge
+   rule (the ring's closing seam, the terrarium's four-root corners) gets a fly-through too. Base heights
+   are about a third of the detail `HeightScale` on the planets and the ring, and equal to it in the
+   terrarium, where "hundreds of metres" asks for it:
+
+   | scene | levels | `BaseHeightScale` | texels | roughest C, no macro → macro |
+   |---|---|---|---|---|
+   | `EarthStress` | 4 | 3000 m | 551,640 | 6.23 → 6.65 (depth 19) |
+   | `SmallPlanetStress` | 4 | 2000 m | 551,640 | 5.24 → 5.69 (depth 17) |
+   | `RingworldStress` | 4 | 1500 m | 735,520 | 5.80 → 6.00 (depth 16) |
+   | `TerrariumStress` | 3 | 200 m | 762,208 | 2.98 → 4.63 (depth 6) |
+
+   C was measured on 300 random nodes per depth (600 in the terrarium), at 17 × 17 vertices each, so
+   these are samples, not tails. All four stay well inside the pinned C of 15, 15, 15 and 9, and the
+   runtime's roughest-chunk report remains the arbiter. The terrarium at 300 m reached 5.74, too close
+   to 9 for an estimate. Four levels there would be 47 MB over 32 roots, and level 2's 60 m texels are
+   already finer than a macro layer is for, hence three. The cylinders' `EquatorTemperature` is 18 °C,
+   since without poles it holds everywhere. The managed builder takes about 1.5 s per scene on .NET 8.
+
+   **Measured in the Editor (2026-10-18).**
+   - *Build times.* The Burst build took 188–195 ms on Earth (551,640 texels, 8.4 MB), 224 ms on
+     the ring and 215 ms in the terrarium. That is a one-off startup hitch, several times the plan's
+     "tens of milliseconds" guess. Each texel is a tangent-adjusted surface point and four
+     double-precision fBm sums of up to seven octaves, so about 0.35 µs per texel across the
+     workers. A development build will give the real figure.
+   - *Peak working sets.* Earth 4,158 against 5,800; ring 4,496 against 5,600; terrarium 2,824
+     against 3,600.
+   - *Relief.* No stress scene warned about relief.
+   - *Export.* The macro map export of `EarthStress` gave base height −3,474 … 2,799 m, against
+     detail to octave 7 of −8,147 … 4,618 m and a total of −9,042 … 5,226 m. It gave temperature
+     −34.7 … 33.7 °C, and moisture and ruggedness over their full 0–1 range.
+   - *Tests.* All tests pass, including `MacroJobMatchesTheManagedBuilder` bitwise, so Burst's `tan`
+     matched managed `Math.Tan` on every texel checked and no ULP relaxation was needed.
+10. **The assets were written as YAML, not through the Editor menu.** The Editor was open and is the
+    user's. `MacroMapsTests.StressScenesRunTheirMacroLayers` loads each asset through `AssetDatabase` and
+    checks every field against `MacroTests.StressMacros`. A field the YAML got wrong would load as its
+    default, and the test catches exactly that, which is the stale-asset failure the plan warned about.
+11. **`HeightAt` adds one `Locate` and one sixteen-texel read per call** on the main thread. The fly
+    camera calls it once a frame, which costs microseconds. It is a tool read, not per-node work, so
+    ground rule 3 stands.
+
 ## Out of scope for M5
 
 - **Erosion, rivers, tectonics.** §5 makes erosion optional for M5, and it stays out. A non-local pass

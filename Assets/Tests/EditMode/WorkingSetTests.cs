@@ -39,6 +39,7 @@ namespace Sonoma.Tests
         NativeArray<double3>[] _points;
         NativeArray<float3>[]  _normals;
         NativeArray<float>[]   _heights;
+        MacroMaps              _macro;   // SampleScene has no macro layer; the jobs need an array anyway
         readonly JobHandle[]   _handles = new JobHandle[Batch];
 
         readonly Dictionary<NodeId, (float min, float max)> _relief =
@@ -56,6 +57,8 @@ namespace Sonoma.Tests
                                            Persistence, Lacunarity, Seed);
             _lod     = LodMath.Create(_surface, _params, SplitFactor, MorphStart, Hysteresis,
                                       Preload, MaxDepth);
+
+            _macro = MacroMaps.Disabled();
 
             int samples = (Resolution + 2) * (Resolution + 2);
             _points  = new NativeArray<double3>[Batch];
@@ -78,6 +81,7 @@ namespace Sonoma.Tests
                 if (_normals[k].IsCreated) _normals[k].Dispose();
                 if (_heights[k].IsCreated) _heights[k].Dispose();
             }
+            _macro?.Dispose();
         }
 
         [Test]
@@ -197,6 +201,8 @@ namespace Sonoma.Tests
                         Params      = _params,
                         MaxOctave   = _params.MaxOctave(node.Depth),
                         Resolution  = Resolution,
+                        Macro       = _macro.Params,
+                        MacroTexels = _macro.Texels,
                         BasePoints  = _points[k],
                         BaseNormals = _normals[k],
                         Heights     = _heights[k],

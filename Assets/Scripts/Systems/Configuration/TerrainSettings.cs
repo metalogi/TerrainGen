@@ -103,5 +103,11 @@ namespace Sonoma.Systems.Configuration
         public float Persistence = 0.5f;
         public float Lacunarity = 2f;
         public uint Seed = 42;
+
+        [Header("Macro Layer")]
+        [Tooltip("Persistent per-root-quad maps of base height and climate, built at startup and " +
+                 "read by every chunk. None means no macro layer: the terrain is the detail noise " +
+                 "alone, bit for bit as before the macro layer existed.")]
+        public MacroLayerSettings Macro;
     }
 }

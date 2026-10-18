@@ -30,3 +30,4 @@ MonoBehaviour:
   Persistence: 0.5
   Lacunarity: 2
   Seed: 42
+  Macro: {fileID: 11400000, guid: 47b53e6f98144d9abddf192d38bcb617, type: 2}

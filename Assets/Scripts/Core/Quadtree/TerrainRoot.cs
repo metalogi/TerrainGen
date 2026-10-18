@@ -37,6 +37,7 @@ namespace Sonoma.Core.Quadtree
         GenerationScheduler _scheduler;
         LodSelector         _selector;
         ChunkPool           _pool;
+        MacroMaps           _macro;
         HeightParams        _params;
         LodMath             _lod;
 
@@ -60,10 +61,26 @@ namespace Sonoma.Core.Quadtree
         // detail. For tools: TopologyFlyCamera scales its speed by clearance above the ground,
         // and at Earth scale the ground is kilometres from the base surface. Zero until the
         // terrain has started.
-        public float HeightAt(double3 surfacePoint) =>
-            _selector == null ? 0f
-            : TerrainHeightFunction.Height(surfacePoint, _params.MaxOctave(Settings.MaxDepth),
-                                           MacroSample.Zero, _params);
+        //
+        // Macro included, read at MaxDepth's level as the finest chunks read it. Without it the
+        // ground is understated by the base height, kilometres: the fly camera then believes it
+        // is that much higher, flies too fast, and sets its near plane to a hundredth of a
+        // clearance it does not have, into the ground. The maps are addressed by (quad, u, v)
+        // and a tool has only a point, hence SurfaceMath.Locate; a point on a shared edge may be
+        // located on either quad, and the macro reads the same there from both.
+        public float HeightAt(double3 surfacePoint)
+        {
+            if (_selector == null || _macro == null) return 0f;
+
+            var macro = MacroSample.Zero;
+            if (_macro.Params.Enabled)
+            {
+                SurfaceMath.Locate(Surface, surfacePoint, out int quad, out double u, out double v);
+                macro = _macro.Sample(quad, _macro.Params.Layout.MacroLevel(Settings.MaxDepth), u, v);
+            }
+            return TerrainHeightFunction.Height(surfacePoint, _params.MaxOctave(Settings.MaxDepth),
+                                                macro, _params);
+        }
 
         public int ResidentChunks => _selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
@@ -100,10 +117,13 @@ namespace Sonoma.Core.Quadtree
             float skirtDepth    = Settings.SkirtsEnabled ? Settings.SkirtDepth    : 0f;
             float skirtFraction = Settings.SkirtsEnabled ? Settings.SkirtFraction : 0f;
 
+            // Before the scheduler, whose jobs read it; built on workers and waited for, once.
+            _macro = BuildMacro();
+
             _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution);
             _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
                                                  skirtFraction, Settings.MaxInFlightJobs,
-                                                 Settings.UploadBudgetMs);
+                                                 Settings.UploadBudgetMs, _macro);
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
@@ -138,7 +158,25 @@ namespace Sonoma.Core.Quadtree
             Shader.SetGlobalVector(ViewPositionId, viewPosition);
         }
 
-        SurfaceDef BuildSurface() => Topology switch
+        // No MacroLayerSettings means no macro layer: a disabled one-texel map, and the height
+        // function returns M4's bits exactly. With one, the build time is reported once; it is
+        // a startup hitch, and its size should be known.
+        MacroMaps BuildMacro()
+        {
+            if (Settings.Macro == null) return MacroMaps.Disabled();
+
+            var p    = MacroParams.Create(Surface, _params, Settings.Macro.ToConfig());
+            var maps = MacroMaps.Build(Surface, Roots, p);
+            Debug.Log($"[TerrainRoot] Macro layer '{Settings.Macro.name}': {p.Layout.LevelCount} levels, " +
+                      $"{p.Layout.TexelCount:N0} texels ({maps.Bytes / (1024.0 * 1024.0):F1} MB), " +
+                      $"octaves up to {p.MaxOctave(p.Layout.LevelCount - 1)}, built in " +
+                      $"{maps.BuildMilliseconds:F1} ms.");
+            return maps;
+        }
+
+        // The surface this component's topology fields describe. Public for the Editor's macro
+        // map export, which needs the surface without entering play mode.
+        public SurfaceDef BuildSurface() => Topology switch
         {
             SurfaceType.CubeSphere => SurfaceDef.CubeSphere(Radius, TangentAdjust),
             SurfaceType.Cylinder   => SurfaceDef.Cylinder(Radius, Length, Cols, Rows),
@@ -182,6 +220,10 @@ namespace Sonoma.Core.Quadtree
 
             _selector?.Dispose();
             _scheduler?.Dispose();
+            // After the scheduler, which completes the in-flight jobs that read the maps.
+            // Freed first, they throw in the Editor and are read after free in a build.
+            _macro?.Dispose();
+            _macro = null;
             _pool?.Dispose();
             ChunkMeshBuffers.DisposeCache();
         }

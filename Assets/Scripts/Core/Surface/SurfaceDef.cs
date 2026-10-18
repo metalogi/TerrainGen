@@ -18,9 +18,12 @@ namespace Sonoma.Core.Surface
         public double  Z0, Z1;          // Cylinder: axial range swept by v.
     }
 
-    // Where a root quad edge leads. Reversed means the along-edge parameter runs
+    // Where a root quad edge leads. Face is the neighbouring quad's index -- named for the cube,
+    // where it is also the face, and the same field on every topology (SurfaceMath.QuadEdgeLink).
+    // Edge is the neighbour's edge we arrive on. Reversed means the along-edge parameter runs
     // opposite on the neighbour, which happens on 8 of the cube's 24 edge links
-    // (CubeAdjacencyTests.EdgeLinksRoundTrip asserts that count).
+    // (CubeAdjacencyTests.EdgeLinksRoundTrip asserts that count) and never on a plane grid or
+    // cylinder.
     public readonly struct EdgeLink
     {
         public readonly int  Face;
