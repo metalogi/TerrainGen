@@ -66,21 +66,33 @@ namespace Sonoma.Core.Generation
             var clock  = Stopwatch.StartNew();
             var texels = new NativeArray<float4>(p.Layout.TexelCount, Allocator.Persistent,
                                                  NativeArrayOptions.UninitializedMemory);
-            var rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
+            // Everything that can throw is inside the try, so a failed build frees the pyramid
+            // rather than leaking 8-12 MB of persistent memory that nothing owns: TerrainRoot.Start
+            // aborts with no MacroMaps to dispose, and the leak would be reported at the next
+            // domain reload with nothing naming the macro build.
             try
             {
-                new MacroBuildJob { Surface = s, Params = p, Roots = rootArray, Texels = texels }
-                    .Schedule(texels.Length, 256).Complete();
-            }
-            finally
-            {
-                rootArray.Dispose();
-            }
+                var rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
+                try
+                {
+                    new MacroBuildJob { Surface = s, Params = p, Roots = rootArray, Texels = texels }
+                        .Schedule(texels.Length, 256).Complete();
+                }
+                finally
+                {
+                    rootArray.Dispose();
+                }
 
-            // Shared edges: every copy reads a texel nothing copies into, so one pass in any
-            // order is enough (MacroLayout.EdgeSource). A few thousand texels; main thread.
-            foreach (int2 c in p.Layout.EdgeCopies(s))
-                texels[c.x] = texels[c.y];
+                // Shared edges: every copy reads a texel nothing copies into, so one pass in any
+                // order is enough (MacroLayout.EdgeSource). A few thousand texels; main thread.
+                foreach (int2 c in p.Layout.EdgeCopies(s))
+                    texels[c.x] = texels[c.y];
+            }
+            catch
+            {
+                texels.Dispose();
+                throw;
+            }
 
             return new MacroMaps(texels, p, clock.Elapsed.TotalMilliseconds);
         }
@@ -94,9 +106,9 @@ namespace Sonoma.Core.Generation
         // A main-thread read, for tools. Generation reads the same maps through the same
         // arithmetic inside the sample jobs.
         public MacroSample Sample(int quad, int level, double u, double v)
-            => Params.Enabled
-                ? MacroSampler.Sample(new MacroMapReader(_texels), Params.Layout, quad, level, u, v)
-                : MacroSample.Zero;
+            => MacroSampler.Read(Reader, Params, quad, level, u, v);
+
+        public MacroMapReader Reader => new MacroMapReader(_texels);
 
         public void Dispose()
         {

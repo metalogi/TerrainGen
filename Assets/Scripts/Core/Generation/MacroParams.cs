@@ -56,6 +56,13 @@ namespace Sonoma.Core.Generation
         // all and is flat. MacroTests.MacroLevelsAreBandLimited pins it.
         public int MaxOctave(int level) => K0 + level;
 
+        // Pyramid levels no read ever reaches at this MaxDepth: chunks read MacroLevel(depth)
+        // with depth at most maxDepth, and HeightAt reads MacroLevel(maxDepth). Each level has
+        // four times the texels of the one below, so with MaxDepth 3 and LevelCount 6, levels 4
+        // and 5 are 93% of the memory and build time, built and never read. Not refused, since
+        // nothing breaks; TerrainRoot warns, as it does for HeightParams.IsOctaveStarved.
+        public int UnreadLevels(int maxDepth) => math.max(0, Layout.LevelCount - (maxDepth + 1));
+
         public static MacroParams Create(in SurfaceDef s, in HeightParams hp, in MacroConfig c)
         {
             if (!(c.Wavelength0 >= 0.0) || double.IsInfinity(c.Wavelength0))

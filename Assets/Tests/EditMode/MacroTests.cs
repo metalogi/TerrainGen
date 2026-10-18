@@ -36,14 +36,15 @@ namespace Sonoma.Tests
         // MacroMapsTests.StressScenesRunTheirMacroLayers. SampleScene has none (ground rule 1).
         //
         // Base heights are about a third of each planet's or ring's detail HeightScale, and equal
-        // to the terrarium's, whose 10 km world wants hundreds of metres. They are sized against
-        // the relief each scene's LOD allowance has to cover. Measured on 300 random nodes per
-        // depth (600 in the terrarium), 17 x 17 vertices each, the roughest node's C rises with
-        // the macro from 6.23 to 6.65 on Earth at depth 19, 5.24 to 5.69 on the small planet at
-        // depth 17, 5.80 to 6.00 on the ring at 16 and 3.62 to 4.03 in the terrarium at 9 (its
-        // worst, 4.63, is at depth 6), all well inside the pinned C of 15, 15, 15 and 9
-        // (2026-10-18). The terrarium at 300 m reached 5.74, too close to 9 for an estimate.
-        // The selector's end-of-session report of the roughest chunk is the arbiter.
+        // to the terrarium's, whose 10 km world wants hundreds of metres. They add to the relief
+        // each scene's LOD allowance has to cover, so the relief and skirt tests size the demand
+        // with them (Demand, below).
+        //
+        // Measured with the macro (2026-10-18, 300 random nodes per depth, 600 in the terrarium,
+        // 17 x 17 vertices each), the roughest node's C in units of HeightScale / S0 rose from
+        // 6.23 to 6.65 on Earth at depth 19, 5.24 to 5.69 on the small planet at depth 17, 5.80 to
+        // 6.00 on the ring at 16 and 3.62 to 4.03 in the terrarium at 9 (its worst, 4.63, was at
+        // depth 6). The selector's end-of-session report of the roughest chunk is the arbiter.
         internal const double MacroWavelength0  = 0.0;
         internal const float  MacroPersistence  = 0.5f;
         internal const float  PoleTemperature   = -30f;
@@ -57,7 +58,7 @@ namespace Sonoma.Tests
         {
             public string     Scene, Settings, Asset;
             public SurfaceDef Surface;
-            public int        Levels;
+            public int        Levels, MaxDepth;
             public float      BaseHeightScale, EquatorTemperature;
 
             public MacroConfig Config => new MacroConfig
@@ -71,23 +72,53 @@ namespace Sonoma.Tests
 
         // The cylinders have no poles, so EquatorTemperature is their temperature everywhere at
         // zero base height: temperate rather than tropical. The terrarium stops at three levels,
-        // because its 32 roots would make four 47 MB, and level 2's 60 m texels are already
+        // because its 32 roots would make four 48 MB, and level 2's 60 m texels are already
         // finer than anything a macro layer is for in a 10 km world.
         internal static readonly SceneMacro[] StressMacros =
         {
             new SceneMacro { Scene = "EarthStress", Settings = "Assets/Settings/EarthTerrainSettings.asset",
-                             Asset = "Assets/Settings/EarthMacro.asset", Surface = EarthScaleTests.Earth,
+                             Asset = "Assets/Settings/EarthMacro.asset", Surface = EarthScaleTests.Earth, MaxDepth = EarthScaleTests.MaxDepth,
                              Levels = 4, BaseHeightScale = 3000f, EquatorTemperature = 30f },
             new SceneMacro { Scene = "SmallPlanetStress", Settings = StressSceneTests.SmallPlanet.Asset,
-                             Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface,
+                             Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface, MaxDepth = StressSceneTests.SmallPlanet.MaxDepth,
                              Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f },
             new SceneMacro { Scene = "RingworldStress", Settings = StressSceneTests.Ringworld.Asset,
-                             Asset = "Assets/Settings/RingworldMacro.asset", Surface = StressSceneTests.Ringworld.Surface,
+                             Asset = "Assets/Settings/RingworldMacro.asset", Surface = StressSceneTests.Ringworld.Surface, MaxDepth = StressSceneTests.Ringworld.MaxDepth,
                              Levels = 4, BaseHeightScale = 1500f, EquatorTemperature = 18f },
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
-                             Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface,
+                             Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f },
         };
+
+        internal static SceneMacro For(string scene)
+        {
+            var m = Array.Find(StressMacros, x => x.Scene == scene);
+            Assert.IsNotNull(m, $"{scene} has no entry in MacroTests.StressMacros");
+            return m;
+        }
+
+        // The macro layer's own relief factor, as C is the detail noise's: the base height's
+        // half-relief across a node over (node size x BaseHeightScale / S0). Scale-free like C, it
+        // depends on the macro's spectrum, which every stress scene shares: persistence 0.5,
+        // octave 0 at S0, three or four levels. The roughest of 1,000 random nodes per depth at
+        // 33 x 33 vertices was 4.12 on Earth (depth 19), 4.70 on the small planet (depth 17),
+        // 3.52 on the ring (16) and 2.76 in the terrarium (9) (2026-10-18). 7 is half again over
+        // the largest, the margin each scene's C has over its own sample.
+        internal const double MacroReliefFactor = 7.0;
+
+        // The relief demand with the macro layer, as a fraction of node size: the detail estimate
+        // plus the macro's. Half-relief is subadditive, so the sum bounds the relief of the two
+        // together -- conservatively, since it assumes each one's roughest node is the other's.
+        // Measured, the terrarium's combined worst was 4.63 in units of HeightScale / S0 against
+        // the sum's 16.
+        internal static double Demand(double reliefFactor, float heightScale, string scene, double s0)
+            => (reliefFactor * heightScale + MacroReliefFactor * For(scene).BaseHeightScale) / s0;
+
+        // What the relief tests ask of the allowance against Demand. Not the 2x they ask against
+        // the detail estimate alone: Demand already stacks two worst cases padded by half again
+        // that never fall on one node, and 2x over that would have the terrarium, at 1.31x,
+        // carry about 40 m of base height. Its 200 m passes at 1.25x; above about 220 m it fails.
+        internal const double CombinedMargin = 1.25;
 
         // Each stress scene's macro layer is a valid configuration, small enough to build at
         // startup without thought, and carries continental octaves at its top level.
@@ -102,41 +133,65 @@ namespace Sonoma.Tests
                 Assert.LessOrEqual(mb, 16.0, $"{m.Scene}: {p.Layout.TexelCount:N0} texels, {mb:F1} MB");
                 Assert.AreEqual(3, p.K0, $"{m.Scene}: macro octave 0 at S0 gives octaves 0-3 at level 0");
                 Assert.AreEqual(m.Surface.Type == SurfaceType.CubeSphere, p.HasLatitude, $"{m.Scene}: latitude term");
+                Assert.AreEqual(0, p.UnreadLevels(m.MaxDepth), $"{m.Scene}: builds levels no depth reads");
             }
         }
 
-        // C8: what TerrainRoot.HeightAt reads -- the quad SurfaceMath.Locate names, at MaxDepth's
-        // level -- is what the deepest chunks read at their own vertices, including on shared
+        // C8: TerrainHeightFunction.HeightAtPoint, the body of TerrainRoot.HeightAt, gives the
+        // height the deepest chunks draw at their own vertices -- MaxDepth's octaves and the macro
+        // at MacroLevel(MaxDepth), read at the vertex's own (quad, u, v) -- including on shared
         // edges and corners, where Locate may name the other quad. A tool path, so to a
         // tolerance: Locate's u and v carry about 1e-15 of rounding.
+        //
+        // It calls the real function rather than rebuilding it, and checks that the two mistakes
+        // that would still look plausible both fail here: reading level 0 instead of MaxDepth's,
+        // and passing MacroSample.Zero. Either one misplaces the fly camera's ground by up to the
+        // base height.
         [Test]
         public void HeightAtReadsWhatTheChunksRead()
         {
             foreach (var s in new[] { SurfaceDef.CubeSphere(6371000.0), SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4) })
             {
                 var roots = SurfaceMath.BuildRoots(s);
-                var p     = MacroParams.Create(s, Params(s), Config());
+                var hp    = Params(s);
+                var p     = MacroParams.Create(s, hp, Config());
                 var maps  = new ArrayTexels(MacroGenerator.Build(s, roots, p));
                 var rng   = new Unity.Mathematics.Random(77u);
-                const int MaxDepth = 12;
-                int level = p.Layout.MacroLevel(MaxDepth);
+                const int MaxDepth = 12, Samples = 2000;
+                int top   = p.Layout.MacroLevel(MaxDepth);
+                int oct   = hp.MaxOctave(MaxDepth);
+                int span  = 1 << MaxDepth;
+                int levelZeroCaught = 0, zeroCaught = 0;
 
-                for (int k = 0; k < 2000; k++)
+                for (int k = 0; k < Samples; k++)
                 {
+                    // A vertex of a MaxDepth chunk; every eighth on a quad's West edge, every
+                    // sixteenth on its North-West corner.
+                    int x = (k & 7) == 0 ? 0 : rng.NextInt(0, span);
+                    int y = (k & 15) == 0 ? span - 1 : rng.NextInt(0, span);
+                    int i = (k & 7) == 0 ? 0 : rng.NextInt(0, Resolution);
+                    int j = (k & 15) == 0 ? Resolution - 1 : rng.NextInt(0, Resolution);
                     int q = rng.NextInt(0, roots.Length);
-                    // Every eighth sample on an edge or corner of the quad.
-                    double u = (k & 7) == 0 ? rng.NextInt(0, 2) : rng.NextDouble();
-                    double v = (k & 15) == 0 ? rng.NextInt(0, 2) : rng.NextDouble();
-
+                    var node = new NodeId(q, MaxDepth, x, y);
+                    ChunkGrid.VertexUV(node, i, j, Resolution, out double u, out double v);
                     double3 point = SurfaceMath.SurfacePoint(s, roots[q], u, v);
-                    var chunk = MacroSampler.Sample(maps, p.Layout, q, level, u, v);
 
-                    SurfaceMath.Locate(s, point, out int lq, out double lu, out double lv);
-                    var tool = MacroSampler.Sample(maps, p.Layout, lq, level, lu, lv);
+                    float chunk = TerrainHeightFunction.Height(point, oct,
+                                      MacroSampler.Read(maps, p, q, top, u, v), hp);
+                    float tool  = TerrainHeightFunction.HeightAtPoint(s, point, MaxDepth, hp, p, maps);
+                    double tolerance = 2.0 * (math.asfloat(math.asuint(math.abs(chunk)) + 1u) - math.abs(chunk));
+                    Assert.AreEqual(chunk, tool, tolerance, $"{s.Type} {node} vertex ({i}, {j})");
 
-                    Assert.AreEqual(chunk.BaseHeight, tool.BaseHeight, 1e-6,
-                        $"{s.Type} quad {q} ({u}, {v}), located on {lq} ({lu}, {lv})");
+                    float atLevelZero = TerrainHeightFunction.Height(point, oct, MacroSampler.Read(maps, p, q, 0, u, v), hp);
+                    float noMacro     = TerrainHeightFunction.Height(point, oct, MacroSample.Zero, hp);
+                    if (math.abs(atLevelZero - chunk) > tolerance) levelZeroCaught++;
+                    if (math.abs(noMacro - chunk) > tolerance) zeroCaught++;
                 }
+
+                Assert.Greater(levelZeroCaught, Samples * 9 / 10,
+                    $"{s.Type}: reading level 0 would pass almost unnoticed; the test cannot catch it");
+                Assert.Greater(zeroCaught, Samples * 9 / 10,
+                    $"{s.Type}: dropping the macro would pass almost unnoticed; the test cannot catch it");
             }
         }
 
@@ -218,7 +273,7 @@ namespace Sonoma.Tests
 
             static void Weights(double x, int n, out int cell, out double4 wt)
             {
-                cell = math.clamp((int)math.floor(x), -1, n);
+                cell = math.clamp((int)math.floor(x), 1 - MacroLayout.Border, n + MacroLayout.Border - 2);
                 double t = x - cell, t2 = t * t, t3 = t2 * t;
                 wt = new double4((-t3 + 2.0 * t2 - t) * 0.5, (3.0 * t3 - 5.0 * t2 + 2.0) * 0.5,
                                  (-3.0 * t3 + 4.0 * t2 + t) * 0.5, (t3 - t2) * 0.5);
@@ -397,8 +452,11 @@ namespace Sonoma.Tests
 
         // C1: at every depth up to the top level a chunk's vertices land on texels, and the read
         // returns the stored texel exactly -- weights (0, 1, 0, 0) on both axes, no interpolation.
-        // The coarse job's even vertices, read at the parent's level, land on that level's
-        // texels too. Border vertices included.
+        // Border vertices included, and the coarse job's whole grid, which reads the parent's
+        // level: at depth 1 and below its vertices are the parent's and land one texel out at
+        // most; at depth 0 it reads level 0 too, so its border lands two texels out. That read is
+        // drawn, because roots morph towards their coarse targets from far out, and with a stored
+        // border of two it extrapolated instead of landing on a texel.
         [Test]
         public void MacroReadIsExactOnTexels()
         {
@@ -406,6 +464,7 @@ namespace Sonoma.Tests
             var p     = MacroParams.Create(s, Params(s), Config());
             var maps  = MacroGenerator.Build(s, SurfaceMath.BuildRoots(s), p);
             var texel = new ArrayTexels(maps);
+            int cg    = ChunkMeshLayout.CoarseGridSize(Resolution);
 
             for (int q = 0; q < 6; q++)
             for (int depth = 0; depth < LevelCount; depth++)
@@ -421,12 +480,19 @@ namespace Sonoma.Tests
                         ChunkGrid.VertexUV(node, i, j, Resolution, out double u, out double v);
                         ExpectTexel(maps, texel, p.Layout, q, p.Layout.MacroLevel(depth),
                                     x * Cells0 + i, y * Cells0 + j, u, v, node, i, j);
+                    }
 
-                        // The coarse job's even vertices, at the parent's level.
-                        if (depth == 0 || ((i | j) & 1) != 0) continue;
-                        int parent = p.Layout.MacroLevel(depth - 1);
+                    // The coarse grid at the parent's level: vertex index (X Cells0 + i) at this
+                    // depth is texel (X Cells0 + i) / 2^(depth - level) there.
+                    int parent = p.Layout.MacroLevel(depth - 1);
+                    int shift  = depth - parent;
+                    for (int cj = 0; cj < cg; cj++)
+                    for (int ci = 0; ci < cg; ci++)
+                    {
+                        int i = ChunkMeshLayout.CoarseToFine(ci), j = ChunkMeshLayout.CoarseToFine(cj);
+                        ChunkGrid.VertexUV(node, i, j, Resolution, out double u, out double v);
                         ExpectTexel(maps, texel, p.Layout, q, parent,
-                                    (x * Cells0 + i) / 2, (y * Cells0 + j) / 2, u, v, node, i, j);
+                                    (x * Cells0 + i) >> shift, (y * Cells0 + j) >> shift, u, v, node, i, j);
                     }
                 }
             }
@@ -528,6 +594,13 @@ namespace Sonoma.Tests
 
             Assert.IsFalse(MacroParams.Disabled.Enabled);
             Assert.IsTrue(MacroParams.Create(s, hp, Config()).Enabled);
+
+            // Levels past MaxDepth are built and never read; TerrainRoot warns on them.
+            var six = Config(); six.LevelCount = 6;
+            var p6  = MacroParams.Create(s, hp, six);
+            Assert.AreEqual(2, p6.UnreadLevels(3), "MaxDepth 3 reads levels 0-3 of 0-5");
+            Assert.AreEqual(0, p6.UnreadLevels(5));
+            Assert.AreEqual(0, p6.UnreadLevels(19));
         }
 
         // The layout addresses every texel exactly once: Decode inverts Index across every

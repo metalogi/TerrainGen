@@ -24,7 +24,7 @@ MonoBehaviour:
   MaxResidentChunks: 3600
   SkirtsEnabled: 1
   SkirtDepth: 1
-  SkirtFraction: 0.35
+  SkirtFraction: 0.66
   OctaveWavelength0: 0
   OctaveCount: 14
   Persistence: 0.5
