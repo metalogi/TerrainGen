@@ -8,6 +8,18 @@
 //   TEXCOORD2.w   = the chunk quadtree depth, which indexes the morph range array
 //   TEXCOORD3.xyz = geomorph target normal
 //   TEXCOORD3.w   = geomorph target elevation, blended against TEXCOORD1.w
+//   COLOR         = biome weights, UNorm8 x 4, one per biome slot (Biomes.Pack)
+//   TEXCOORD0     = geomorph target biome weights, UNorm8 x 4, blended against COLOR on the
+//                   morph's k for the reason the elevation is: without them the colour pops at
+//                   the swap where the geometry does not. TEXCOORD0 was a float2 uv nothing
+//                   read; the two splats took its eight bytes, so the vertex is still 80.
+//
+// Biome colours are a feature keyword, _SONOMA_BIOMES, local and shader_feature: a material
+// that enables it is what keeps the variant in a build, and a global keyword would leak
+// between scenes in the Editor. TerrainBiomes.mat enables it for the stress scenes;
+// TerrainTriplaner.mat, SampleScene's, does not, so SampleScene never compiles the path.
+// Under it the ground colour is the weights' blend of _SonomaBiomeColors and the elevation
+// bands are unused; the cliff overlay stays. Only ForwardLit reads colour, so only it changes.
 //
 // Per-frame globals:
 //   _SonomaWorldOrigin (float3), from WorldOriginSystem.PushOriginToShader — added to
@@ -28,6 +40,11 @@
 //   depth. A global array rather than a per-chunk MaterialPropertyBlock, because a
 //   property block breaks SRP batching; that is the whole reason depth travels in a
 //   vertex attribute instead of a material property.
+//
+//   _SonomaBiomeColors (float4[4]), from TerrainRoot.PushShaderGlobals — one linear colour
+//   per biome slot, from the BiomeDefinition assets. A global for the reason the morph ranges
+//   are; written into a material instead it would, in the Editor, permanently edit the .mat
+//   asset from play mode.
 //
 //   _SonomaViewPosition (float3), from TerrainRoot.PushShaderGlobals — the position the
 //   morph measures distance from, in render space, and the same one LodSelector selected
@@ -79,6 +96,9 @@ Shader "Sonoma/TerrainTriplanar"
 
         [Header(Triplanar)]
         _TriplanarSharpness ("Triplanar Sharpness", Range(1, 16)) = 4
+
+        [Header(Biomes)]
+        [Toggle(_SONOMA_BIOMES)] _SonomaBiomes ("Biome Colours", Float) = 0
     }
 
     SubShader
@@ -123,6 +143,9 @@ Shader "Sonoma/TerrainTriplanar"
 
         // Per-frame globals (NOT in UnityPerMaterial -- set via Shader.SetGlobal*).
         float3 _SonomaWorldOrigin;
+
+        // One linear colour per biome slot; see the header. Read only under _SONOMA_BIOMES.
+        float4 _SonomaBiomeColors[4];
 
         // (start_d, end_d, 0, 0): the distances over which a depth-d chunk morphs onto its
         // parent. Ranges nest exactly (end_{d-1} == 2*end_d), so at any boundary between
@@ -210,13 +233,19 @@ Shader "Sonoma/TerrainTriplanar"
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
 
+            // Biome colours. Local and shader_feature on purpose; see the header.
+            #pragma shader_feature_local _SONOMA_BIOMES
+
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
-                float2 uv         : TEXCOORD0;
+                #if defined(_SONOMA_BIOMES)
+                    float4 splat      : COLOR;     // biome weights
+                    float4 morphSplat : TEXCOORD0; // geomorph target biome weights
+                #endif
                 float4 uv2        : TEXCOORD1; // (topoUp.xyz, elevation)
                 float4 morphPos   : TEXCOORD2; // (geomorph target position.xyz, node depth)
                 float4 morphNrm   : TEXCOORD3; // (geomorph target normal.xyz, target elevation)
@@ -239,6 +268,9 @@ Shader "Sonoma/TerrainTriplanar"
                 // See the note above Frag.
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
                     float4 shadowCoord : TEXCOORD4;
+                #endif
+                #if defined(_SONOMA_BIOMES)
+                    float4 splat       : TEXCOORD5;
                 #endif
             };
 
@@ -274,6 +306,11 @@ Shader "Sonoma/TerrainTriplanar"
                 // moment the parent takes over -- a colour seam where there is no
                 // geometric one.
                 o.elevation   = lerp(input.uv2.w, input.morphNrm.w, k);
+                #if defined(_SONOMA_BIOMES)
+                    // The biome weights morph on the same k, towards the parent's at the even
+                    // vertex, for the elevation's reason.
+                    o.splat   = lerp(input.splat, input.morphSplat, k);
+                #endif
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
                     o.shadowCoord = GetShadowCoord(vpi);
                 #endif
@@ -292,10 +329,27 @@ Shader "Sonoma/TerrainTriplanar"
                 half3 hi  = _HighColor.rgb  * SampleTriplanar(_HighTex,  sampler_HighTex,  wpTri, absN, _HighScale);
                 half3 clf = _CliffColor.rgb * SampleTriplanar(_CliffTex, sampler_CliffTex, wpTri, absN, _CliffScale);
 
-                float halfBlend = _BandBlend * 0.5;
-                float t1 = smoothstep(_LowToMid  - halfBlend, _LowToMid  + halfBlend, input.elevation);
-                float t2 = smoothstep(_MidToHigh - halfBlend, _MidToHigh + halfBlend, input.elevation);
-                half3 band = lerp(lerp(lo, mid, t1), hi, t2);
+                #if defined(_SONOMA_BIOMES)
+                    // The biome colours blended by the vertex's weights, renormalised: they
+                    // arrive as bytes summing to within two of 255, and interpolation across a
+                    // triangle keeps them non-negative but not summing to one. A vertex with no
+                    // weight at all -- a terrain with this material and no biomes -- falls back
+                    // to the low band's colour rather than black. The low band's texture stays as
+                    // the triplanar detail, white until textures are real (M7).
+                    float4 s   = max(input.splat, 0);
+                    float  sum = s.x + s.y + s.z + s.w;
+                    half3  biome = (s.x * _SonomaBiomeColors[0].rgb + s.y * _SonomaBiomeColors[1].rgb +
+                                    s.z * _SonomaBiomeColors[2].rgb + s.w * _SonomaBiomeColors[3].rgb)
+                                   / max(sum, 1e-5);
+                    half3  band = sum > 1e-3
+                        ? biome * SampleTriplanar(_LowTex, sampler_LowTex, wpTri, absN, _LowScale)
+                        : lo;
+                #else
+                    float halfBlend = _BandBlend * 0.5;
+                    float t1 = smoothstep(_LowToMid  - halfBlend, _LowToMid  + halfBlend, input.elevation);
+                    float t2 = smoothstep(_MidToHigh - halfBlend, _MidToHigh + halfBlend, input.elevation);
+                    half3 band = lerp(lerp(lo, mid, t1), hi, t2);
+                #endif
 
                 float3 topoUp = normalize(input.topoUp);
                 float  slope  = saturate(1.0 - dot(N, topoUp));

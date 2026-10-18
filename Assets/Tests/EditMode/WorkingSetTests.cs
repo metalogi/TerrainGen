@@ -39,6 +39,7 @@ namespace Sonoma.Tests
         NativeArray<double3>[] _points;
         NativeArray<float3>[]  _normals;
         NativeArray<float>[]   _heights;
+        NativeArray<uint>[]    _splats;
         MacroMaps              _macro;   // SampleScene has no macro layer; the jobs need an array anyway
         readonly JobHandle[]   _handles = new JobHandle[Batch];
 
@@ -64,11 +65,13 @@ namespace Sonoma.Tests
             _points  = new NativeArray<double3>[Batch];
             _normals = new NativeArray<float3>[Batch];
             _heights = new NativeArray<float>[Batch];
+            _splats  = new NativeArray<uint>[Batch];
             for (int k = 0; k < Batch; k++)
             {
                 _points[k]  = new NativeArray<double3>(samples, Allocator.Persistent);
                 _normals[k] = new NativeArray<float3>(samples, Allocator.Persistent);
                 _heights[k] = new NativeArray<float>(samples, Allocator.Persistent);
+                _splats[k]  = new NativeArray<uint>(samples, Allocator.Persistent);
             }
         }
 
@@ -80,6 +83,7 @@ namespace Sonoma.Tests
                 if (_points[k].IsCreated)  _points[k].Dispose();
                 if (_normals[k].IsCreated) _normals[k].Dispose();
                 if (_heights[k].IsCreated) _heights[k].Dispose();
+                if (_splats[k].IsCreated)  _splats[k].Dispose();
             }
             _macro?.Dispose();
         }
@@ -206,6 +210,7 @@ namespace Sonoma.Tests
                         BasePoints  = _points[k],
                         BaseNormals = _normals[k],
                         Heights     = _heights[k],
+                        Splats      = _splats[k],
                     }.Schedule(g * g, 64);
                 }
                 JobHandle.ScheduleBatchedJobs();

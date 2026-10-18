@@ -703,6 +703,49 @@ rather than editing them into the tasks, so the plan still reads as what was dec
       of 200 ms of one-off startup. That is recorded under M6 in `SonomaRevisedPlan.md` §5, to be
       measured in a development build first.
 
+### M5b, biomes (2026-10-18)
+
+1. **The shipped biome amplitudes are all at most 1, and each scene's ruggedness range sets its
+   largest amplitude.** C7 asked only that the largest effective amplitude stay at or under 3. With
+   it multiplying the detail noise's relief demand, two scenes have almost no room. Under the relief
+   tests' 2× rule on the detail estimate and 1.25× on the sum with the base height, the most
+   amplitude each scene can carry is:
+
+   | scene | largest amplitude allowed | ruggedness range | largest amplitude shipped |
+   |---|---|---|---|
+   | `EarthStress` | 4.4 | 0.5–2.5 | 2.25 |
+   | `SmallPlanetStress` | 1.66 | 0.5–1.6 | 1.44 |
+   | `RingworldStress` | 5.7 | 0.5–2.5 | 2.25 |
+   | `TerrariumStress` | 1.08 | 0.5–1.0 | 1.0 |
+
+   A shared table that amplified would have to fit the terrarium. So the biomes only shape and
+   smooth the terrain (grassland 0.7/0.6/0.7, desert 0.6/0.4/0.8, tundra 1.0/0.9/0.9, rainforest
+   0.8/0.8/0.6 on the low/mid/high bands), and ruggedness, per scene, lifts the mid and high bands.
+   Task 3b's `SplitFactor` decision for the spheres may raise the limits. The detail and combined
+   demands use `MacroParams.MaxAmplitude`, so raising a ruggedness range fails a test.
+   `SkirtFraction` followed the larger demand: Earth 0.07, small planet 0.12, ring 0.18, terrarium
+   unchanged at 0.66.
+2. **Ruggedness scales only the mid and high bands.** The low band holds the continental shapes and
+   is left to climate. Ruggedness, like the biome gains, is stored as a gain relative to one, so a
+   `MacroConfig` that leaves it unset does not flatten the world (C5).
+3. **The band edges live in `HeightParams` and are set from the macro asset.**
+   `HeightParams.WithBands(low, mid)` turns the two wavelengths into octave counts by exponent, as
+   `K0` is. `TerrainRoot` calls it when there is a macro layer. Without one every gain is zero and
+   where the bands fall changes nothing. On Earth, 50 km and 500 m put octaves 0–7 in the low band
+   and 8–14 in the mid band. The terrarium uses 2 km and 50 m, since its world is 10 km across.
+4. **Classification is relative to the nearest biome**, `(d_nearest² / d_b²)^sharpness`, then
+   normalised. The largest weight before normalising is exactly 1, so no sharpness overflows or
+   underflows a float, and a distance floor of 1e-4 (normalised) keeps a sample on a biome's centre
+   finite and continuous. No transcendental functions, so Burst and managed agree.
+5. **The splat travels packed.** Both sample jobs write `Biomes.Pack(weights)` as a `uint` per sample,
+   which the mesh job copies into `COLOR` and, from the coarse job at the even vertex, into
+   `TEXCOORD0`. `GeomorphTests` compares the bytes exactly. Rounding leaves them summing to within two
+   of 255, and the shader renormalises after interpolation. A vertex with no weight at all, a scene
+   with the biome material but no biomes, falls back to the low band's colour rather than black.
+6. **`TerrainBiomes.mat` and the biome assets were written as YAML**, like the macro assets.
+   `MacroMapsTests` checks every field against `MacroTests.BiomeTable`. It also checks each stress
+   scene's chunk material and keyword, and that `SampleScene`'s material has the keyword off.
+
 ## Out of scope for M5
 
 - **Erosion, rivers, tectonics.** §5 makes erosion optional for M5, and it stays out. A non-local pass

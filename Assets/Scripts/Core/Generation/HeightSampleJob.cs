@@ -45,6 +45,8 @@ namespace Sonoma.Core.Generation
         [WriteOnly] public NativeArray<double3> BasePoints;
         [WriteOnly] public NativeArray<float3>  BaseNormals;
         [WriteOnly] public NativeArray<float>   Heights;
+        // Biome weights, packed as the vertex carries them (Biomes.Pack).
+        [WriteOnly] public NativeArray<uint>    Splats;
 
         public void Execute(int index)
         {
@@ -61,8 +63,11 @@ namespace Sonoma.Core.Generation
             // parameterisation, which is what makes the read exact on texels and bit-identical
             // across a shared edge (MacroSampler).
             int level = Macro.Layout.MacroLevel(Node.Depth);
-            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, level, u, v);
+            var macro = Biomes.Modulate(
+                MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, level, u, v),
+                Macro, out float4 weights);
             Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
+            Splats[index]  = Biomes.Pack(weights);
         }
     }
 
@@ -98,6 +103,8 @@ namespace Sonoma.Core.Generation
         [WriteOnly] public NativeArray<double3> BasePoints;
         [WriteOnly] public NativeArray<float3>  BaseNormals;
         [WriteOnly] public NativeArray<float>   Heights;
+        // Biome weights, packed as the vertex carries them (Biomes.Pack).
+        [WriteOnly] public NativeArray<uint>    Splats;
 
         public void Execute(int index)
         {
@@ -111,8 +118,11 @@ namespace Sonoma.Core.Generation
             BasePoints[index]  = p;
             BaseNormals[index] = n;
             int level = Macro.Layout.MacroLevel(Node.Depth - 1);
-            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, level, u, v);
+            var macro = Biomes.Modulate(
+                MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, level, u, v),
+                Macro, out float4 weights);
             Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
+            Splats[index]  = Biomes.Pack(weights);
         }
     }
 }

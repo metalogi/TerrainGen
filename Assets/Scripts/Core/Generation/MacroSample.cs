@@ -32,7 +32,12 @@ namespace Sonoma.Core.Generation
 
         public float Temperature;   // degrees C
         public float Moisture;      // 0..1
-        public float Ruggedness;    // 0..1; scales detail amplitude independently of climate (M5b)
+        public float Ruggedness;    // 0..1; scales detail amplitude independently of climate
+
+        // The detail noise's amplitude on its low, mid and high octave bands, as a gain relative
+        // to one: amplitude = 1 + gain. Not read from the maps -- Biomes.Modulate derives it from
+        // the climate fields above -- and zero, the identity, in a default sample.
+        public float3 BandGain;
 
         public static MacroSample Zero => default;
     }

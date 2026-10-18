@@ -43,6 +43,7 @@ namespace Sonoma.Core.Quadtree
             public NativeArray<double3> BasePoints,  CoarsePoints;
             public NativeArray<float3>  BaseNormals, CoarseNormals;
             public NativeArray<float>   Heights,     CoarseHeights;
+            public NativeArray<uint>    Splats,      CoarseSplats;
             public NativeArray<float>   HeightBounds;
 
             public void DisposeBuffers()
@@ -53,6 +54,8 @@ namespace Sonoma.Core.Quadtree
                 if (CoarsePoints.IsCreated)  CoarsePoints.Dispose();
                 if (CoarseNormals.IsCreated) CoarseNormals.Dispose();
                 if (CoarseHeights.IsCreated) CoarseHeights.Dispose();
+                if (Splats.IsCreated)        Splats.Dispose();
+                if (CoarseSplats.IsCreated)  CoarseSplats.Dispose();
                 if (HeightBounds.IsCreated)  HeightBounds.Dispose();
             }
         }
@@ -206,6 +209,8 @@ namespace Sonoma.Core.Quadtree
                 CoarsePoints  = new NativeArray<double3>(coarse,  Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 CoarseNormals = new NativeArray<float3>(coarse,   Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 CoarseHeights = new NativeArray<float>(coarse,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
+                Splats        = new NativeArray<uint>(samples,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
+                CoarseSplats  = new NativeArray<uint>(coarse,     Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 HeightBounds  = new NativeArray<float>(2,         Allocator.Persistent),
                 MeshData      = Mesh.AllocateWritableMeshData(1),
             };
@@ -228,6 +233,7 @@ namespace Sonoma.Core.Quadtree
                 MaxOctave = oct, Resolution = R,
                 Macro = _macro.Params, MacroTexels = _macro.Texels,
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
+                Splats = p.Splats,
             }.Schedule(samples, 64);
 
             var coarseJob = new CoarseHeightSampleJob
@@ -236,14 +242,16 @@ namespace Sonoma.Core.Quadtree
                 MaxOctave = coarseOct, Resolution = R,
                 Macro = _macro.Params, MacroTexels = _macro.Texels,
                 BasePoints = p.CoarsePoints, BaseNormals = p.CoarseNormals, Heights = p.CoarseHeights,
+                Splats = p.CoarseSplats,
             }.Schedule(coarse, 64);
 
             var mesh = new ChunkMeshJob
             {
                 Resolution = R, Anchor = p.Anchor, SkirtDepth = p.SkirtDepth, Depth = node.Depth,
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
+                Splats = p.Splats,
                 CoarseBasePoints = p.CoarsePoints, CoarseBaseNormals = p.CoarseNormals,
-                CoarseHeights = p.CoarseHeights,
+                CoarseHeights = p.CoarseHeights, CoarseSplats = p.CoarseSplats,
                 Mesh = data, HeightBounds = p.HeightBounds,
             }.Schedule(JobHandle.CombineDependencies(fine, coarseJob));
 

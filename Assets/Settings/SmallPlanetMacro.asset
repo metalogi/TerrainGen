@@ -23,3 +23,15 @@ MonoBehaviour:
   MoistureNoise: 1.5
   RuggednessNoise: 1.5
   Seed: 7
+  Biomes:
+  - {fileID: 11400000, guid: cc62971a35664bf997837fc5bddefab8, type: 2}
+  - {fileID: 11400000, guid: 20bb3b2fef1742a88a519d4ec5dc6a55, type: 2}
+  - {fileID: 11400000, guid: eb55a67e7d824e1bad732a56fcaf5e7e, type: 2}
+  - {fileID: 11400000, guid: 8633d2653d634fa090b63ac7599475e9, type: 2}
+  BiomeSharpness: 2
+  TemperatureScale: 15
+  MoistureScale: 0.25
+  LowBandEdge: 50000
+  MidBandEdge: 500
+  RuggednessMin: 0.5
+  RuggednessMax: 1.6

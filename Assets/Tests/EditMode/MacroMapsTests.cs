@@ -141,10 +141,65 @@ namespace Sonoma.Tests
                 Assert.AreEqual(c.MoistureNoise,      a.MoistureNoise,      $"{m.Asset}: MoistureNoise");
                 Assert.AreEqual(c.RuggednessNoise,    a.RuggednessNoise,    $"{m.Asset}: RuggednessNoise");
                 Assert.AreEqual(c.Seed,               a.Seed,               $"{m.Asset}: Seed");
+
+                // The biomes (M5b): the shared table, in order, and this scene's bands and ruggedness.
+                Assert.AreEqual(MacroTests.BiomeTable.Length, a.Biomes.Length, $"{m.Asset}: biome count");
+                for (int b = 0; b < a.Biomes.Length; b++)
+                    Assert.AreEqual(MacroTests.BiomeTable[b].Asset, AssetDatabase.GetAssetPath(a.Biomes[b]),
+                        $"{m.Asset}: biome slot {b}");
+                Assert.AreEqual(MacroTests.BiomeSharpness,   a.BiomeSharpness,   $"{m.Asset}: BiomeSharpness");
+                Assert.AreEqual(MacroTests.TemperatureScale, a.TemperatureScale, $"{m.Asset}: TemperatureScale");
+                Assert.AreEqual(MacroTests.MoistureScale,    a.MoistureScale,    $"{m.Asset}: MoistureScale");
+                Assert.AreEqual(m.LowBandEdge,               a.LowBandEdge,      $"{m.Asset}: LowBandEdge");
+                Assert.AreEqual(m.MidBandEdge,               a.MidBandEdge,      $"{m.Asset}: MidBandEdge");
+                Assert.AreEqual(m.RuggednessMin,             a.RuggednessMin,    $"{m.Asset}: RuggednessMin");
+                Assert.AreEqual(m.RuggednessMax,             a.RuggednessMax,    $"{m.Asset}: RuggednessMax");
+
+                // And the scene draws with the biome material, keyword on (C9).
+                var material = SceneMaterial(root, out string materialPath);
+                Assert.AreEqual(BiomeMaterial, materialPath, $"{m.Scene}: chunk material");
+                Assert.IsTrue(material.IsKeywordEnabled(BiomeKeyword), $"{materialPath}: {BiomeKeyword} is off");
             }
 
-            var sample = SceneConfig.Settings(SceneConfig.TerrainRoot("SampleScene"), out string samplePath);
+            var sampleRoot = SceneConfig.TerrainRoot("SampleScene");
+            var sample = SceneConfig.Settings(sampleRoot, out string samplePath);
             Assert.IsNull(sample.Macro, $"{samplePath}: SampleScene must not have a macro layer");
+            var sampleMaterial = SceneMaterial(sampleRoot, out string sampleMaterialPath);
+            Assert.IsFalse(sampleMaterial.IsKeywordEnabled(BiomeKeyword),
+                $"{sampleMaterialPath}: SampleScene's material must not compile the biome path");
+        }
+
+        const string BiomeMaterial = "Assets/Materials/TerrainBiomes.mat";
+        const string BiomeKeyword  = "_SONOMA_BIOMES";
+
+        static Material SceneMaterial(string terrainRoot, out string path)
+        {
+            string guid = SceneConfig.Field(terrainRoot, "ChunkMaterial",
+                                            @"\{fileID: \d+, guid: ([0-9a-f]{32}), type: \d+\}");
+            path = AssetDatabase.GUIDToAssetPath(guid);
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            Assert.IsNotNull(material, $"the TerrainRoot's ChunkMaterial {guid} is not a material");
+            return material;
+        }
+
+        // MacroTests' copy of the biome table is what the BiomeDefinition assets hold.
+        [Test]
+        public void BiomeAssetsMatchTheTable()
+        {
+            foreach (var (asset, colour, config) in MacroTests.BiomeTable)
+            {
+                var b = AssetDatabase.LoadAssetAtPath<BiomeDefinition>(asset);
+                Assert.IsNotNull(b, $"{asset} is missing or is not a BiomeDefinition");
+                Assert.AreEqual(config.Temperature, b.Temperature, $"{asset}: Temperature");
+                Assert.AreEqual(config.Moisture,    b.Moisture,    $"{asset}: Moisture");
+                var c = b.ToConfig();
+                Assert.AreEqual(config.Gain.x, c.Gain.x, 1e-6, $"{asset}: LowAmplitude");
+                Assert.AreEqual(config.Gain.y, c.Gain.y, 1e-6, $"{asset}: MidAmplitude");
+                Assert.AreEqual(config.Gain.z, c.Gain.z, 1e-6, $"{asset}: HighAmplitude");
+                Assert.AreEqual(colour.x, b.Color.r, 1e-6, $"{asset}: Color.r");
+                Assert.AreEqual(colour.y, b.Color.g, 1e-6, $"{asset}: Color.g");
+                Assert.AreEqual(colour.z, b.Color.b, 1e-6, $"{asset}: Color.b");
+            }
         }
     }
 }

@@ -4,6 +4,16 @@ using Sonoma.Core.Surface;
 
 namespace Sonoma.Core.Generation
 {
+    // One biome as configured: a climate centre, and the amplitude of the detail noise's three
+    // octave bands there, each stored as a gain relative to one (C5): amplitude = 1 + gain, so
+    // default(BiomeConfig) leaves the terrain as it was rather than flattening it.
+    public struct BiomeConfig
+    {
+        public float  Temperature;   // degrees C
+        public float  Moisture;      // 0..1
+        public float3 Gain;          // low, mid, high band
+    }
+
     // The macro layer's generator settings as configured: what MacroLayerSettings holds, as a
     // plain struct so pure code and the tests can build one without a ScriptableObject.
     public struct MacroConfig
@@ -19,6 +29,15 @@ namespace Sonoma.Core.Generation
         public float  MoistureNoise;        // moisture per unit of fBm, around 0.5
         public float  RuggednessNoise;      // ruggedness per unit of fBm, around 0.5
         public uint   Seed;
+
+        // Biomes (M5b). None leaves the band gains at zero and the terrain as M5a drew it.
+        public BiomeConfig[] Biomes;            // up to Biomes.MaxBiomes
+        public int           BiomeSharpness;    // inverse-square distance raised to this
+        public float         TemperatureScale;  // degrees C per unit of climate distance
+        public float         MoistureScale;     // moisture per unit of climate distance
+        // Ruggedness scales the mid and high bands between these, as gains relative to one
+        // like the biomes' (C5): 0 and 0 leave the amplitude alone.
+        public float         RuggednessGainMin, RuggednessGainMax;
     }
 
     // Everything the macro generator and the read need, resolved once at setup and copied into
@@ -41,7 +60,38 @@ namespace Sonoma.Core.Generation
         public float       TemperatureNoise, MoistureNoise, RuggednessNoise;
         public uint        Seed;
 
+        // The biome table, flattened to a fixed four so it is blittable: component b of each
+        // float4 is biome b, and only the first BiomeCount mean anything (Biomes.Classify).
+        public int         BiomeCount;
+        public int         BiomeSharpness;
+        public float       InverseTemperatureScale, InverseMoistureScale;
+        public float4      BiomeTemperature, BiomeMoisture;
+        public float4      BiomeLowGain, BiomeMidGain, BiomeHighGain;
+        public float       RuggednessGainMin, RuggednessGainMax;
+
         public static MacroParams Disabled => default;
+
+        // The largest amplitude any band of the detail noise can take anywhere: the largest
+        // biome amplitude on each band, with ruggedness at its maximum on the mid and high
+        // bands (Biomes.BandGain). The relief the LOD boundary has to cover scales with it, so
+        // the relief tests multiply the detail noise's demand by it (C7) -- conservatively,
+        // since it assumes the roughest node sits in the most amplified biome.
+        public float MaxAmplitude
+        {
+            get
+            {
+                float rugged = 1f + RuggednessGainMax;
+                if (BiomeCount == 0) return math.max(1f, rugged);
+                float max = float.MinValue;
+                for (int b = 0; b < BiomeCount; b++)
+                {
+                    max = math.max(max, 1f + BiomeLowGain[b]);
+                    max = math.max(max, (1f + BiomeMidGain[b])  * rugged);
+                    max = math.max(max, (1f + BiomeHighGain[b]) * rugged);
+                }
+                return max;
+            }
+        }
 
         // The finest macro octave a level carries: every octave whose wavelength is at least
         // four of the level's texel spacings. Four rather than Nyquist's two, because
@@ -95,8 +145,57 @@ namespace Sonoma.Core.Generation
                     "MacroParams: the octave-0 wavelength is shorter than four texels of the finest " +
                     "level, so every level would be flat. Lengthen Wavelength0 or add levels.");
 
+            int biomes = c.Biomes?.Length ?? 0;
+            if (biomes > Biomes.MaxBiomes)
+                throw new ArgumentOutOfRangeException(nameof(c),
+                    "MacroParams: at most four biomes; the vertex carries their weights in four bytes.");
+            if (!IsFinite(c.RuggednessGainMin) || !IsFinite(c.RuggednessGainMax) ||
+                c.RuggednessGainMin > c.RuggednessGainMax || 1f + c.RuggednessGainMin < 0f)
+                throw new ArgumentOutOfRangeException(nameof(c),
+                    "MacroParams: the ruggedness range must be finite, ordered, and leave a " +
+                    "non-negative amplitude.");
+
+            float4 temperature = 0f, moisture = 0f, low = 0f, mid = 0f, high = 0f;
+            if (biomes > 0)
+            {
+                if (c.BiomeSharpness < 1)
+                    throw new ArgumentOutOfRangeException(nameof(c),
+                        "MacroParams: biome sharpness must be at least 1.");
+                if (!(c.TemperatureScale > 0f) || !(c.MoistureScale > 0f) ||
+                    !IsFinite(c.TemperatureScale) || !IsFinite(c.MoistureScale))
+                    throw new ArgumentOutOfRangeException(nameof(c),
+                        "MacroParams: the climate distance scales must be finite and positive.");
+
+                for (int b = 0; b < biomes; b++)
+                {
+                    var bc = c.Biomes[b];
+                    if (!IsFinite(bc.Temperature) || !IsFinite(bc.Moisture) ||
+                        !math.all(math.isfinite(bc.Gain)) || math.any(1f + bc.Gain < 0f))
+                        throw new ArgumentOutOfRangeException(nameof(c),
+                            "MacroParams: a biome's climate must be finite and its band amplitudes " +
+                            "non-negative.");
+                    temperature[b] = bc.Temperature;
+                    moisture[b]    = bc.Moisture;
+                    low[b]         = bc.Gain.x;
+                    mid[b]         = bc.Gain.y;
+                    high[b]        = bc.Gain.z;
+                }
+            }
+
             return new MacroParams
             {
+                BiomeCount              = biomes,
+                BiomeSharpness          = c.BiomeSharpness,
+                InverseTemperatureScale = biomes > 0 ? 1f / c.TemperatureScale : 0f,
+                InverseMoistureScale    = biomes > 0 ? 1f / c.MoistureScale    : 0f,
+                BiomeTemperature        = temperature,
+                BiomeMoisture           = moisture,
+                BiomeLowGain            = low,
+                BiomeMidGain            = mid,
+                BiomeHighGain           = high,
+                RuggednessGainMin       = c.RuggednessGainMin,
+                RuggednessGainMax       = c.RuggednessGainMax,
+
                 Layout             = layout,
                 Enabled            = true,
                 HasLatitude        = s.Type == SurfaceType.CubeSphere,

@@ -25,7 +25,8 @@ namespace Sonoma.Core.Generation
         // band-limited version of the child. Geomorphing (M3) bridges the two; nothing here
         // tries to hide the difference.
         //
-        // macro is MacroSample.Zero until M5 adds the macro layer.
+        // macro is the macro layer's sample here, band gains included (Biomes.Modulate), or
+        // MacroSample.Zero without one -- which returns M4's bits exactly.
         public static float Height(in double3 surfacePos, int maxOctave,
                                    in MacroSample macro, in HeightParams p)
         {
@@ -33,7 +34,12 @@ namespace Sonoma.Core.Generation
             // in double so the cell index stays exact at planetary distances.
             double3 n = surfacePos / p.OctaveWavelength0;
 
-            double fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed);
+            // The band-gain sum is the original's bits at zero gains, but the original stays
+            // the path for them, so a terrain without biomes runs the code M4 shipped.
+            double fbm = math.all(macro.BandGain == 0f)
+                ? LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed)
+                : LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
+                                   macro.BandGain, p.LowBandEnd, p.MidBandEnd);
 
             // Signed noise, so the base surface is the mean and the terrain sits around it.
             // The prototype summed amp * (snoise * 0.5 + 0.5), which biases every sample
@@ -47,8 +53,9 @@ namespace Sonoma.Core.Generation
         }
 
         // The height at full detail at a base-surface point, as the deepest chunks draw it:
-        // octaves to MaxOctave(maxDepth), and the macro maps at MacroLevel(maxDepth). For tools,
-        // through TerrainRoot.HeightAt -- the fly camera's clearance above the ground.
+        // octaves to MaxOctave(maxDepth), and the macro maps at MacroLevel(maxDepth) with their
+        // biome band gains. For tools, through TerrainRoot.HeightAt -- the fly camera's
+        // clearance above the ground.
         //
         // Here rather than in TerrainRoot so the tests call it instead of rebuilding it: a
         // test-side replica would stay green with HeightAt reading level 0, or passing
@@ -66,7 +73,9 @@ namespace Sonoma.Core.Generation
             if (macro.Enabled)
             {
                 SurfaceMath.Locate(s, surfacePoint, out int quad, out double u, out double v);
-                sample = MacroSampler.Read(texels, macro, quad, macro.Layout.MacroLevel(maxDepth), u, v);
+                sample = Biomes.Modulate(
+                    MacroSampler.Read(texels, macro, quad, macro.Layout.MacroLevel(maxDepth), u, v),
+                    macro, out _);
             }
             return Height(surfacePoint, p.MaxOctave(maxDepth), sample, p);
         }

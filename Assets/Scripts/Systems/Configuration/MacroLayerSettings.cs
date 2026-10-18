@@ -54,19 +54,70 @@ namespace Sonoma.Systems.Configuration
                  "does not correlate them.")]
         public uint Seed = 7;
 
-        public MacroConfig ToConfig() => new MacroConfig
+        [Header("Biomes")]
+        [Tooltip("Up to four. Each vertex takes a weight of every biome from its temperature and " +
+                 "moisture, so their borders blend rather than cut. None leaves the terrain as the " +
+                 "macro layer alone makes it.")]
+        public BiomeDefinition[] Biomes = new BiomeDefinition[0];
+        [Tooltip("How sharply a biome's weight falls off with climate distance: the weights are " +
+                 "inverse-square distance raised to this. Higher gives narrower borders.")]
+        [Min(1)]
+        public int BiomeSharpness = 2;
+        [Tooltip("Degrees C that count as one unit of climate distance.")]
+        public float TemperatureScale = 15f;
+        [Tooltip("Moisture that counts as one unit of climate distance.")]
+        public float MoistureScale = 0.25f;
+
+        [Header("Octave Bands")]
+        [Tooltip("Wavelength in metres dividing the detail noise's low band from its mid band. In " +
+                 "metres, so a band means the same scale of feature on any world.")]
+        public double LowBandEdge = 50000.0;
+        [Tooltip("Wavelength in metres dividing the mid band from the high band.")]
+        public double MidBandEdge = 500.0;
+
+        [Header("Ruggedness")]
+        [Tooltip("Amplitude of the mid and high bands where the ruggedness map is 0, on top of the " +
+                 "biomes'. 1 and 1 leave them alone.")]
+        [Min(0f)]
+        public float RuggednessMin = 1f;
+        [Tooltip("Amplitude of the mid and high bands where the ruggedness map is 1. With the " +
+                 "largest biome amplitude it sets the largest amplitude anywhere, which multiplies " +
+                 "the LOD relief demand.")]
+        [Min(0f)]
+        public float RuggednessMax = 1f;
+
+        public MacroConfig ToConfig()
         {
-            LevelCount         = LevelCount,
-            Wavelength0        = Wavelength0,
-            Persistence        = Persistence,
-            BaseHeightScale    = BaseHeightScale,
-            EquatorTemperature = EquatorTemperature,
-            PoleTemperature    = PoleTemperature,
-            LapseRate          = LapseRate,
-            TemperatureNoise   = TemperatureNoise,
-            MoistureNoise      = MoistureNoise,
-            RuggednessNoise    = RuggednessNoise,
-            Seed               = Seed,
-        };
+            var biomes = new BiomeConfig[Biomes?.Length ?? 0];
+            for (int b = 0; b < biomes.Length; b++)
+            {
+                if (Biomes[b] == null)
+                    throw new System.ArgumentException(
+                        $"MacroLayerSettings '{name}': biome slot {b} is empty.");
+                biomes[b] = Biomes[b].ToConfig();
+            }
+
+            return new MacroConfig
+            {
+                LevelCount         = LevelCount,
+                Wavelength0        = Wavelength0,
+                Persistence        = Persistence,
+                BaseHeightScale    = BaseHeightScale,
+                EquatorTemperature = EquatorTemperature,
+                PoleTemperature    = PoleTemperature,
+                LapseRate          = LapseRate,
+                TemperatureNoise   = TemperatureNoise,
+                MoistureNoise      = MoistureNoise,
+                RuggednessNoise    = RuggednessNoise,
+                Seed               = Seed,
+                Biomes             = biomes,
+                BiomeSharpness     = BiomeSharpness,
+                TemperatureScale   = TemperatureScale,
+                MoistureScale      = MoistureScale,
+                // Amplitudes in the inspector, gains relative to one at runtime (C5).
+                RuggednessGainMin  = RuggednessMin - 1f,
+                RuggednessGainMax  = RuggednessMax - 1f,
+            };
+        }
     }
 }

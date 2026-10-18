@@ -8,12 +8,24 @@ namespace Sonoma.Core.Generation
 {
     // One chunk vertex, matching VertexAttributes() exactly. Sequential and blittable, so the
     // mesh job writes this struct straight into the mesh's vertex buffer with no marshalling.
+    //
+    // Field order is attribute order, and Unity requires a stream's attributes in the order of
+    // the VertexAttribute enum -- Position, Normal, Tangent, Color, TexCoord0 .. 7 -- so COLOR
+    // sits before TEXCOORD0 here even though it was added later (M5b, C6).
     [StructLayout(LayoutKind.Sequential)]
     public struct TerrainVertex
     {
         public float3 Position;      // chunk-local, relative to the node's Anchor
         public float3 Normal;
-        public float2 Uv;            // (u, v) on the root quad
+        // Biome weights, UNorm8 x 4, biome 0 in the lowest byte (Biomes.Pack). They took the
+        // eight bytes of a float2 uv nothing read, so the vertex is still 80 bytes.
+        public uint   Splat;
+        // The geomorph target's weights: the coarse job's, at the even vertex and the parent's
+        // macro level. Splat weights morph for the reason elevation does -- fully morphed, three
+        // of every four child cells collapse and the survivor is drawn at the even vertices, so
+        // the vertex's own weights would shade the parent's triangles with values a fine vertex
+        // away, a colour pop at every swap.
+        public uint   MorphSplat;
         public float4 TopoElevation; // xyz = base surface normal, w = height above it
         public float4 MorphPosition; // xyz = geomorph target, w = node depth
         // xyz = geomorph target normal, w = geomorph target elevation. The elevation rides
@@ -36,7 +48,8 @@ namespace Sonoma.Core.Generation
         {
             new VertexAttributeDescriptor(VertexAttribute.Position,  VertexAttributeFormat.Float32, 3),
             new VertexAttributeDescriptor(VertexAttribute.Normal,    VertexAttributeFormat.Float32, 3),
-            new VertexAttributeDescriptor(VertexAttribute.TexCoord0, VertexAttributeFormat.Float32, 2),
+            new VertexAttributeDescriptor(VertexAttribute.Color,     VertexAttributeFormat.UNorm8,  4),
+            new VertexAttributeDescriptor(VertexAttribute.TexCoord0, VertexAttributeFormat.UNorm8,  4),
             // TexCoord1 is the existing shader contract: (topoUp.xyz, elevation). The morph
             // attributes M3 needs had to move up to TexCoord2/3 because of it -- the plan had
             // pencilled them into TexCoord1 without checking the shader.
