@@ -13,6 +13,9 @@
 # MemoryCaptures can get big
 [Mm]emory[Cc]aptures/
 
+# So can Profiler captures: one descent of EarthStress is ~150 MB
+[Pp]rofiler[Cc]aptures/
+
 # Asset meta data should only be ignored when the corresponding asset is also ignored
 !/[Aa]ssets/**/*.meta
 
