@@ -602,9 +602,9 @@ rather than editing them into the tasks, so the plan still reads as what was dec
    resolution. `ChunkGrid.VertexUV` then gives dyadic `u`, and `1 − u` is exact. At other resolutions
    the two sides differ by rounding, sub-micrometre, and bounded, as the vertex positions already are.
 7. **The coarse job's depth-0 border reaches two texels past the edge**, one more than the stored
-   border allows for. The sampler clamps its cell to −1 … n, so every read stays inside the stored
-   −2 … n + 2 for any coordinate. That read extrapolates, and like the rest of a depth-0 morph target it
-   is unused.
+   border allowed for. As first built, the sampler clamped its cell to −1 … n, so every read stayed
+   inside the stored −2 … n + 2. That read extrapolated, and this item called it unused, like the rest
+   of a depth-0 morph target. **Wrong**, and corrected in review (item 12): roots morph, so it is drawn.
 8. **Generator details the plan left open.**
    - The macro's lacunarity is fixed at 2, which `MaxOctave(level) = K0 + level` assumes.
    - Its seeds are offset from the detail noise's. With the same seed, the macro would otherwise reuse
@@ -653,6 +653,43 @@ rather than editing them into the tasks, so the plan still reads as what was dec
 11. **`HeightAt` adds one `Locate` and one sixteen-texel read per call** on the main thread. The fly
     camera calls it once a frame, which costs microseconds. It is a tool read, not per-node work, so
     ground rule 3 stands.
+12. **Review of PR #8 (2026-10-18).**
+    - **The depth-0 coarse read is drawn, so it no longer extrapolates.** `LodMath.MorphRange(0)` is a
+      real range, so beyond `start_0` every root chunk draws its coarse target. The coarse normals
+      at its edge vertices then took a central difference through a Catmull-Rom extrapolation at
+      t = −1, weights (2, −3, 3, −1): a faint shading seam along the root-quad edges seen from far out.
+      M2's comment that the depth-0 target is unused was wrong too.
+      - The fix: the stored border is three texels and the cell clamps to −2 … n + 1, so a read two
+        texels out lands on a texel.
+      - `MacroReadIsExactOnTexels` now covers the coarse grid at every depth, depth 0 included, and
+        fails with the old border of two.
+      - Texel counts rise by 2%: Earth 563,736 (8.6 MB), ring 751,648, terrarium 793,184.
+    - **The relief and skirt tests count the macro layer.** They sized the demand as
+      `C × HeightScale / S0` alone, so nothing responded to `BaseHeightScale`. They now use
+      `MacroTests.Demand = (C × HeightScale + C_m × BaseHeightScale) / S0`.
+      - `C_m` = 7 is the macro's own relief factor. The roughest base-height-only node over 1,000
+        sampled per depth, at 33 × 33, was 4.12 on Earth, 4.70 on the small planet, 3.52 on the ring
+        and 2.76 in the terrarium; 7 is half again over 4.70.
+      - The tests keep 2× against the detail estimate and ask 1.25× against the sum (the user's
+        choice). The sum stacks two padded worst cases on one node, and the terrarium, at 1.31×,
+        would otherwise have had to drop to about 40 m of base height. It now fails above about
+        220 m, and its measured combined worst, 4.63, is well inside.
+      - Skirts cover twice the sum, so `SkirtFraction` went to 0.033 on Earth (from 0.03), 0.09 on the
+        small planet and the ring (from 0.08), and 0.66 in the terrarium (from 0.35). Skirts are
+        underground, so the cost is culling bounds.
+    - **`HeightAt`'s body is `TerrainHeightFunction.HeightAtPoint`**, which the test now calls instead
+      of rebuilding. The test also checks that reading level 0, or passing `MacroSample.Zero`, would
+      fail it; both mutations were run and failed.
+    - **`MacroSampler.Read`** holds the enabled-or-zero read the two jobs, `MacroMaps.Sample` and
+      `HeightAtPoint` share.
+    - **`MacroMaps.Build` frees the pyramid if the build throws**, instead of leaking it with nothing
+      left to dispose it.
+    - **`MacroParams.UnreadLevels(maxDepth)`**: levels above `MaxDepth` are built and never read, and
+      `TerrainRoot` warns on them, as it does for `IsOctaveStarved`.
+    - **Deferred: the build's cost.** Fusing the four channels' fBm loops, and writing the lower levels
+      from the top level's per-octave partial sums where texels coincide, would save perhaps a third
+      of 200 ms of one-off startup. That is recorded under M6 in `SonomaRevisedPlan.md` §5, to be
+      measured in a development build first.
 
 ## Out of scope for M5
 

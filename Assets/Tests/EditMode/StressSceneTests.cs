@@ -66,7 +66,7 @@ namespace Sonoma.Tests
         {
             Name = "SmallPlanetStress", Asset = "Assets/Settings/SmallPlanetTerrainSettings.asset",
             Surface = SurfaceDef.CubeSphere(1592750.0),
-            MaxDepth = 17, OctaveCount = 22, Budget = 5100, HeightScale = 6000f, SkirtFraction = 0.08f,
+            MaxDepth = 17, OctaveCount = 22, Budget = 5100, HeightScale = 6000f, SkirtFraction = 0.09f,
             ReliefFactor = 15.0,
             WorstQuad = 0, WorstU = 20.0 / 256.0, WorstV = 0.0, Worst = 4510,
         };
@@ -78,7 +78,7 @@ namespace Sonoma.Tests
         {
             Name = "RingworldStress", Asset = "Assets/Settings/RingworldTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1),
-            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 4000f, SkirtFraction = 0.08f,
+            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 4000f, SkirtFraction = 0.09f,
             ReliefFactor = 15.0,
             WorstQuad = 0, WorstU = 42.0 / 512.0, WorstV = 213.0 / 512.0, Worst = 4944,
         };
@@ -94,7 +94,7 @@ namespace Sonoma.Tests
         {
             Name = "TerrariumStress", Asset = "Assets/Settings/TerrariumTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4),
-            MaxDepth = 9, OctaveCount = 14, Budget = 3600, HeightScale = 200f, SkirtFraction = 0.35f,
+            MaxDepth = 9, OctaveCount = 14, Budget = 3600, HeightScale = 200f, SkirtFraction = 0.66f,
             ReliefFactor = 9.0,
             WorstQuad = 1, WorstU = 105.0 / 512.0, WorstV = 429.0 / 512.0, Worst = 3124,
         };
@@ -120,10 +120,14 @@ namespace Sonoma.Tests
         }
 
         // The relief demand C x HeightScale / S0 is under half the allowance at every depth, as
-        // EarthScaleTests asks of Earth. A cylinder's allowance is three times a cube sphere's at
-        // the same LOD settings (0.39 against 0.1146), because its node sizes spread by 1.02
-        // rather than pi/2 -- which is what lets the terrarium carry a HeightScale of a fiftieth of
-        // its root node's size at SplitFactor 3.
+        // EarthScaleTests asks of Earth, and with each scene's macro layer added
+        // (MacroTests.Demand) it is under the allowance by MacroTests.CombinedMargin. So raising
+        // a macro asset's BaseHeightScale -- through its copy in MacroTests.StressMacros, which
+        // MacroMapsTests holds to the asset -- fails here before it overruns at runtime. A
+        // cylinder's allowance is three times a cube sphere's at the same LOD settings (0.39
+        // against 0.1146), because its node sizes spread by 1.02 rather than pi/2 -- which is what
+        // lets the terrarium carry a HeightScale of a fiftieth of its root node's size at
+        // SplitFactor 3.
         [Test]
         public void ReliefAllowanceLeavesTwiceTheEstimatedDemand()
         {
@@ -133,12 +137,16 @@ namespace Sonoma.Tests
                 var lod = sc.Lod(p);
                 Assert.Less(MorphStart, LodMath.MaxMorphStartFraction(SplitFactor, Hysteresis, lod.SizeSpread), sc.Name);
 
-                double demand = sc.ReliefFactor * sc.HeightScale / p.S0;
+                double demand   = sc.ReliefFactor * sc.HeightScale / p.S0;
+                double combined = MacroTests.Demand(sc.ReliefFactor, sc.HeightScale, sc.Name, p.S0);
                 for (int d = 0; d <= sc.MaxDepth; d++)
                 {
                     double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);
                     Assert.Greater(allowance, 2.0 * demand,
                         $"{sc.Name}, depth {d}: allowance {allowance:F4} leaves less than 2x the estimated demand {demand:F4}");
+                    Assert.Greater(allowance, MacroTests.CombinedMargin * combined,
+                        $"{sc.Name}, depth {d}: allowance {allowance:F4} leaves less than " +
+                        $"{MacroTests.CombinedMargin}x the demand with the macro layer, {combined:F4}");
                 }
             }
 
@@ -210,20 +218,21 @@ namespace Sonoma.Tests
         }
 
         // The skirt hides the transient gap between two depths, on the order of the coarse node's
-        // relief, 2 x C x HeightScale / S0 of its size. SkirtFraction covers that at every depth.
-        // The terrarium's is large, 0.35 of a node, because its hills are a fiftieth of its
-        // radius; a skirt is underground and its only cost is culling bounds.
+        // relief: twice the demand, macro layer included (MacroTests.Demand), of its size.
+        // SkirtFraction covers that at every depth, about 10% over. The terrarium's is large, 0.66
+        // of a node, because its hills and its base height are each a fiftieth of its radius; a
+        // skirt is underground and its only cost is culling bounds.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
             foreach (var sc in All)
             {
-                var    p    = sc.Params;
-                double unit = sc.HeightScale / p.S0;
+                var    p      = sc.Params;
+                double demand = MacroTests.Demand(sc.ReliefFactor, sc.HeightScale, sc.Name, p.S0);
                 for (int d = 0; d <= sc.MaxDepth; d++)
                 {
                     double size = LodMath.NominalSize(p.S0, d);
-                    double gap  = 2.0 * sc.ReliefFactor * unit * size;
+                    double gap  = 2.0 * demand * size;
                     Assert.Greater(ChunkMeshLayout.SkirtDrop(SkirtDepth, sc.SkirtFraction, size), gap,
                         $"{sc.Name}, depth {d}: the skirt is shorter than the relief of a node there");
                 }

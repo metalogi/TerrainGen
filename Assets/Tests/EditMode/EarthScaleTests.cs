@@ -27,7 +27,7 @@ namespace Sonoma.Tests
         internal const float  Preload       = 1f;
         internal const int    Budget        = 5800;   // MaxResidentChunks
         internal const float  SkirtDepth    = 1f;
-        internal const float  SkirtFraction = 0.03f;
+        internal const float  SkirtFraction = 0.033f;
         internal const int    OctaveCount   = 24;
         internal const float  Persistence   = 0.5f;
         internal const float  Lacunarity    = 2f;
@@ -102,6 +102,8 @@ namespace Sonoma.Tests
             // level and applied to all of them, which is conservative everywhere above it.
             double demand = EarthReliefFactor * HeightScale / p.S0;
             Assert.AreEqual(0.0130, demand, 1e-4, "Earth relief demand as a fraction of node size");
+            double combined = MacroTests.Demand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
+            Assert.AreEqual(0.0150, combined, 1e-4, "Earth relief demand with EarthMacro, as a fraction of node size");
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);
@@ -111,6 +113,10 @@ namespace Sonoma.Tests
                 // outright, as asserted below.
                 Assert.Greater(allowance, 2.0 * demand,
                     $"depth {d}: the Earth configuration leaves less than 2x the estimated relief demand");
+                // And with EarthMacro's base height added, by the margin StressSceneTests asks.
+                Assert.Greater(allowance, MacroTests.CombinedMargin * combined,
+                    $"depth {d}: the Earth configuration leaves less than {MacroTests.CombinedMargin}x " +
+                    $"the relief demand with the macro layer, {combined:F4}");
             }
             Assert.Less(lod.MaxHalfRelief(MaxDepth) / lod.NominalSize(MaxDepth),
                         EarthReliefFactor * 100000.0 / p.S0,
@@ -205,20 +211,21 @@ namespace Sonoma.Tests
         }
 
         // C5: on Earth the skirt has to scale with the node. The gap it hides in a transient
-        // two-depth state is on the order of the coarse node's relief, 2 x C x HeightScale / S0 of
-        // its size -- about 2.6% at EarthReliefFactor -- which is half a metre at depth 19 and a
-        // kilometre at depth 8. SampleScene's absolute 2 m would hide nothing coarser than
-        // depth 18; SkirtFraction 0.03 covers the estimate at every depth.
+        // two-depth state is on the order of the coarse node's relief, twice the demand of its
+        // size -- 3.0% at EarthReliefFactor with EarthMacro's base height (MacroTests.Demand), 2.6%
+        // without -- which is about half a metre at depth 19 and a kilometre at depth 8.
+        // SampleScene's absolute 2 m would hide nothing coarser than depth 18; SkirtFraction 0.033
+        // covers the estimate at every depth, 10% over.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
-            var    p    = Params(OctaveCount);
-            double unit = HeightScale / p.S0;
+            var    p      = Params(OctaveCount);
+            double demand = MacroTests.Demand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
 
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double size = LodMath.NominalSize(p.S0, d);
-                double gap  = 2.0 * EarthReliefFactor * unit * size;
+                double gap  = 2.0 * demand * size;
                 Assert.Greater(ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, size), gap,
                     $"depth {d}: the skirt is shorter than the relief of a node there");
             }
@@ -226,7 +233,7 @@ namespace Sonoma.Tests
             // An absolute 2 m skirt, as SampleScene has, covers only the two finest depths.
             for (int d = 0; d <= MaxDepth; d++)
             {
-                double gap = 2.0 * EarthReliefFactor * unit * LodMath.NominalSize(p.S0, d);
+                double gap = 2.0 * demand * LodMath.NominalSize(p.S0, d);
                 Assert.AreEqual(d >= 18, 2.0 > gap, $"depth {d}: an absolute 2 m skirt");
             }
         }

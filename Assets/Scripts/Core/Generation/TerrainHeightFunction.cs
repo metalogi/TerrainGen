@@ -1,4 +1,5 @@
 using Unity.Mathematics;
+using Sonoma.Core.Surface;
 
 namespace Sonoma.Core.Generation
 {
@@ -43,6 +44,31 @@ namespace Sonoma.Core.Generation
             // the float height itself -- one ULP of |height|, 0.06 mm at 800 m and 0.5 mm at
             // 5 km -- which is noise, not the axis-aligned staircase a float fraction made.
             return (float)(p.HeightScale * fbm + macro.BaseHeight);
+        }
+
+        // The height at full detail at a base-surface point, as the deepest chunks draw it:
+        // octaves to MaxOctave(maxDepth), and the macro maps at MacroLevel(maxDepth). For tools,
+        // through TerrainRoot.HeightAt -- the fly camera's clearance above the ground.
+        //
+        // Here rather than in TerrainRoot so the tests call it instead of rebuilding it: a
+        // test-side replica would stay green with HeightAt reading level 0, or passing
+        // MacroSample.Zero, either of which understates the ground by up to the base height.
+        //
+        // The maps are addressed by (quad, u, v) and a tool has only a point, so the point is
+        // located first. Locate's rounding (about 1e-15 in u) makes this a tool path, never a
+        // generation one; a point on a shared edge may be located on either quad, and the macro
+        // reads the same there from both.
+        public static float HeightAtPoint<T>(in SurfaceDef s, double3 surfacePoint, int maxDepth,
+                                             in HeightParams p, in MacroParams macro, T texels)
+            where T : struct, IMacroTexels
+        {
+            var sample = MacroSample.Zero;
+            if (macro.Enabled)
+            {
+                SurfaceMath.Locate(s, surfacePoint, out int quad, out double u, out double v);
+                sample = MacroSampler.Read(texels, macro, quad, macro.Layout.MacroLevel(maxDepth), u, v);
+            }
+            return Height(surfacePoint, p.MaxOctave(maxDepth), sample, p);
         }
     }
 }

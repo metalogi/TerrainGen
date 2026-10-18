@@ -17,7 +17,7 @@ namespace Sonoma.Systems.Configuration
                  "the quad, so its texel spacing is depth L's vertex spacing: chunks up to depth " +
                  "LevelCount - 1 read their own level exactly, on texels, and deeper ones interpolate " +
                  "the top level. Memory grows four-fold per level -- at resolution 33, four levels on a " +
-                 "cube sphere are 551,640 texels, 8.8 MB.")]
+                 "cube sphere are 563,736 texels, 8.6 MB.")]
         [Min(1)]
         public int LevelCount = 4;
 

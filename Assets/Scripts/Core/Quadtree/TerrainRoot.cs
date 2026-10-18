@@ -65,22 +65,12 @@ namespace Sonoma.Core.Quadtree
         // Macro included, read at MaxDepth's level as the finest chunks read it. Without it the
         // ground is understated by the base height, kilometres: the fly camera then believes it
         // is that much higher, flies too fast, and sets its near plane to a hundredth of a
-        // clearance it does not have, into the ground. The maps are addressed by (quad, u, v)
-        // and a tool has only a point, hence SurfaceMath.Locate; a point on a shared edge may be
-        // located on either quad, and the macro reads the same there from both.
-        public float HeightAt(double3 surfacePoint)
-        {
-            if (_selector == null || _macro == null) return 0f;
-
-            var macro = MacroSample.Zero;
-            if (_macro.Params.Enabled)
-            {
-                SurfaceMath.Locate(Surface, surfacePoint, out int quad, out double u, out double v);
-                macro = _macro.Sample(quad, _macro.Params.Layout.MacroLevel(Settings.MaxDepth), u, v);
-            }
-            return TerrainHeightFunction.Height(surfacePoint, _params.MaxOctave(Settings.MaxDepth),
-                                                macro, _params);
-        }
+        // clearance it does not have, into the ground. The body is
+        // TerrainHeightFunction.HeightAtPoint, which the tests call too.
+        public float HeightAt(double3 surfacePoint) =>
+            _selector == null || _macro == null ? 0f
+            : TerrainHeightFunction.HeightAtPoint(Surface, surfacePoint, Settings.MaxDepth, _params,
+                                                  _macro.Params, _macro.Reader);
 
         public int ResidentChunks => _selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
@@ -165,7 +155,16 @@ namespace Sonoma.Core.Quadtree
         {
             if (Settings.Macro == null) return MacroMaps.Disabled();
 
-            var p    = MacroParams.Create(Surface, _params, Settings.Macro.ToConfig());
+            var p = MacroParams.Create(Surface, _params, Settings.Macro.ToConfig());
+            int unread = p.UnreadLevels(Settings.MaxDepth);
+            if (unread > 0)
+                Debug.LogWarning(
+                    $"[TerrainRoot] Macro layer '{Settings.Macro.name}' has {p.Layout.LevelCount} levels, " +
+                    $"but MaxDepth {Settings.MaxDepth} reads only levels 0-{Settings.MaxDepth}: the top " +
+                    $"{unread} are built and never read, and each costs four times the memory and build " +
+                    $"time of the one below. Lower LevelCount to {Settings.MaxDepth + 1}. See " +
+                    "MacroParams.UnreadLevels.");
+
             var maps = MacroMaps.Build(Surface, Roots, p);
             Debug.Log($"[TerrainRoot] Macro layer '{Settings.Macro.name}': {p.Layout.LevelCount} levels, " +
                       $"{p.Layout.TexelCount:N0} texels ({maps.Bytes / (1024.0 * 1024.0):F1} MB), " +

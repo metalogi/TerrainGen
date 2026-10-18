@@ -43,13 +43,15 @@ namespace Sonoma.Core.Generation
         // The cell and weights on one axis, at texel coordinate x (u or v times Cells(level)).
         // The stencil is texels cell - 1 .. cell + 2.
         //
-        // The cell is clamped to -1 .. n, which keeps the stencil inside the stored -2 .. n + 2
-        // for any x from -1 to n + 1 -- as far as a sample job's border reaches -- and puts x = n
-        // in cell n at t = 0 rather than cell n - 1 at t = 1, so a read exactly on the far edge
-        // has the same (0, 1, 0, 0) weights as one on the near edge.
+        // The cell is clamped to -2 .. n + 1, which keeps the stencil inside the stored
+        // -Border .. n + Border for any x from -2 to n + 2 -- as far as any sample job reads, the
+        // coarse job at depth 0 (MacroLayout) -- and lands every integer x in that range on its
+        // own texel with weights (0, 1, 0, 0) or, at n + 2 alone, (0, 0, 1, 0). It also puts x = n
+        // in cell n at t = 0 rather than cell n - 1 at t = 1, so a read exactly on the far edge has
+        // the same weights as one on the near edge, which the reversal argument needs.
         public static void Weights(double x, int n, out int cell, out double4 w)
         {
-            cell = math.clamp((int)math.floor(x), -1, n);
+            cell = math.clamp((int)math.floor(x), 1 - MacroLayout.Border, n + MacroLayout.Border - 2);
             double t = x - cell;
             double s = 1.0 - t;
             w = new double4(G(s), H(s), H(t), G(t));
@@ -58,6 +60,13 @@ namespace Sonoma.Core.Generation
         // One axis of the read, in symmetric pairs. See the class comment before reordering.
         public static double4 Combine(double4 w, double4 p0, double4 p1, double4 p2, double4 p3)
             => (w.x * p0 + w.w * p3) + (w.y * p1 + w.z * p2);
+
+        // The read every caller makes: MacroSample.Zero, reading nothing, when there is no macro
+        // layer. The sample jobs, MacroMaps.Sample and TerrainHeightFunction.HeightAtPoint all
+        // come through here, so none can forget the check or apply it differently.
+        public static MacroSample Read<T>(T texels, in MacroParams p, int quad, int level, double u, double v)
+            where T : struct, IMacroTexels
+            => p.Enabled ? Sample(texels, p.Layout, quad, level, u, v) : MacroSample.Zero;
 
         // The macro sample at (u, v) on this quad and level.
         public static MacroSample Sample<T>(T texels, in MacroLayout layout, int quad, int level,

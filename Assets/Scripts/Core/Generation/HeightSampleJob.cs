@@ -57,23 +57,20 @@ namespace Sonoma.Core.Generation
 
             BasePoints[index]  = p;
             BaseNormals[index] = n;
-            Heights[index]     = TerrainHeightFunction.Height(p, MaxOctave, ReadMacro(u, v), Params);
+            // At the vertex's own (quad, u, v), not its point: the maps are addressed by the
+            // parameterisation, which is what makes the read exact on texels and bit-identical
+            // across a shared edge (MacroSampler).
+            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, MacroLevel, u, v);
+            Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
         }
-
-        // At the vertex's own (quad, u, v), not its point: the maps are addressed by the
-        // parameterisation, which is what makes the read exact on texels and bit-identical
-        // across a shared edge (MacroSampler).
-        MacroSample ReadMacro(double u, double v)
-            => Macro.Enabled
-                ? MacroSampler.Sample(new MacroMapReader(MacroTexels), Macro.Layout, Node.Quad, MacroLevel, u, v)
-                : MacroSample.Zero;
     }
 
     // The same thing at the parent's band limit, on the even-indexed vertices only.
     //
     // This is the geomorph target M3 lerps towards: a depth-d chunk fully morphed becomes its
     // depth-(d-1) parent. Computed here rather than in M3 so the vertex layout is settled once.
-    // At depth 0 the "parent" band is simply K0 - 1, which is well defined and unused.
+    // At depth 0 the "parent" band is simply K0 - 1. It is well defined, and drawn: roots morph
+    // towards it from far out (LodMath.MorphRange(0)).
     [BurstCompile(CompileSynchronously = true)]
     public struct CoarseHeightSampleJob : IJobParallelFor
     {
@@ -86,9 +83,9 @@ namespace Sonoma.Core.Generation
 
         // The macro maps, read at the *parent's* level, MacroLayout.MacroLevel(depth - 1), so
         // the morph target is the parent's macro as well as its octaves. At depth 0 the coarse
-        // border reaches two texels past the edge, beyond the stored border's reach; the
-        // sampler clamps its cell, so the read stays in bounds, and like the rest of a depth-0
-        // morph target it is unused.
+        // border reaches two texels past the edge, the furthest any read goes, and the stored
+        // border is three texels so that read lands on a texel rather than extrapolating
+        // (MacroLayout).
         public MacroParams  Macro;
         public int          MacroLevel;
         [ReadOnly] public NativeArray<float4> MacroTexels;
@@ -108,12 +105,8 @@ namespace Sonoma.Core.Generation
 
             BasePoints[index]  = p;
             BaseNormals[index] = n;
-            Heights[index]     = TerrainHeightFunction.Height(p, MaxOctave, ReadMacro(u, v), Params);
+            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, MacroLevel, u, v);
+            Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
         }
-
-        MacroSample ReadMacro(double u, double v)
-            => Macro.Enabled
-                ? MacroSampler.Sample(new MacroMapReader(MacroTexels), Macro.Layout, Node.Quad, MacroLevel, u, v)
-                : MacroSample.Zero;
     }
 }

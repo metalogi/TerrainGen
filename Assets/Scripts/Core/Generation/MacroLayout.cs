@@ -17,8 +17,15 @@ namespace Sonoma.Core.Generation
     // the point. Docs/M5_MacroLayer_Plan.md, C1.
     //
     // A level stores texels -Border .. n_L + Border on each axis, row-major (j, then i). The
-    // sample jobs' one-vertex border reaches up to one texel past the quad edge at the level
-    // they read, because MacroLevel(d) <= d, and the bicubic stencil reaches one texel further.
+    // border is three texels because of the furthest read, the coarse job at depth 0. Its grid
+    // runs two depth-0 vertices past the quad edge, and it reads level 0, whose texels are
+    // depth-0 vertices, so it lands two texels out. Every other read reaches at most one texel
+    // out, because MacroLevel(d) <= d. MacroSampler puts a read on a texel in a cell whose
+    // stencil reaches one texel further, so a read two texels out needs texel 3. With a border of
+    // two that read extrapolated with weights (2, -3, 3, -1). It is not unused: roots morph
+    // towards their coarse targets from far out (LodMath.MorphRange(0)), and the extrapolation
+    // tilted the coarse normals along every root-quad edge seen from orbit.
+    //
     // Levels are packed one after another within a quad, quads one after another, so the whole
     // surface is a single flat array.
     //
@@ -26,7 +33,7 @@ namespace Sonoma.Core.Generation
     // all address the maps through the same arithmetic.
     public readonly struct MacroLayout
     {
-        public const int Border = 2;
+        public const int Border = 3;
 
         public readonly int Cells0;       // texel cells across a quad at level 0: R - 1
         public readonly int LevelCount;
@@ -112,7 +119,7 @@ namespace Sonoma.Core.Generation
         // HeightParams.MaxOctave is: two same-depth neighbours must read the same level, or they
         // evaluate different functions along the edge they share. The coarse sample job passes
         // depth - 1, so the morph target is the parent's macro as well as its octaves; at depth
-        // 0 that clamps to level 0, which is well defined and unused.
+        // 0 that clamps to level 0. Roots morph towards it from far out, so it is drawn.
         public int MacroLevel(int depth) => math.clamp(depth, 0, LevelCount - 1);
 
         // ── Shared edges ─────────────────────────────────────────────────────
