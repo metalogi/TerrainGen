@@ -115,7 +115,7 @@ namespace Sonoma.Core.Generation
         // (lambda0 = S0 with R = 33 gives log2(16)), and a library log that returns
         // 3.9999999999999996 there would quietly drop an octave from every chunk in the
         // world. Reading the exponent field is exact by construction.
-        static int FloorLog2(double x)
+        internal static int FloorLog2(double x)
         {
             if (!(x > 0.0) || double.IsInfinity(x))
                 throw new ArgumentOutOfRangeException(nameof(x),

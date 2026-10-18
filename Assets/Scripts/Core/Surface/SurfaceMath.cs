@@ -309,6 +309,147 @@ namespace Sonoma.Core.Surface
 
         public static Edge Opposite(Edge e) => (Edge)(((int)e + 2) & 3);
 
+        // Where a root quad's edge leads, on any topology: false where the surface has no
+        // neighbour there (a plane grid's outer edges, a cylinder's open ends). The link's Face
+        // is the neighbouring quad's index, which on a cube sphere is also its face.
+        //
+        // The one place root-quad adjacency lives. Neighbour crosses quads through it, and the
+        // macro layer's edge rule (MacroLayout.EdgeSource) uses it to decide which quad owns a
+        // shared edge -- the two must agree on what is adjacent to what, so they share the data
+        // rather than each holding a copy.
+        //
+        // PlaneGrid and Cylinder share a col-major root layout, quad = col * Rows + row. The
+        // cylinder wraps around its columns; the plane grid wraps in neither axis. Neither ever
+        // reverses the along-edge parameter.
+        public static bool QuadEdgeLink(in SurfaceDef s, int quad, Edge e, out EdgeLink link)
+        {
+            if ((uint)quad >= (uint)s.QuadCount)
+                throw new ArgumentOutOfRangeException(nameof(quad),
+                    "SurfaceMath.QuadEdgeLink: quad is outside this surface's root quad count.");
+            if ((uint)e > 3u)
+                throw new ArgumentOutOfRangeException(nameof(e),
+                    "SurfaceMath.QuadEdgeLink: edge must be South, East, North or West.");
+
+            if (s.Type == SurfaceType.CubeSphere)
+            {
+                link = CubeEdgeLink(quad, e);
+                return true;
+            }
+
+            link = default;
+            int rows = s.Rows;
+            if (rows <= 0 || s.Cols <= 0) return false;
+
+            int c = quad / rows, r = quad % rows;
+            bool wrapCols = s.Type == SurfaceType.Cylinder;
+
+            switch (e)
+            {
+                case Edge.East:
+                    c++;
+                    if (c >= s.Cols) { if (!wrapCols) return false; c = 0; }
+                    link = new EdgeLink(c * rows + r, Edge.West, false);
+                    return true;
+
+                case Edge.West:
+                    c--;
+                    if (c < 0) { if (!wrapCols) return false; c = s.Cols - 1; }
+                    link = new EdgeLink(c * rows + r, Edge.East, false);
+                    return true;
+
+                case Edge.North:
+                    r++;
+                    if (r >= rows) return false;   // open ends: no caps
+                    link = new EdgeLink(c * rows + r, Edge.South, false);
+                    return true;
+
+                default: // South
+                    r--;
+                    if (r < 0) return false;
+                    link = new EdgeLink(c * rows + r, Edge.North, false);
+                    return true;
+            }
+        }
+
+        // ── Inverse ──────────────────────────────────────────────────────────
+
+        // The root quad and (u, v) whose surface point lies on the ray from the surface's own
+        // centre through p -- the inverse of SurfacePoint, for a point on the base surface or
+        // anywhere along its normal. TerrainRoot.HeightAt needs it to read the macro maps, which
+        // are addressed by (quad, u, v), from a point.
+        //
+        // A tool path, never a generation path: chunks know their quad and (u, v) already, and
+        // nothing here has to agree with anything to the bit. atan(tan(x)) and the divisions
+        // leave about 1e-15 of rounding in u and v. A point on a shared edge may come back on
+        // either quad, which the macro layer makes irrelevant: its reads agree there to the bit
+        // from both sides (MacroLayout.EdgeSource). u and v are clamped to [0, 1], and a point
+        // beyond a plane grid's tiles or a cylinder's ends comes back on the nearest quad.
+        //
+        // Plane grid: the tile by floor. Cylinder: the column by angle, the row by length.
+        // Cube sphere: the face by the largest-magnitude axis, then the projection onto that
+        // face's plane, then the tangent adjustment undone with atan.
+        public static void Locate(in SurfaceDef s, double3 p, out int quad, out double u, out double v)
+        {
+            switch (s.Type)
+            {
+                case SurfaceType.CubeSphere:
+                {
+                    double3 m = math.abs(p);
+                    int face = m.x >= m.y && m.x >= m.z ? (p.x >= 0.0 ? 0 : 1)
+                             : m.y >= m.z               ? (p.y >= 0.0 ? 2 : 3)
+                             :                            (p.z >= 0.0 ? 4 : 5);
+
+                    double depth = math.dot(p, FaceCentre(face));
+                    double a = math.dot(p, FaceRight(face)) / depth;
+                    double b = math.dot(p, FaceUp(face))    / depth;
+                    if (s.TangentAdjust)
+                    {
+                        a = math.atan(a) / QuarterPi;
+                        b = math.atan(b) / QuarterPi;
+                    }
+
+                    quad = face;
+                    u = math.saturate(0.5 * (a + 1.0));
+                    v = math.saturate(0.5 * (b + 1.0));
+                    return;
+                }
+
+                case SurfaceType.Cylinder:
+                {
+                    // The same arithmetic BuildRoots uses for each column's and row's range, so
+                    // a point on a quad's own range maps back into it.
+                    double dAngle = TwoPi / s.Cols;
+                    double dZ     = s.Length / s.Rows;
+
+                    double angle = math.atan2(p.y, p.x);
+                    if (angle < 0.0) angle += TwoPi;
+                    int col = math.clamp((int)math.floor(angle / dAngle), 0, s.Cols - 1);
+                    int row = math.clamp((int)math.floor(p.z / dZ),       0, s.Rows - 1);
+
+                    double angle0 = col * dAngle, angle1 = (col + 1) * dAngle;
+                    double z0     = row * dZ,     z1     = (row + 1) * dZ;
+
+                    quad = col * s.Rows + row;
+                    u = math.saturate((angle - angle0) / (angle1 - angle0));
+                    v = math.saturate((p.z   - z0)     / (z1     - z0));
+                    return;
+                }
+
+                default: // PlaneGrid
+                {
+                    double halfX = s.Cols * s.TileSize * 0.5;
+                    double halfZ = s.Rows * s.TileSize * 0.5;
+                    int col = math.clamp((int)math.floor((p.x + halfX) / s.TileSize), 0, s.Cols - 1);
+                    int row = math.clamp((int)math.floor((p.z + halfZ) / s.TileSize), 0, s.Rows - 1);
+
+                    quad = col * s.Rows + row;
+                    u = math.saturate((p.x - (col * s.TileSize - halfX)) / s.TileSize);
+                    v = math.saturate((p.z - (row * s.TileSize - halfZ)) / s.TileSize);
+                    return;
+                }
+            }
+        }
+
         // ── Neighbour lookup ─────────────────────────────────────────────────
 
         public static NeighbourResult Neighbour(in SurfaceDef s, NodeId n, Edge e)
@@ -343,56 +484,21 @@ namespace Sonoma.Core.Surface
 
         static NeighbourResult CrossQuad(in SurfaceDef s, NodeId n, Edge e, int N)
         {
-            if (s.Type == SurfaceType.CubeSphere)
+            if (!QuadEdgeLink(s, n.Quad, e, out EdgeLink link)) return Miss();
+
+            // Index along our edge, mapped onto the neighbour's edge.
+            int t  = (e == Edge.South || e == Edge.North) ? n.X : n.Y;
+            int t2 = link.Reversed ? (N - 1 - t) : t;
+
+            int nx, ny;
+            switch (link.Edge)
             {
-                EdgeLink link = CubeEdgeLink(n.Quad, e);
-
-                // Index along our edge, mapped onto the neighbour's edge.
-                int t  = (e == Edge.South || e == Edge.North) ? n.X : n.Y;
-                int t2 = link.Reversed ? (N - 1 - t) : t;
-
-                int nx, ny;
-                switch (link.Edge)
-                {
-                    case Edge.South: nx = t2;    ny = 0;     break;
-                    case Edge.North: nx = t2;    ny = N - 1; break;
-                    case Edge.West:  nx = 0;     ny = t2;    break;
-                    default:         nx = N - 1; ny = t2;    break; // East
-                }
-                return Hit(new NodeId(link.Face, n.Depth, nx, ny), link.Edge);
+                case Edge.South: nx = t2;    ny = 0;     break;
+                case Edge.North: nx = t2;    ny = N - 1; break;
+                case Edge.West:  nx = 0;     ny = t2;    break;
+                default:         nx = N - 1; ny = t2;    break; // East
             }
-
-            // PlaneGrid and Cylinder share a col-major root layout: quad = col * Rows + row.
-            // The cylinder wraps around its columns; the plane grid wraps in neither axis.
-            // Neither ever reverses the along-edge parameter.
-            int rows = s.Rows;
-            if (rows <= 0 || s.Cols <= 0) return Miss();
-
-            int c = n.Quad / rows, r = n.Quad % rows;
-            bool wrapCols = s.Type == SurfaceType.Cylinder;
-
-            switch (e)
-            {
-                case Edge.East:
-                    c++;
-                    if (c >= s.Cols) { if (!wrapCols) return Miss(); c = 0; }
-                    return Hit(new NodeId(c * rows + r, n.Depth, 0, n.Y), Edge.West);
-
-                case Edge.West:
-                    c--;
-                    if (c < 0) { if (!wrapCols) return Miss(); c = s.Cols - 1; }
-                    return Hit(new NodeId(c * rows + r, n.Depth, N - 1, n.Y), Edge.East);
-
-                case Edge.North:
-                    r++;
-                    if (r >= rows) return Miss();   // open ends: no caps
-                    return Hit(new NodeId(c * rows + r, n.Depth, n.X, 0), Edge.South);
-
-                default: // South
-                    r--;
-                    if (r < 0) return Miss();
-                    return Hit(new NodeId(c * rows + r, n.Depth, n.X, N - 1), Edge.North);
-            }
+            return Hit(new NodeId(link.Face, n.Depth, nx, ny), link.Edge);
         }
 
         static NeighbourResult Hit(NodeId node, Edge arrival)

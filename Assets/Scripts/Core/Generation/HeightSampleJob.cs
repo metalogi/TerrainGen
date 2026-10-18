@@ -35,6 +35,13 @@ namespace Sonoma.Core.Generation
         public int          MaxOctave;
         public int          Resolution;
 
+        // The macro maps, read at MacroLayout.MacroLevel(depth). Enabled false reads nothing
+        // and passes MacroSample.Zero, but the array is always a constructed one
+        // (MacroMaps.Disabled).
+        public MacroParams  Macro;
+        public int          MacroLevel;
+        [ReadOnly] public NativeArray<float4> MacroTexels;
+
         [WriteOnly] public NativeArray<double3> BasePoints;
         [WriteOnly] public NativeArray<float3>  BaseNormals;
         [WriteOnly] public NativeArray<float>   Heights;
@@ -50,8 +57,16 @@ namespace Sonoma.Core.Generation
 
             BasePoints[index]  = p;
             BaseNormals[index] = n;
-            Heights[index]     = TerrainHeightFunction.Height(p, MaxOctave, MacroSample.Zero, Params);
+            Heights[index]     = TerrainHeightFunction.Height(p, MaxOctave, ReadMacro(u, v), Params);
         }
+
+        // At the vertex's own (quad, u, v), not its point: the maps are addressed by the
+        // parameterisation, which is what makes the read exact on texels and bit-identical
+        // across a shared edge (MacroSampler).
+        MacroSample ReadMacro(double u, double v)
+            => Macro.Enabled
+                ? MacroSampler.Sample(new MacroMapReader(MacroTexels), Macro.Layout, Node.Quad, MacroLevel, u, v)
+                : MacroSample.Zero;
     }
 
     // The same thing at the parent's band limit, on the even-indexed vertices only.
@@ -69,6 +84,15 @@ namespace Sonoma.Core.Generation
         public int          MaxOctave;      // the *parent's* band limit
         public int          Resolution;
 
+        // The macro maps, read at the *parent's* level, MacroLayout.MacroLevel(depth - 1), so
+        // the morph target is the parent's macro as well as its octaves. At depth 0 the coarse
+        // border reaches two texels past the edge, beyond the stored border's reach; the
+        // sampler clamps its cell, so the read stays in bounds, and like the rest of a depth-0
+        // morph target it is unused.
+        public MacroParams  Macro;
+        public int          MacroLevel;
+        [ReadOnly] public NativeArray<float4> MacroTexels;
+
         [WriteOnly] public NativeArray<double3> BasePoints;
         [WriteOnly] public NativeArray<float3>  BaseNormals;
         [WriteOnly] public NativeArray<float>   Heights;
@@ -84,7 +108,12 @@ namespace Sonoma.Core.Generation
 
             BasePoints[index]  = p;
             BaseNormals[index] = n;
-            Heights[index]     = TerrainHeightFunction.Height(p, MaxOctave, MacroSample.Zero, Params);
+            Heights[index]     = TerrainHeightFunction.Height(p, MaxOctave, ReadMacro(u, v), Params);
         }
+
+        MacroSample ReadMacro(double u, double v)
+            => Macro.Enabled
+                ? MacroSampler.Sample(new MacroMapReader(MacroTexels), Macro.Layout, Node.Quad, MacroLevel, u, v)
+                : MacroSample.Zero;
     }
 }

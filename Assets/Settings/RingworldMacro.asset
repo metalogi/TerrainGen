@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4348e459bbc64bfaafbcfab155704734, type: 3}
+  m_Name: RingworldMacro
+  m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.MacroLayerSettings
+  LevelCount: 4
+  Wavelength0: 0
+  Persistence: 0.5
+  BaseHeightScale: 1500
+  EquatorTemperature: 18
+  PoleTemperature: -30
+  LapseRate: 6.5
+  TemperatureNoise: 5
+  MoistureNoise: 1.5
+  RuggednessNoise: 1.5
+  Seed: 7
