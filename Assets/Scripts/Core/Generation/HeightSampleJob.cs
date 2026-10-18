@@ -35,11 +35,11 @@ namespace Sonoma.Core.Generation
         public int          MaxOctave;
         public int          Resolution;
 
-        // The macro maps, read at MacroLayout.MacroLevel(depth). Enabled false reads nothing
-        // and passes MacroSample.Zero, but the array is always a constructed one
-        // (MacroMaps.Disabled).
+        // The macro maps. Enabled false reads nothing and passes MacroSample.Zero, but the
+        // array is always a constructed one (MacroMaps.Disabled). The level is not a field:
+        // it is MacroLayout.MacroLevel(Node.Depth), derived below from the node the job already
+        // carries, so no caller can leave it at a default 0 and quietly read level 0.
         public MacroParams  Macro;
-        public int          MacroLevel;
         [ReadOnly] public NativeArray<float4> MacroTexels;
 
         [WriteOnly] public NativeArray<double3> BasePoints;
@@ -60,7 +60,8 @@ namespace Sonoma.Core.Generation
             // At the vertex's own (quad, u, v), not its point: the maps are addressed by the
             // parameterisation, which is what makes the read exact on texels and bit-identical
             // across a shared edge (MacroSampler).
-            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, MacroLevel, u, v);
+            int level = Macro.Layout.MacroLevel(Node.Depth);
+            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, level, u, v);
             Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
         }
     }
@@ -81,13 +82,17 @@ namespace Sonoma.Core.Generation
         public int          MaxOctave;      // the *parent's* band limit
         public int          Resolution;
 
-        // The macro maps, read at the *parent's* level, MacroLayout.MacroLevel(depth - 1), so
-        // the morph target is the parent's macro as well as its octaves. At depth 0 the coarse
-        // border reaches two texels past the edge, the furthest any read goes, and the stored
-        // border is three texels so that read lands on a texel rather than extrapolating
-        // (MacroLayout).
+        // The macro maps, read at the *parent's* level, MacroLayout.MacroLevel(Node.Depth - 1),
+        // so the morph target is the parent's macro as well as its octaves. Derived below rather
+        // than passed in, so the parent-level rule lives here and every caller, the tests
+        // included, exercises it rather than copying it: reading the chunk's own level instead
+        // would put the child's finest macro octave into the morph target, and every swap up to
+        // the top level would pop by it -- about 190 m at depth 1 on Earth.
+        //
+        // At depth 0 the coarse border reaches two texels past the edge, the furthest any read
+        // goes, and the stored border is three texels so that read lands on a texel rather than
+        // extrapolating (MacroLayout).
         public MacroParams  Macro;
-        public int          MacroLevel;
         [ReadOnly] public NativeArray<float4> MacroTexels;
 
         [WriteOnly] public NativeArray<double3> BasePoints;
@@ -105,7 +110,8 @@ namespace Sonoma.Core.Generation
 
             BasePoints[index]  = p;
             BaseNormals[index] = n;
-            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, MacroLevel, u, v);
+            int level = Macro.Layout.MacroLevel(Node.Depth - 1);
+            var macro = MacroSampler.Read(new MacroMapReader(MacroTexels), Macro, Node.Quad, level, u, v);
             Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
         }
     }

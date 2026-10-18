@@ -60,8 +60,40 @@ namespace Sonoma.Tests
         // once every vertex has moved there, the child's triangles *are* the parent's: three
         // out of every four child cells collapse to zero area, and the fourth reproduces a
         // parent cell with the same winding.
+        //
+        // Run twice: with no macro layer, and over a real one. With a base height, the invariant
+        // also needs the coarse job to read the *parent's* macro level -- the child's own level
+        // carries one more macro octave, and every swap up to the top level would pop by it. The
+        // child here is at depth 3, the top of a four-level pyramid, where the two levels differ.
         [Test]
         public void ChildAtFullMorphEqualsParent()
+        {
+            using var none = MacroMaps.Disabled();
+            CheckChildAtFullMorphEqualsParent(none, "no macro layer");
+
+            var config = new MacroConfig
+            {
+                LevelCount = 4, Wavelength0 = 0.0, Persistence = 0.5f, BaseHeightScale = 400f,
+                EquatorTemperature = 15f, PoleTemperature = 15f, LapseRate = 6.5f, TemperatureNoise = 5f,
+                MoistureNoise = 1.5f, RuggednessNoise = 1.5f, Seed = 7u,
+            };
+            using var macro = MacroMaps.Build(_surface, _roots, MacroParams.Create(_surface, _params, config));
+            var layout = macro.Params.Layout;
+            Assert.AreNotEqual(layout.MacroLevel(Depth), layout.MacroLevel(Depth + 1),
+                "the parent and child read the same macro level, so the test cannot tell them apart");
+
+            // The layer really moves the ground, or the second run proves nothing new.
+            var flat  = Build(new NodeId(0, Depth, 1, 2), none);
+            var hilly = Build(new NodeId(0, Depth, 1, 2), macro);
+            int moved = 0;
+            for (int k = 0; k < Resolution * Resolution; k++)
+                if (math.abs(hilly.Verts[k].TopoElevation.w - flat.Verts[k].TopoElevation.w) > 1f) moved++;
+            Assert.Greater(moved, Resolution * Resolution / 2, "the macro layer barely changes the heights");
+
+            CheckChildAtFullMorphEqualsParent(macro, "a four-level macro layer");
+        }
+
+        void CheckChildAtFullMorphEqualsParent(MacroMaps macro, string label)
         {
             int R    = Resolution;
             int half = (R - 1) / 2;
@@ -69,12 +101,12 @@ namespace Sonoma.Tests
             // Off-centre on purpose, so a bug that only works for quadrant 0 or for a node at
             // the origin has somewhere to show.
             var parentNode = new NodeId(0, Depth, 1, 2);
-            var parent     = Build(parentNode);
+            var parent     = Build(parentNode, macro);
 
             for (int q = 0; q < 4; q++)
             {
                 var childNode = parentNode.Child(q);
-                var child     = Build(childNode);
+                var child     = Build(childNode, macro);
                 int qu = q & 1, qv = (q >> 1) & 1;
 
                 double worstPosition = 0.0, worstNormal = 0.0;
@@ -99,24 +131,24 @@ namespace Sonoma.Tests
                     worstNormal   = math.max(worstNormal,   dn);
 
                     Assert.Less(dp, PositionTolerance,
-                        $"quadrant {q} vertex ({i},{j}): morph target is {dp:E3} m from the " +
+                        $"{label}, quadrant {q} vertex ({i},{j}): morph target is {dp:E3} m from the " +
                         "parent vertex it should coincide with");
                     Assert.Less(dn, NormalTolerance,
-                        $"quadrant {q} vertex ({i},{j}): morph normal differs from the parent " +
+                        $"{label}, quadrant {q} vertex ({i},{j}): morph normal differs from the parent " +
                         $"normal by {dn:E3}");
 
                     // The depth packed into TEXCOORD2.w is what indexes the shader's range
                     // array; a wrong value there morphs the chunk against another depth's
                     // distances and cracks at the boundary.
                     Assert.AreEqual((float)childNode.Depth, cv.MorphPosition.w, 0f,
-                        $"quadrant {q} vertex ({i},{j}): wrong depth packed into TEXCOORD2.w");
+                        $"{label}, quadrant {q} vertex ({i},{j}): wrong depth packed into TEXCOORD2.w");
 
                     // And the elevation the shader blends its bands towards is the parent's
                     // own elevation -- bit-identical, not merely close, because both come
                     // from the same pure height function at the same band limit on a
                     // bit-identical surface position.
                     Assert.AreEqual(pv.TopoElevation.w, cv.MorphNormalElevation.w, 0f,
-                        $"quadrant {q} vertex ({i},{j}): morph elevation is not the parent's");
+                        $"{label}, quadrant {q} vertex ({i},{j}): morph elevation is not the parent's");
                 }
 
                 // Claim 2: the fully morphed child triangulates exactly as the parent does.
@@ -135,7 +167,7 @@ namespace Sonoma.Tests
                         // Three cells in four collapse: at least two corners of each
                         // triangle land on the same parent vertex.
                         Assert.IsTrue(Degenerate(a00, a11, a10) && Degenerate(a00, a01, a11),
-                            $"quadrant {q} cell ({ci},{cj}) should collapse at full morph but " +
+                            $"{label}, quadrant {q} cell ({ci},{cj}) should collapse at full morph but " +
                             "still spans distinct parent vertices");
                         continue;
                     }
@@ -149,19 +181,19 @@ namespace Sonoma.Tests
                     int p01 = (pj + 1) * R + pi, p11 = (pj + 1) * R + pi + 1;
 
                     Assert.IsFalse(Degenerate(a00, a11, a10) || Degenerate(a00, a01, a11),
-                        $"quadrant {q} cell ({ci},{cj}) should survive at full morph but is degenerate");
+                        $"{label}, quadrant {q} cell ({ci},{cj}) should survive at full morph but is degenerate");
                     Assert.AreEqual(new[] { p00, p11, p10 }, new[] { a00, a11, a10 },
-                        $"quadrant {q} cell ({ci},{cj}): first triangle is not the parent's");
+                        $"{label}, quadrant {q} cell ({ci},{cj}): first triangle is not the parent's");
                     Assert.AreEqual(new[] { p00, p01, p11 }, new[] { a00, a01, a11 },
-                        $"quadrant {q} cell ({ci},{cj}): second triangle is not the parent's");
+                        $"{label}, quadrant {q} cell ({ci},{cj}): second triangle is not the parent's");
                     surviving++;
                 }
 
                 Assert.AreEqual(half * half, surviving,
-                    $"quadrant {q}: the surviving cells do not tile the parent quadrant");
+                    $"{label}, quadrant {q}: the surviving cells do not tile the parent quadrant");
 
                 TestContext.WriteLine(
-                    $"quadrant {q}: worst position error {worstPosition:E3} m, " +
+                    $"{label}, quadrant {q}: worst position error {worstPosition:E3} m, " +
                     $"worst normal error {worstNormal:E3}, {surviving} surviving cells");
             }
         }
@@ -236,7 +268,9 @@ namespace Sonoma.Tests
             public TerrainVertex[] Verts;
         }
 
-        Built Build(NodeId node)
+        // Through the real jobs, with the macro maps the scheduler would hand them; the jobs pick
+        // each one's level from the node themselves.
+        Built Build(NodeId node, MacroMaps macro)
         {
             var root    = _roots[node.Quad];
             int R       = _params.Resolution;
@@ -262,9 +296,6 @@ namespace Sonoma.Tests
 
             double3 anchor = SurfaceMath.SurfacePoint(_surface, root,
                                  0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax));
-
-            // No macro layer, as SampleScene has none; the jobs still need a constructed array.
-            using var macro = MacroMaps.Disabled();
 
             new HeightSampleJob
             {

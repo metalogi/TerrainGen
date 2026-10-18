@@ -686,6 +686,18 @@ rather than editing them into the tasks, so the plan still reads as what was dec
       left to dispose it.
     - **`MacroParams.UnreadLevels(maxDepth)`**: levels above `MaxDepth` are built and never read, and
       `TerrainRoot` warns on them, as it does for `IsOctaveStarved`.
+    - **The jobs derive their macro level.** Each sample job carried a `MacroLevel` field that callers
+      had to set, `MacroLevel(depth)` or `MacroLevel(depth − 1)`. A caller that forgot it read level
+      0 silently, and `GeomorphTests` and `WorkingSetTests` already omitted it, harmlessly only
+      because their layer was disabled. Both jobs now compute it from `Node` and `Macro.Layout`, so
+      the parent-level rule lives in `CoarseHeightSampleJob` and every caller exercises it.
+    - **`ChildAtFullMorphEqualsParent` runs over a real macro layer too.** It had run only with the
+      layer disabled, so nothing checked that the coarse job reads the parent's level. Reading the
+      child's own level would put one more macro octave into the morph target, about 190 m on
+      Earth at depth 1, and every swap up to the top level would pop by it. The test now runs once
+      with no layer and once over a four-level map, with a depth-3 child, where the two levels
+      differ. It also checks that the layer moves more than half the parent's vertices by over
+      a metre.
     - **Deferred: the build's cost.** Fusing the four channels' fBm loops, and writing the lower levels
       from the top level's per-octave partial sums where texels coincide, would save perhaps a third
       of 200 ms of one-off startup. That is recorded under M6 in `SonomaRevisedPlan.md` §5, to be

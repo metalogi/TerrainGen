@@ -219,15 +219,14 @@ namespace Sonoma.Core.Quadtree
             data.SetIndexBufferParams(ChunkMeshLayout.IndexCount(R), IndexFormat.UInt16);
             data.subMeshCount = 1;
 
-            // Each job reads the macro at its own band's level, as it takes its own octaves:
-            // the fine one at this depth's, the coarse one at the parent's.
-            var macro = _macro.Params;
-
+            // Each job reads the macro at its own band's level, as it takes its own octaves --
+            // the fine one at this depth's, the coarse one at the parent's -- and derives that
+            // level from its node itself.
             var fine = new HeightSampleJob
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = oct, Resolution = R,
-                Macro = macro, MacroLevel = macro.Layout.MacroLevel(node.Depth), MacroTexels = _macro.Texels,
+                Macro = _macro.Params, MacroTexels = _macro.Texels,
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
             }.Schedule(samples, 64);
 
@@ -235,7 +234,7 @@ namespace Sonoma.Core.Quadtree
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = coarseOct, Resolution = R,
-                Macro = macro, MacroLevel = macro.Layout.MacroLevel(node.Depth - 1), MacroTexels = _macro.Texels,
+                Macro = _macro.Params, MacroTexels = _macro.Texels,
                 BasePoints = p.CoarsePoints, BaseNormals = p.CoarseNormals, Heights = p.CoarseHeights,
             }.Schedule(coarse, 64);
 
