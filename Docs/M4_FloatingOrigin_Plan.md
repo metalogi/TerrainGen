@@ -357,7 +357,7 @@ transitively even though it never says so — the harness must exclude it by tha
 - [x] `EarthTerrainSettings.asset` exists with the C1–C3 and C5 values; `TerrainSettings.asset` is untouched apart from gaining `SkirtFraction: 0`.
 - [x] Skirt depth is node-relative through `SkirtFraction`, and at 0 `SampleScene` builds bit-identical meshes (C5).
 - [x] `WorldOriginSystem` shifts tracked transforms and documents the unparented-camera assumption.
-- [ ] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter or cracks.
+- [x] `EarthStress.unity` flies from orbit to sub-metre ground detail without jitter or cracks.
 - [x] 5 new tests pass; the 73 existing ones still pass; test 4 fails under the `position -= shift` mutation.
 - [x] The triplanar precision limit is recorded in the shader, `CLAUDE.md` and §4.5, and deliberately not fixed.
 - [x] `CLAUDE.md` updated; amendments section written.
@@ -588,6 +588,14 @@ these say so.
     jobs ran in 800 of the 2,000 frames, at most 13 ms of worker time in one, on a four-core CPU. The
     fixes are M6's, listed under it in `SonomaRevisedPlan.md` §5. A faster backend will not close the
     gap by itself: IL2CPP would cut the per-node constant, but the walk is linear in the working set.
+
+### Sign-off
+
+26. **M4 is done.** On 2026-10-17 the descent from orbit to the ground in `EarthStress` showed no
+    jitter and no cracks, which was the last unchecked box. Two of verification item 4's profiler
+    checks fail (item 25) and are M6's by decision rather than M4's. They were never in the
+    definition of done, and the 2 ms budget was always M6's profiling pass. All 90 EditMode tests
+    pass in the Editor.
 
 ## Out of scope for M4
 
