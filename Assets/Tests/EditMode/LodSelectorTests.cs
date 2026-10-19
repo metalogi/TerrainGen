@@ -375,10 +375,11 @@ namespace Sonoma.Tests
                                                  EarthScaleTests.SkirtFraction, 8, 1.5f);
 
             // The pinned camera, the corner the first replica named, a face centre, and two
-            // altitudes on the way down.
+            // altitudes on the way down. The pinned camera moved from (20/256, 0) to (76/512, 0)
+            // when the mountain spectrum took Earth to SplitFactor 4 (M5b).
             var cameras = new[]
             {
-                (u: 20.0 / 256.0, v: 0.0, alt: 2.0),
+                (u: 76.0 / 512.0, v: 0.0, alt: 2.0),
                 (u: 0.0,          v: 0.0, alt: 2.0),
                 (u: 0.5,          v: 0.5, alt: 2.0),
                 (u: 0.3,          v: 0.7, alt: 500.0),
@@ -400,10 +401,11 @@ namespace Sonoma.Tests
                     $"where LodSelector wants {_selector.WantedCount}");
 
                 // The corner is where the first replica put its worst fresh case, 4,942. The
-                // selector itself wants this many there.
+                // selector itself wants this many there: 4,458 at SplitFactor 3, which C2 and
+                // the M4 plan quote, and 7,002 at the SplitFactor 4 Earth has run since M5b.
                 if (c.u == 0.0 && c.v == 0.0)
-                    Assert.AreEqual(4458, _selector.WantedCount,
-                        "the fresh working set at the face corner has moved; C2 quotes 4,458");
+                    Assert.AreEqual(7002, _selector.WantedCount,
+                        "the fresh working set at the face corner has moved; at SplitFactor 4 it is 7,002");
             }
         }
 

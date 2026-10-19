@@ -34,12 +34,14 @@ namespace Sonoma.Core.Generation
             // in double so the cell index stays exact at planetary distances.
             double3 n = surfacePos / p.OctaveWavelength0;
 
-            // The band-gain sum is the original's bits at zero gains, but the original stays
-            // the path for them, so a terrain without biomes runs the code M4 shipped.
-            double fbm = math.all(macro.BandGain == 0f)
+            // The general sum -- band gains and a two-slope spectrum -- is the original's bits
+            // with zero gains and FinePersistence equal to Persistence, but the original stays
+            // the path for them, so a terrain without biomes or roughness runs the code M4 shipped.
+            double fbm = math.all(macro.BandGain == 0f) && p.FinePersistence == p.Persistence
                 ? LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed)
                 : LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
-                                   macro.BandGain, p.LowBandEnd, p.MidBandEnd);
+                                   macro.BandGain, p.LowBandEnd, p.MidBandEnd,
+                                   p.FinePersistence, p.CrossoverOctave);
 
             // Signed noise, so the base surface is the mean and the terrain sits around it.
             // The prototype summed amp * (snoise * 0.5 + 0.5), which biases every sample

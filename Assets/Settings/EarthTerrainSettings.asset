@@ -14,20 +14,27 @@ MonoBehaviour:
   m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.TerrainSettings
   ChunkResolution: 33
   MaxDepth: 19
-  HeightScale: 9000
-  SplitFactor: 3
+  HeightScale: 4000
+  SplitFactor: 4
   HysteresisFactor: 1.1
-  MorphStartFraction: 0.15
+  MorphStartFraction: 0.1
   PreloadFactor: 1
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
-  MaxResidentChunks: 5800
+  MaxResidentChunks: 9400
   SkirtsEnabled: 1
   SkirtDepth: 1
-  SkirtFraction: 0.07
+  SkirtFraction: 0.58
   OctaveWavelength0: 0
   OctaveCount: 24
-  Persistence: 0.5
+  Persistence: 0.7
   Lacunarity: 2
   Seed: 42
+  RoughnessCrossover: 5000
+  FinePersistence: 0.53
   Macro: {fileID: 11400000, guid: e1be416d31d34721af0958863a2b644d, type: 2}
+  SkyAmbient: {r: 0.26, g: 0.28, b: 0.32, a: 1}
+  GroundAmbient: {r: 0.09, g: 0.08, b: 0.07, a: 1}
+  HazeColor: {r: 0.5, g: 0.6, b: 0.75, a: 1}
+  HazeVisibility: 120000
+  HazeScaleHeight: 3000

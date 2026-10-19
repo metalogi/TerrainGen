@@ -154,11 +154,15 @@ namespace Sonoma.Tests
                 Assert.AreEqual(m.MidBandEdge,               a.MidBandEdge,      $"{m.Asset}: MidBandEdge");
                 Assert.AreEqual(m.RuggednessMin,             a.RuggednessMin,    $"{m.Asset}: RuggednessMin");
                 Assert.AreEqual(m.RuggednessMax,             a.RuggednessMax,    $"{m.Asset}: RuggednessMax");
+                Assert.AreEqual(m.RuggednessCentre,          a.RuggednessCentre, $"{m.Asset}: RuggednessCentre");
 
-                // And the scene draws with the biome material, keyword on (C9).
+                // And the scene draws with the biome material, keyword on (C9), and with its sky:
+                // the sky keyword on and haze configured (M5b).
                 var material = SceneMaterial(root, out string materialPath);
                 Assert.AreEqual(BiomeMaterial, materialPath, $"{m.Scene}: chunk material");
                 Assert.IsTrue(material.IsKeywordEnabled(BiomeKeyword), $"{materialPath}: {BiomeKeyword} is off");
+                Assert.IsTrue(material.IsKeywordEnabled(SkyKeyword), $"{materialPath}: {SkyKeyword} is off");
+                Assert.Greater(settings.HazeVisibility, 0f, $"{m.Settings}: no haze");
             }
 
             var sampleRoot = SceneConfig.TerrainRoot("SampleScene");
@@ -167,10 +171,13 @@ namespace Sonoma.Tests
             var sampleMaterial = SceneMaterial(sampleRoot, out string sampleMaterialPath);
             Assert.IsFalse(sampleMaterial.IsKeywordEnabled(BiomeKeyword),
                 $"{sampleMaterialPath}: SampleScene's material must not compile the biome path");
+            Assert.IsFalse(sampleMaterial.IsKeywordEnabled(SkyKeyword),
+                $"{sampleMaterialPath}: SampleScene's material must not compile the sky path");
         }
 
         const string BiomeMaterial = "Assets/Materials/TerrainBiomes.mat";
         const string BiomeKeyword  = "_SONOMA_BIOMES";
+        const string SkyKeyword    = "_SONOMA_SKY";
 
         static Material SceneMaterial(string terrainRoot, out string path)
         {

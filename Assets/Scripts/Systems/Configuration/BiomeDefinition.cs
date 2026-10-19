@@ -23,15 +23,15 @@ namespace Sonoma.Systems.Configuration
 
         [Header("Band Amplitudes")]
         [Tooltip("Amplitude of the detail noise's low band (wavelengths above the macro layer's " +
-                 "LowBandEdge) here; 1 leaves it as configured. The largest amplitude any biome " +
-                 "and ruggedness can reach multiplies the LOD relief demand, so the relief tests " +
-                 "size it against each scene's allowance.")]
+                 "LowBandEdge) here; 1 leaves it as configured. The largest amplitude each band " +
+                 "can reach decides the LOD relief demand, so the relief tests measure each scene " +
+                 "against it.")]
         [Min(0f)]
         public float LowAmplitude = 1f;
         [Tooltip("Amplitude of the mid band, between the two band edges; scaled again by ruggedness.")]
         [Min(0f)]
         public float MidAmplitude = 1f;
-        [Tooltip("Amplitude of the high band, below MidBandEdge; scaled again by ruggedness.")]
+        [Tooltip("Amplitude of the high band, below MidBandEdge.")]
         [Min(0f)]
         public float HighAmplitude = 1f;
 

@@ -49,17 +49,21 @@ namespace Sonoma.Core.Generation
         }
 
         // The detail noise's band gains here, relative to one (C5): the biomes' gains blended by
-        // their weights, then the mid and high bands scaled by ruggedness. Ruggedness leaves the
-        // low band, the continental shapes, to climate alone, and roughens or smooths the
-        // terrain within it. With no biomes and a ruggedness range of 0..0 every term is
-        // exactly zero, and the height is the M5a height to the bit.
+        // their weights, then the mid band scaled by ruggedness. The mid band is the mountain
+        // band, a few kilometres to a hundred or two, and ruggedness is what makes belts of
+        // mountains and plains between them. It leaves the low band, the continental shapes, to
+        // climate alone. It leaves the high band alone too: the fine octaves spend the LOD
+        // relief allowance far faster per metre of height than the mountain band does, so
+        // scaling them with it priced the mountains out (the M5b mountain-belt amendment). With
+        // no biomes and a ruggedness range of 0..0 every term is exactly zero, and the height is
+        // the M5a height to the bit.
         public static float3 BandGain(float4 weights, float ruggedness, in MacroParams p)
         {
             float3 amplitude = 1f + new float3(math.dot(weights, p.BiomeLowGain),
                                                math.dot(weights, p.BiomeMidGain),
                                                math.dot(weights, p.BiomeHighGain));
             float rugged = 1f + math.lerp(p.RuggednessGainMin, p.RuggednessGainMax, math.saturate(ruggedness));
-            amplitude.yz *= rugged;
+            amplitude.y *= rugged;
             return amplitude - 1f;
         }
 

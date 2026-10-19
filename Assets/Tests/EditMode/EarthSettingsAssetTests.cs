@@ -42,6 +42,8 @@ namespace Sonoma.Tests
             Assert.AreEqual(Persistence,   s.Persistence,        "Persistence");
             Assert.AreEqual(Lacunarity,    s.Lacunarity,         "Lacunarity");
             Assert.AreEqual(Seed,          s.Seed,               "Seed");
+            Assert.AreEqual(RoughnessCrossover, s.RoughnessCrossover, "RoughnessCrossover");
+            Assert.AreEqual(FinePersistence,    s.FinePersistence,    "FinePersistence");
         }
 
         // And the stress scene runs that asset, on the sphere the constants describe. Without

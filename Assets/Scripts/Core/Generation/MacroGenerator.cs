@@ -11,7 +11,7 @@ namespace Sonoma.Core.Generation
     //                               on a cube sphere, minus the lapse rate times the base height
     //                               above zero, plus fBm times TemperatureNoise
     //   z  moisture, 0..1           0.5 + fBm times MoistureNoise, clamped
-    //   w  ruggedness, 0..1         0.5 + fBm times RuggednessNoise, clamped
+    //   w  ruggedness, 0..1         RuggednessCentre + fBm times RuggednessNoise, clamped
     //
     // Each level is band-limited by truncation, summing only the octaves MacroParams.MaxOctave
     // admits for it, so a level holds exactly the content its chunks can carry. Border texels
@@ -50,7 +50,7 @@ namespace Sonoma.Core.Generation
             }
 
             double moisture   = math.saturate(0.5 + p.MoistureNoise   * Fbm(x, octaves, p, seed + 2u * ChannelStride));
-            double ruggedness = math.saturate(0.5 + p.RuggednessNoise * Fbm(x, octaves, p, seed + 3u * ChannelStride));
+            double ruggedness = math.saturate(p.RuggednessCentre + p.RuggednessNoise * Fbm(x, octaves, p, seed + 3u * ChannelStride));
 
             return new float4((float)baseHeight, (float)temperature, (float)moisture, (float)ruggedness);
         }

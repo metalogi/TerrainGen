@@ -30,4 +30,11 @@ MonoBehaviour:
   Persistence: 0.5
   Lacunarity: 2
   Seed: 42
+  RoughnessCrossover: 100
+  FinePersistence: 0.55
   Macro: {fileID: 11400000, guid: d6dd9034cd884f09b1ce0ec3d6f4f3a3, type: 2}
+  SkyAmbient: {r: 0.26, g: 0.28, b: 0.32, a: 1}
+  GroundAmbient: {r: 0.09, g: 0.08, b: 0.07, a: 1}
+  HazeColor: {r: 0.5, g: 0.6, b: 0.75, a: 1}
+  HazeVisibility: 30000
+  HazeScaleHeight: 2000

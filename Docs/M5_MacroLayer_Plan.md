@@ -746,6 +746,173 @@ rather than editing them into the tasks, so the plan still reads as what was dec
    `MacroMapsTests` checks every field against `MacroTests.BiomeTable`. It also checks each stress
    scene's chunk material and keyword, and that `SampleScene`'s material has the keyword off.
 
+7. **The moisture scale went from 0.25 to 0.5, prompted by a fly-through.** On Earth the south pole
+   looked green beside a tundra north. That turned out to be lighting: `EarthStress`'s sun shines
+   along (−0.32, −0.77, 0.56), so the south pole is on the night side and lit by the skybox's ambient
+   alone. The biome export showed tundra there. The investigation did find a real fault, though.
+   At a moisture scale of 0.25 the whole 0–1 moisture range counted as four units of climate
+   distance, as much as 60 °C. Cold, wet ground at −12 °C and moisture 1.0 then sat as near
+   rainforest (24 °C, 0.85) as tundra (−8 °C, 0.40), and the south polar face, wetter in this seed,
+   had greenish fringes in the classifier's own output. At 0.5 moisture spans two units, and
+   everything below about −5 °C is tundra however wet. `BiomeTests.ShippedBiomesFollowClimate` pins
+   the mapping (cold is tundra at any moisture, hot and dry desert, hot and wet rainforest, temperate
+   grassland) and fails at 0.25. The macro map export gained `<scene>_biomes.png`, the classifier's
+   output over the biome colours, unlit, so a question like this one can be split between climate
+   and rendering at a glance.
+
+### M5b, close-up roughness (2026-10-18)
+
+1. **The crossover is set by `HeightParams.WithRoughness(finePersistence, crossover)`**, like the band
+   edges, rather than through new `Create` arguments. `TerrainRoot` calls it when
+   `TerrainSettings.RoughnessCrossover` is above zero, so 0 means off and `SampleScene` is untouched.
+   The crossover counts the octaves at least that long, by exponent. The multiply after octave k is
+   `Persistence` while k + 1 is below that count and `FinePersistence` from then on. `Fbm` gained one
+   general overload, band gains and two slopes together. With zero gains and equal persistences,
+   `Height` still calls the original.
+2. **Each scene's C was re-measured on 20,000 random nodes per depth, at the chosen spectrum**, and
+   pinned half again over the roughest. On the single-slope spectrum the same method gives 15.4 on
+   Earth, which reproduces M4's 15. The tail is long: Earth's roughest of 1,000 nodes at depth 19
+   was 31.3, and of 20,000 it was 40.6, against a 99.9th percentile of 31.2. A decision taken on the
+   smaller sample would have put Earth's morph fraction at 0.12 rather than 0.10.
+
+   | scene | crossover, fine | 10 m features | roughest C (depth) | pinned C | needs `MorphStartFraction` ≤ | runs |
+   |---|---|---|---|---|---|---|
+   | Earth | 1 km, 0.8 | 23.0 cm | 40.6 (19) | 61 | 0.109 | 0.10 |
+   | small planet | 250 m, 0.8 | 24.0 cm | 15.1 (17) | 23 | 0.138 | 0.13 |
+   | ringworld | 1 km, 0.7 | 32.2 cm | 15.1 (16) | 23 | 0.202 | 0.15 |
+   | terrarium | 100 m, 0.55 | 28.6 cm | 4.8 (9) | 9 (kept) | 0.170 | 0.15 |
+
+   The terrarium's old estimate of 9 still covers its rough spectrum's 7.1, so it stays: the plan's
+   method would have lowered it, and the terrarium is the scene with the least room.
+3. **The spheres narrow their morph window instead of moving to `SplitFactor` 4**, the user's choice,
+   made with these numbers. The plan offered two options, `SplitFactor` 4 or the roughness
+   `SplitFactor` 3 carries at 0.15 (about 15 cm on Earth, 17 cm on the small planet). The third is
+   the lever `SampleScene` already uses: at `SplitFactor` 3 the allowance is
+   `3 × (0.1882 − MorphStartFraction)`, so 0.10 gives 0.2646 and 0.13 gives 0.1746. That costs no
+   chunks. The relief pad grows the worst working set only to 5,230 on Earth and 4,558 on the small
+   planet, inside the 5,800 and 5,100 budgets. `SplitFactor` 4 measured 8,310 and 7,246, for budgets
+   of about 9,400 and 8,200, roughly 920 MB of vertex data on Earth against 570 MB. The cost of 0.10
+   is a morph window a third narrower: at depth 19, 12 m of camera travel instead of 18 m.
+4. **Earth is now near the top of its allowance.** At `MorphStartFraction` 0.10, C 61 and the biomes'
+   2.25, the 2× rule leaves 1.11×, and Earth's `HeightScale` could rise only to about 10,000. That is
+   where the relief went, and the selector's roughest-chunk report on leaving play mode is the check.
+5. **`SkirtFraction` followed the larger demand**: Earth 0.27, small planet 0.18, ring 0.28, with the
+   terrarium unchanged at 0.66. An absolute 2 m skirt now covers no depth of Earth.
+6. **The fly camera's height bound was left alone.** `TopologyFlyCamera` bounds the terrain by
+   `HeightScale / (1 − Persistence)`, about 2.6 times the highest ground generated. That still covers
+   the macro layer's base height and the biomes' largest amplitude, but it is no longer what the
+   comment says it is. It belongs to the horizon arithmetic, not to anything that cracks.
+
+### M5b, hills and mountains (2026-10-18)
+
+1. **Small-scale roughness was not enough.** After the retune above, the user saw small relief at
+   10 m and still flat ground from 500–1,000 m up. At persistence 0.5 from a 10,400 km first octave,
+   Earth's 5 km features were 4 m, its 20 km features 18 m and its 100 km features 70 m. Real relief
+   falls off more slowly at large scales, with persistence around 0.7 above a few kilometres, and at
+   about 0.5 below. The two-slope mechanism already allows it the other way round: `Persistence`
+   0.7 above a 5 km crossover, `FinePersistence` near 0.5 below it, and a lower `HeightScale` so that
+   the slower falloff does not raise the continents.
+2. **The relief budget forced `SplitFactor` 4 on the spheres.** Kilometre-scale slopes are what the
+   boundary allowance pays for. On 20,000 random nodes per depth, Earth's roughest depth-19 node has
+   a half-relief of 0.106 of its size at fine persistence 0.5 and 0.135 at 0.53. The first pass, on
+   1,000 nodes, had 0.082, so the tail misled once more. At `SplitFactor` 3 no `MorphStartFraction`
+   carries that, and `EarthConfigurationClearsTheReliefAllowance` now asserts it. The user chose
+   `SplitFactor` 4 for mountains, on worst working sets measured by the replica scan:
+
+   | scene | worst at `SplitFactor` 3 | at 4 | at 4, every node padded by a tenth | budget |
+   |---|---|---|---|---|
+   | Earth | 5,118 | 8,198 | 8,394 | 9,400 (was 5,800) |
+   | small planet | 4,510 | 7,206 | 7,386 | 8,300 (was 5,100) |
+
+   That is about 1.6× the chunks: on Earth about 920 MB of vertex data at the budget against 570 MB,
+   with selection time growing in proportion, already over budget and M6's to fix. The worst case moved
+   from `(20/256, 0)` to `(76/512, 0)`. The fresh working set at the face corner, which
+   `LodSelectorTests.EarthReplicaWantsWhatTheSelectorWants` pins against the real selector, went from
+   4,458 to 7,002. The Editor run caught that pin; it had kept the `SplitFactor` 3 figure.
+3. **Earth's biomes were held to 1.44×.** With the biomes' 2.25 Earth would have needed
+   `MorphStartFraction` 0.07 and fine persistence 0.5 (10 m features 15 cm). The user chose ruggedness
+   up to 1.6 (largest amplitude 1.44), as on the small planet, with a morph fraction of 0.10 and
+   10 m features of 26 cm. The ring, which kept `SplitFactor` 3, takes the same 1.44 and so keeps its
+   0.15.
+4. **The configurations, as shipped:**
+
+   | scene | `HeightScale` | `Persistence` / crossover / `FinePersistence` | 5 / 20 / 100 km features | 10 m | pinned C | `SplitFactor`, MSF | `SkirtFraction` |
+   |---|---|---|---|---|---|---|---|
+   | Earth | 4000 (was 9000) | 0.7 / 5 km / 0.53 | 79 / 161 / 329 m | 26 cm | 526 | 4, 0.10 | 0.65 |
+   | small planet | 2000 (was 6000) | 0.7 / 5 km / 0.53 | 81 / 165 / 336 m | 27 cm | 221 | 4, 0.12 | 0.56 |
+   | ring | 2000 (was 4000) | 0.7 / 5 km / 0.5 | 115 / 235 / 480 m | 22.5 cm | 97 | 3, 0.15 | 0.37 |
+   | terrarium | 200 | 0.5 / 100 m / 0.55 | — | 29 cm | 9 | 3, 0.15 | 0.66 |
+
+   The feature heights are octave amplitudes before biomes; the most rugged ground multiplies the
+   5 km and shorter ones by up to 1.44. The relief tests' margins hold everywhere: Earth's
+   `SplitFactor` 4 allowance at 0.10 is 0.6146 against twice its demand, 0.582, and the small
+   planet's at 0.12 is 0.5346 against 0.489. `HeightScale` is now near its ceiling on both planets
+   (about 4,200 on Earth), and the selector's roughest-chunk report on leaving play mode remains the
+   arbiter.
+5. **Measuring methods agree.** On M4's spectrum the 20,000-node method gives Earth a pinned C of
+   15.4, reproducing M4's estimate of 15. The new pins come from the same method at the new
+   spectra.
+
+### M5b, mountain belts and the sky (2026-10-18)
+
+The Editor run showed the mountain spectrum still mostly flat from 500–1,000 m up, and the user
+noted that the lighting shows relief only near the terminator. They chose a ×3 mountain band in
+belts, and three of four shading fixes: haze, rock on steep slopes, and sky light by local up. They
+left out a lower sun at each scene's start.
+
+1. **The fine band was spending the relief budget.** The LOD allowance pays for the steepest node
+   anywhere, and a band's slope per metre of height grows as its wavelength shrinks. Ruggedness
+   multiplied the mid and high bands together, up to 1.44, so the octaves under 5 km made up most of
+   the demand. The 5–150 km band, which is what reads as hills and mountains from a kilometre up,
+   was cheap by comparison and was tied to them.
+2. **Ruggedness now scales only the mid band, which became the mountain band.** On the planets and
+   the ring the band edges moved from 50 km and 500 m to 150 km and 5 km, so the mid band is the
+   octaves of 5 to about 100 km. Ruggedness runs it from 0.3 to 3.3 (2.97 with the biomes' largest
+   mid amplitude). The high band is left to the biomes, at most 0.9. Measured on 20,000 random nodes
+   per depth with the bands at (1, 3, 1):
+
+   | scene | roughest half-relief | pinned C (was) | MSF ceiling | runs |
+   |---|---|---|---|---|
+   | Earth | 0.173, depth 19 | 674 (526 × 1.44) | 0.124 at `SplitFactor` 4 | 0.10 |
+   | small planet | 0.174, depth 17 | 340 (221 × 1.44) | 0.123 at 4 | 0.12 |
+   | ring | 0.130, depth 16 | 171 (97 × 1.44) | 0.150 at 3 | 0.14 (was 0.15) |
+
+   The same machinery with the fine band at 0.5 instead of 0.53 would have bought more room. It was
+   not needed: the 10 m features stay at 26 cm on Earth. A mid band of 4 would need Earth at
+   `MorphStartFraction` about 0.09 (estimated, not measured).
+3. **The test model changed with it.** One C scaled by the largest amplitude anywhere
+   (`MaxAmplitude`) would charge the fine band for the mountain band's 3 and fail every scene.
+   Each scene's C is now measured with the bands at given amplitudes, (1, 3, 1) on the planets and
+   the ring and (1, 1, 1) in the terrarium. `MacroTests.DetailDemand` asserts that the macro asset's
+   `MacroParams.MaxBandAmplitude` stays under them, so raising an amplitude fails until C is
+   re-measured.
+4. **The belts are a minority of the world.** At the ruggedness map's old centre, 0.5, 26% of Earth
+   saturated at full amplitude and 56% was at twice it or more: mountains everywhere, which reads as
+   no mountains. `MacroLayerSettings.RuggednessCentre`, stored as a shift from 0.5 so the default is
+   M5a's map to the bit (C5), is 0.2 on the three. That puts 11% of Earth at full belt, 35% at twice
+   the amplitude or more, and 30% in plains under 0.6; the ring's figures are 16%, 42% and 24%.
+   `MacroTests.MountainBeltsAreAMinority` pins them.
+5. **Skirts followed the demand:** Earth 0.65 to 0.58, the ring 0.37 to 0.43; the small planet's
+   0.56 still covers it.
+6. **The sky, a second shader feature, `_SONOMA_SKY`.** It is on in `TerrainBiomes.mat`, so
+   `SampleScene` is untouched. The ambient comes from the local up rather than world-space SH. Aerial
+   haze is an exponential atmosphere integrated in four steps, each exact for a linear climb, so a
+   path out of the air is not charged the base density all the way. The values are per scene, in
+   `TerrainSettings`, pushed as globals every frame:
+
+   | scene | visibility | scale height |
+   |---|---|---|
+   | Earth | 120 km | 3 km |
+   | small planet | 120 km | 3 km |
+   | ring | 200 km | 3 km |
+   | terrarium | 30 km | 2 km |
+
+   On Earth, ground 5 km away keeps about 87% of its contrast from 1 km up, ground 50 km away about
+   25%, and the view straight down from orbit about 90%. The hemisphere ambient is physical and so
+   subtle: a 15° slope is under 2% darker.
+7. **Rock on steep slopes.** `TerrainBiomes.mat`'s rock threshold was 63°, which no slope reaches.
+   It is now 16° to 28°.
+
 ## Out of scope for M5
 
 - **Erosion, rivers, tectonics.** §5 makes erosion optional for M5, and it stays out. A non-local pass

@@ -24,6 +24,8 @@ using Sonoma.Core.Surface;
 //   <scene>_temperature.png  -40 to 40 degrees C, blue through white to red
 //   <scene>_moisture.png     0 to 1, dry tan through green to wet blue
 //   <scene>_ruggedness.png   0 to 1, black to white
+//   <scene>_biomes.png       the biome classifier's weights over the biome colours, unlit, and
+//                            the climate and biome at each pole of a sphere in the console
 //
 // The three heights share one colour scale -- blue below zero, green through brown to white
 // above, by the largest |total| -- and a hillshade lit from the upper left with the vertical
@@ -166,6 +168,8 @@ static class MacroMapExport
             }
         }
 
+        WriteBiomes(s, roots, mp, t.Macro, texels, level, tile, w, h, Path.Combine(folder, $"{scene}_biomes.png"));
+
         Debug.Log($"[MacroMapExport] {scene}: level {level} of {mp.Layout.LevelCount}, {tile} x {tile} " +
                   $"texels a quad, built in {buildMs:F1} ms. " +
                   $"Base {Range(px[0])} m, detail to octave {octave} {Range(px[1])} m, total {Range(px[2])} m " +
@@ -173,6 +177,77 @@ static class MacroMapExport
                   $"temperature {Range(px[3])} C, moisture {Range(px[4])}, ruggedness {Range(px[5])}. " +
                   $"Written to {folder}");
         EditorUtility.RevealInFinder(Path.Combine(folder, $"{scene}_total.png"));
+    }
+
+    // ── Biomes ───────────────────────────────────────────────────────────────
+
+    readonly struct ArrayTexels : IMacroTexels
+    {
+        readonly float4[] _texels;
+        public ArrayTexels(float4[] texels) { _texels = texels; }
+        public float4 Texel(int index) => _texels[index];
+    }
+
+    // <scene>_biomes.png: what Biomes.Classify makes of each texel's climate, the weights
+    // blending the BiomeDefinitions' colours as the shader does, unlit. The same maps and the same
+    // classifier the sample jobs use, so a colour here that differs from the scene's is a
+    // rendering question, not a climate one. And the climate and weights at each pole of a cube
+    // sphere, in the console.
+    static void WriteBiomes(in SurfaceDef s, RootQuad[] roots, in MacroParams mp,
+                            Sonoma.Systems.Configuration.MacroLayerSettings settings, float4[] texels,
+                            int level, int tile, int w, int h, string path)
+    {
+        if (mp.BiomeCount == 0) return;
+
+        var colour = new float3[Biomes.MaxBiomes];
+        for (int b = 0; b < mp.BiomeCount; b++)
+        {
+            Color c = settings.Biomes[b].Color;
+            colour[b] = new float3(c.r, c.g, c.b);
+        }
+
+        int n = tile - 1;
+        var pixels = new Color32[w * h];
+        Array.Fill(pixels, new Color32(40, 40, 40, 255));
+        for (int q = 0; q < roots.Length; q++)
+        {
+            Place(s, q, out int tx, out int ty);
+            for (int j = 0; j <= n; j++)
+            for (int i = 0; i <= n; i++)
+            {
+                float4 m = texels[mp.Layout.Index(q, level, i, j)];
+                float4 wt = Biomes.Classify(new MacroSample { BaseHeight = m.x, Temperature = m.y,
+                                                              Moisture = m.z, Ruggedness = m.w }, mp);
+                float3 rgb = wt.x * colour[0] + wt.y * colour[1] + wt.z * colour[2] + wt.w * colour[3];
+                rgb = math.saturate(rgb) * 255f;
+                pixels[(ty * tile + j) * w + tx * tile + i] = new Color32((byte)rgb.x, (byte)rgb.y, (byte)rgb.z, 255);
+            }
+        }
+
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        try
+        {
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(tex);
+        }
+
+        if (s.Type != SurfaceType.CubeSphere) return;
+        var reader = new ArrayTexels(texels);
+        foreach (var (label, dir) in new[] { ("north pole (+Y)", new double3(0, 1, 0)), ("south pole (-Y)", new double3(0, -1, 0)) })
+        {
+            SurfaceMath.Locate(s, dir * s.Radius, out int q, out double u, out double v);
+            var    m  = MacroSampler.Read(reader, mp, q, level, u, v);
+            float4 wt = Biomes.Classify(m, mp);
+            int top = 0;
+            for (int b = 1; b < mp.BiomeCount; b++) if (wt[b] > wt[top]) top = b;
+            Debug.Log($"[MacroMapExport] {label}: quad {q}, {m.Temperature:F1} C, moisture {m.Moisture:F2}, " +
+                      $"base {m.BaseHeight:F0} m -> {settings.Biomes[top].name} ({wt[top]:P0}); weights {wt}");
+        }
     }
 
     // ── Layout ───────────────────────────────────────────────────────────────
