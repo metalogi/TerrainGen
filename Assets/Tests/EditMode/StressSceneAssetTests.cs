@@ -26,9 +26,9 @@ namespace Sonoma.Tests
                 Assert.AreEqual(Resolution,       s.ChunkResolution,    $"{sc.Asset}: ChunkResolution");
                 Assert.AreEqual(sc.MaxDepth,      s.MaxDepth,           $"{sc.Asset}: MaxDepth");
                 Assert.AreEqual(sc.HeightScale,   s.HeightScale,        $"{sc.Asset}: HeightScale");
-                Assert.AreEqual(SplitFactor,      s.SplitFactor,        $"{sc.Asset}: SplitFactor");
+                Assert.AreEqual(sc.SplitFactor,   s.SplitFactor,        $"{sc.Asset}: SplitFactor");
                 Assert.AreEqual(Hysteresis,       s.HysteresisFactor,   $"{sc.Asset}: HysteresisFactor");
-                Assert.AreEqual(MorphStart,       s.MorphStartFraction, $"{sc.Asset}: MorphStartFraction");
+                Assert.AreEqual(sc.MorphStart,    s.MorphStartFraction, $"{sc.Asset}: MorphStartFraction");
                 Assert.AreEqual(Preload,          s.PreloadFactor,      $"{sc.Asset}: PreloadFactor");
                 Assert.AreEqual(sc.Budget,        s.MaxResidentChunks,  $"{sc.Asset}: MaxResidentChunks");
                 Assert.IsTrue(s.SkirtsEnabled,                          $"{sc.Asset}: SkirtsEnabled");
@@ -36,9 +36,11 @@ namespace Sonoma.Tests
                 Assert.AreEqual(sc.SkirtFraction, s.SkirtFraction,      $"{sc.Asset}: SkirtFraction");
                 Assert.AreEqual(0.0,              s.OctaveWavelength0,  $"{sc.Asset}: OctaveWavelength0");
                 Assert.AreEqual(sc.OctaveCount,   s.OctaveCount,        $"{sc.Asset}: OctaveCount");
-                Assert.AreEqual(Persistence,      s.Persistence,        $"{sc.Asset}: Persistence");
+                Assert.AreEqual(sc.Persistence,   s.Persistence,        $"{sc.Asset}: Persistence");
                 Assert.AreEqual(Lacunarity,       s.Lacunarity,         $"{sc.Asset}: Lacunarity");
                 Assert.AreEqual(Seed,             s.Seed,               $"{sc.Asset}: Seed");
+                Assert.AreEqual(sc.RoughnessCrossover, s.RoughnessCrossover, $"{sc.Asset}: RoughnessCrossover");
+                Assert.AreEqual(sc.FinePersistence,    s.FinePersistence,    $"{sc.Asset}: FinePersistence");
             }
         }
 

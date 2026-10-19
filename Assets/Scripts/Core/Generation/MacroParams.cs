@@ -27,7 +27,11 @@ namespace Sonoma.Core.Generation
         public float  LapseRate;            // degrees C per kilometre of base height above zero
         public float  TemperatureNoise;     // degrees C per unit of fBm
         public float  MoistureNoise;        // moisture per unit of fBm, around 0.5
-        public float  RuggednessNoise;      // ruggedness per unit of fBm, around 0.5
+        public float  RuggednessNoise;      // ruggedness per unit of fBm, around 0.5 + RuggednessShift
+        // Added to the 0.5 the ruggedness varies around, relative to it like the gains (C5), so
+        // the default 0 is M5a's map to the bit. Below zero, more of the world saturates at 0
+        // (plains) and less at 1 (mountain belts).
+        public float  RuggednessShift;
         public uint   Seed;
 
         // Biomes (M5b). None leaves the band gains at zero and the terrain as M5a drew it.
@@ -35,8 +39,8 @@ namespace Sonoma.Core.Generation
         public int           BiomeSharpness;    // inverse-square distance raised to this
         public float         TemperatureScale;  // degrees C per unit of climate distance
         public float         MoistureScale;     // moisture per unit of climate distance
-        // Ruggedness scales the mid and high bands between these, as gains relative to one
-        // like the biomes' (C5): 0 and 0 leave the amplitude alone.
+        // Ruggedness scales the mid band, the mountain band, between these, as gains relative to
+        // one like the biomes' (C5): 0 and 0 leave the amplitude alone.
         public float         RuggednessGainMin, RuggednessGainMax;
     }
 
@@ -58,6 +62,7 @@ namespace Sonoma.Core.Generation
         public float       EquatorTemperature, PoleTemperature;
         public float       LapseRate;            // degrees C per metre
         public float       TemperatureNoise, MoistureNoise, RuggednessNoise;
+        public float       RuggednessCentre;     // 0.5 + MacroConfig.RuggednessShift
         public uint        Seed;
 
         // The biome table, flattened to a fixed four so it is blittable: component b of each
@@ -71,27 +76,29 @@ namespace Sonoma.Core.Generation
 
         public static MacroParams Disabled => default;
 
-        // The largest amplitude any band of the detail noise can take anywhere: the largest
-        // biome amplitude on each band, with ruggedness at its maximum on the mid and high
-        // bands (Biomes.BandGain). The relief the LOD boundary has to cover scales with it, so
-        // the relief tests multiply the detail noise's demand by it (C7) -- conservatively,
-        // since it assumes the roughest node sits in the most amplified biome.
-        public float MaxAmplitude
+        // The largest amplitude each band of the detail noise -- low, mid, high -- can take
+        // anywhere: the largest biome amplitude on the band, with ruggedness at its maximum on
+        // the mid band (Biomes.BandGain). The relief the LOD boundary has to cover depends on
+        // them, and not in proportion: the mid band's kilometre-scale octaves cost far less
+        // relief per metre of height than the fine band's. So the relief tests measure each
+        // scene's C with the bands at amplitudes at least these (C7), rather than scaling one C
+        // by the largest of them.
+        public float3 MaxBandAmplitude
         {
             get
             {
                 float rugged = 1f + RuggednessGainMax;
-                if (BiomeCount == 0) return math.max(1f, rugged);
-                float max = float.MinValue;
+                if (BiomeCount == 0) return new float3(1f, rugged, 1f);
+                float3 max = float.MinValue;
                 for (int b = 0; b < BiomeCount; b++)
-                {
-                    max = math.max(max, 1f + BiomeLowGain[b]);
-                    max = math.max(max, (1f + BiomeMidGain[b])  * rugged);
-                    max = math.max(max, (1f + BiomeHighGain[b]) * rugged);
-                }
+                    max = math.max(max, new float3(1f + BiomeLowGain[b], (1f + BiomeMidGain[b]) * rugged,
+                                                   1f + BiomeHighGain[b]));
                 return max;
             }
         }
+
+        // The largest amplitude of any band anywhere.
+        public float MaxAmplitude => math.cmax(MaxBandAmplitude);
 
         // The finest macro octave a level carries: every octave whose wavelength is at least
         // four of the level's texel spacings. Four rather than Nyquist's two, because
@@ -125,7 +132,7 @@ namespace Sonoma.Core.Generation
             if (!IsFinite(c.BaseHeightScale) || !IsFinite(c.EquatorTemperature) ||
                 !IsFinite(c.PoleTemperature) || !IsFinite(c.LapseRate) ||
                 !IsFinite(c.TemperatureNoise) || !IsFinite(c.MoistureNoise) ||
-                !IsFinite(c.RuggednessNoise))
+                !IsFinite(c.RuggednessNoise) || !IsFinite(c.RuggednessShift))
                 throw new ArgumentOutOfRangeException(nameof(c),
                     "MacroParams: amplitudes, temperatures and the lapse rate must be finite.");
 
@@ -209,6 +216,7 @@ namespace Sonoma.Core.Generation
                 TemperatureNoise   = c.TemperatureNoise,
                 MoistureNoise      = c.MoistureNoise,
                 RuggednessNoise    = c.RuggednessNoise,
+                RuggednessCentre   = 0.5f + c.RuggednessShift,
                 Seed               = c.Seed,
             };
         }

@@ -58,12 +58,12 @@ namespace Sonoma.Tests
         //
         // Hand copies of Assets/Settings/Biomes/*.asset. Every band amplitude is at most 1:
         // biomes shape and smooth the terrain, and each scene's ruggedness range decides how far
-        // above its configured HeightScale anything goes, sized against its own relief allowance
-        // (MaxAmplitude, Demand). A table that amplified would have to fit the tightest scene, the
-        // terrarium, with no room at all.
+        // above its configured HeightScale the mountain band goes, sized against its own relief
+        // allowance (MaxBandAmplitude, DetailDemand). A table that amplified would have to fit the
+        // tightest scene, the terrarium, with no room at all.
         internal const int   BiomeSharpness   = 2;
         internal const float TemperatureScale = 15f;
-        internal const float MoistureScale    = 0.25f;
+        internal const float MoistureScale    = 0.5f;
 
         internal static readonly (string Asset, float3 Color, BiomeConfig Config)[] BiomeTable =
         {
@@ -87,22 +87,25 @@ namespace Sonoma.Tests
             public float      BaseHeightScale, EquatorTemperature;
             public double     LowBandEdge, MidBandEdge;
             public float      RuggednessMin, RuggednessMax;   // amplitudes, as the asset holds them
+            public float      RuggednessCentre;               // as the asset holds it
 
             public MacroConfig Config => new MacroConfig
             {
                 LevelCount = Levels, Wavelength0 = MacroWavelength0, Persistence = MacroPersistence,
                 BaseHeightScale = BaseHeightScale, EquatorTemperature = EquatorTemperature,
                 PoleTemperature = PoleTemperature, LapseRate = LapseRate, TemperatureNoise = TemperatureNoise,
-                MoistureNoise = MoistureNoise, RuggednessNoise = RuggednessNoise, Seed = MacroSeed,
+                MoistureNoise = MoistureNoise, RuggednessNoise = RuggednessNoise,
+                RuggednessShift = RuggednessCentre - 0.5f, Seed = MacroSeed,
                 Biomes = BiomeConfigs, BiomeSharpness = BiomeSharpness,
                 TemperatureScale = TemperatureScale, MoistureScale = MoistureScale,
                 RuggednessGainMin = RuggednessMin - 1f, RuggednessGainMax = RuggednessMax - 1f,
             };
 
-            // The largest band amplitude anywhere in this scene (MacroParams.MaxAmplitude).
-            public float MaxAmplitude =>
-                MacroParams.Create(Surface, HeightParams.Create(Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), Config)
-                           .MaxAmplitude;
+            public MacroParams Params =>
+                MacroParams.Create(Surface, HeightParams.Create(Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), Config);
+
+            // The largest amplitude of each band anywhere in this scene (MacroParams.MaxBandAmplitude).
+            public float3 MaxBandAmplitude => Params.MaxBandAmplitude;
         }
 
         // The cylinders have no poles, so EquatorTemperature is their temperature everywhere at
@@ -110,29 +113,38 @@ namespace Sonoma.Tests
         // because its 32 roots would make four 48 MB, and level 2's 60 m texels are already
         // finer than anything a macro layer is for in a 10 km world.
         //
-        // Band edges are 50 km and 500 m on the planets and the ring, 2 km and 50 m in the
-        // terrarium, whose whole world is 10 km across. The ruggedness ranges (mid and high
-        // bands) put the largest amplitude anywhere at 2.25 on Earth and the ring, 1.44 on the
-        // small planet and 1.0 in the terrarium: each about as much as its relief allowance takes
-        // at the relief tests' margins (ReliefAllowanceLeavesTwiceTheEstimatedDemand).
+        // Band edges are 2 km and 50 m in the terrarium, whose whole world is 10 km across. On the
+        // planets and the ring they are 150 km and 5 km, which makes the mid band, the one
+        // ruggedness scales, the mountain band: octaves of 5 to about 100 km. Ruggedness runs
+        // from 0.3 on plains to 3.3 in mountain belts there, so the mid band's largest amplitude
+        // is 2.97 (the biomes' largest mid amplitude, 0.9, times 3.3). Centred on 0.2, the
+        // ruggedness map saturates at 1 on about a ninth of Earth and puts about a third of it at
+        // twice the amplitude or more (MountainBeltsAreAMinority). The fine band is left to the
+        // biomes, at most 0.9: it spends the LOD relief allowance far faster per metre of height,
+        // and scaling it with ruggedness cost the mountains (M5b, the mountain-belt amendment).
+        // The terrarium's range, 0.5 to 1.0, had no room to amplify anything.
         internal static readonly SceneMacro[] StressMacros =
         {
             new SceneMacro { Scene = "EarthStress", Settings = "Assets/Settings/EarthTerrainSettings.asset",
                              Asset = "Assets/Settings/EarthMacro.asset", Surface = EarthScaleTests.Earth, MaxDepth = EarthScaleTests.MaxDepth,
                              Levels = 4, BaseHeightScale = 3000f, EquatorTemperature = 30f,
-                             LowBandEdge = 50000.0, MidBandEdge = 500.0, RuggednessMin = 0.5f, RuggednessMax = 2.5f },
+                             LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
+                             RuggednessCentre = 0.2f },
             new SceneMacro { Scene = "SmallPlanetStress", Settings = StressSceneTests.SmallPlanet.Asset,
                              Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface, MaxDepth = StressSceneTests.SmallPlanet.MaxDepth,
                              Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f,
-                             LowBandEdge = 50000.0, MidBandEdge = 500.0, RuggednessMin = 0.5f, RuggednessMax = 1.6f },
+                             LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
+                             RuggednessCentre = 0.2f },
             new SceneMacro { Scene = "RingworldStress", Settings = StressSceneTests.Ringworld.Asset,
                              Asset = "Assets/Settings/RingworldMacro.asset", Surface = StressSceneTests.Ringworld.Surface, MaxDepth = StressSceneTests.Ringworld.MaxDepth,
                              Levels = 4, BaseHeightScale = 1500f, EquatorTemperature = 18f,
-                             LowBandEdge = 50000.0, MidBandEdge = 500.0, RuggednessMin = 0.5f, RuggednessMax = 2.5f },
+                             LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
+                             RuggednessCentre = 0.2f },
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
-                             LowBandEdge = 2000.0, MidBandEdge = 50.0, RuggednessMin = 0.5f, RuggednessMax = 1f },
+                             LowBandEdge = 2000.0, MidBandEdge = 50.0, RuggednessMin = 0.5f, RuggednessMax = 1f,
+                             RuggednessCentre = 0.5f },
         };
 
         internal static SceneMacro For(string scene)
@@ -151,18 +163,28 @@ namespace Sonoma.Tests
         // the largest, the margin each scene's C has over its own sample.
         internal const double MacroReliefFactor = 7.0;
 
-        // The detail noise's relief demand, as a fraction of node size, at the largest amplitude
-        // any biome and ruggedness give it (C7): C x HeightScale x MaxAmplitude / S0.
-        internal static double DetailDemand(double reliefFactor, float heightScale, string scene, double s0)
-            => reliefFactor * heightScale * For(scene).MaxAmplitude / s0;
+        // The detail noise's relief demand, as a fraction of node size (C7): C x HeightScale / S0,
+        // where C was measured with the three bands at the amplitudes measuredAt -- the scene's
+        // largest on each band, or more. Not one C scaled by the largest amplitude: a band's
+        // relief cost per metre of height falls with its wavelength, so the mid band at 3 costs
+        // less than every band at 1.44 did. The scene's largest amplitudes are checked against
+        // measuredAt, so raising one in an asset fails here until C is re-measured at it.
+        internal static double DetailDemand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0)
+        {
+            float3 max = For(scene).MaxBandAmplitude;
+            Assert.IsTrue(math.all(max <= measuredAt),
+                $"{scene}: band amplitudes reach {max}, over the {measuredAt} its relief factor was " +
+                "measured at; re-measure C at the new amplitudes");
+            return reliefFactor * heightScale / s0;
+        }
 
         // The relief demand with the macro layer, as a fraction of node size: the detail estimate
         // plus the macro's. Half-relief is subadditive, so the sum bounds the relief of the two
         // together -- conservatively, since it assumes each one's roughest node is the other's,
         // and in the most amplified biome. Measured before biomes, the terrarium's combined worst
         // was 4.63 in units of HeightScale / S0 against the sum's 16.
-        internal static double Demand(double reliefFactor, float heightScale, string scene, double s0)
-            => DetailDemand(reliefFactor, heightScale, scene, s0) + MacroReliefFactor * For(scene).BaseHeightScale / s0;
+        internal static double Demand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0)
+            => DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0) + MacroReliefFactor * For(scene).BaseHeightScale / s0;
 
         // What the relief tests ask of the allowance against Demand. Not the 2x they ask against
         // the detail estimate alone: Demand already stacks two worst cases padded by half again
@@ -187,6 +209,52 @@ namespace Sonoma.Tests
                 Assert.AreEqual(Biomes.MaxBiomes, p.BiomeCount, $"{m.Scene}: the shared biome table");
                 // C7: the largest effective amplitude stays at or under 3.
                 Assert.LessOrEqual(p.MaxAmplitude, 3f, $"{m.Scene}: largest band amplitude");
+            }
+        }
+
+        // The mountain belts (M5b): ruggedness scales the mountain band from 0.3 to 3.3, and the
+        // map's centre decides how much of the world is which. At M5a's centre, 0.5, a quarter of
+        // Earth saturated at the full 3.3 and over half was at twice the amplitude or more:
+        // mountains everywhere, which read as no mountains. Centred on 0.2, about a ninth is full
+        // belt, a third twice the amplitude or more, and nearly a third plains under 0.6. The
+        // small planet's figures are Earth's because its map is Earth's, scaled: the macro noise
+        // is sampled in units of S0. The ring's surface differs, and so do its figures. Measured
+        // on every fourth texel of the top level, where the map has all its octaves, and pinned
+        // to a percentage point, so a change to the map's noise or centre is a decision rather
+        // than a drift.
+        [Test]
+        public void MountainBeltsAreAMinority()
+        {
+            var expected = new[]
+            {
+                (scene: "EarthStress",       full: 11.3, belts: 35.1, plains: 30.1),
+                (scene: "SmallPlanetStress", full: 11.3, belts: 35.1, plains: 30.1),
+                (scene: "RingworldStress",   full: 16.0, belts: 41.7, plains: 23.7),
+            };
+            foreach (var (scene, full, belts, plains) in expected)
+            {
+                var m     = For(scene);
+                var p     = m.Params;
+                var roots = SurfaceMath.BuildRoots(m.Surface);
+                int level = p.Layout.LevelCount - 1, n = p.Layout.Cells(level);
+                int count = 0, inFull = 0, inBelts = 0, inPlains = 0;
+                for (int q = 0; q < roots.Length; q++)
+                for (int j = 0; j < n; j += 4)
+                for (int i = 0; i < n; i += 4)
+                {
+                    float r         = MacroGenerator.Texel(m.Surface, roots[q], p, level, i, j).w;
+                    float amplitude = 1f + math.lerp(p.RuggednessGainMin, p.RuggednessGainMax, r);
+                    count++;
+                    if (r >= 1f)           inFull++;
+                    if (amplitude >= 2f)   inBelts++;
+                    if (amplitude <  0.6f) inPlains++;
+                }
+                double f = 100.0 * inFull / count, b = 100.0 * inBelts / count, pl = 100.0 * inPlains / count;
+                string got = $"{scene}: {f:F1}% full belt, {b:F1}% at twice the amplitude or more, {pl:F1}% plains";
+                Assert.AreEqual(full,   f,  1.0, got);
+                Assert.AreEqual(belts,  b,  1.0, got);
+                Assert.AreEqual(plains, pl, 1.0, got);
+                Assert.Less(b, 50.0, $"{got}: belts are no longer a minority");
             }
         }
 

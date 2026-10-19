@@ -64,6 +64,18 @@ namespace Sonoma.Core.Quadtree
         static readonly int     BiomeColorsId   = Shader.PropertyToID("_SonomaBiomeColors");
         readonly        Vector4[] _biomeColors  = new Vector4[Biomes.MaxBiomes];
 
+        // The sky the _SONOMA_SKY shader path lights and hazes by, from this scene's
+        // TerrainSettings; globals because the material is shared by scenes with different skies.
+        static readonly int     SkyAmbientId    = Shader.PropertyToID("_SonomaSkyAmbient");
+        static readonly int     GroundAmbientId = Shader.PropertyToID("_SonomaGroundAmbient");
+        static readonly int     HazeId          = Shader.PropertyToID("_SonomaHaze");
+        static readonly int     SurfaceId       = Shader.PropertyToID("_SonomaSurface");
+
+        // Koschmieder's constant, ln 50: the optical depth at which haze has taken all but 2% of
+        // a dark object's contrast against the sky, which is what "visibility" means. So a
+        // visibility of V metres is a density of 3.912 / V per metre.
+        const float VisibilityOpticalDepth = 3.912f;
+
         // Terrain height above the base surface at a base-surface point, in metres, at full
         // detail. For tools: TopologyFlyCamera scales its speed by clearance above the ground,
         // and at Earth scale the ground is kilometres from the base surface. Zero until the
@@ -101,6 +113,9 @@ namespace Sonoma.Core.Quadtree
             // zero, so where the bands fall changes nothing and they are left unset.
             if (Settings.Macro != null)
                 _params = _params.WithBands(Settings.Macro.LowBandEdge, Settings.Macro.MidBandEdge);
+            // Close-up roughness, when configured; without it one persistence runs throughout.
+            if (Settings.RoughnessCrossover > 0.0)
+                _params = _params.WithRoughness(Settings.FinePersistence, Settings.RoughnessCrossover);
             _lod    = LodMath.Create(Surface, Settings, _params);
             FillBiomeColors();
 
@@ -159,6 +174,23 @@ namespace Sonoma.Core.Quadtree
             Shader.SetGlobalVectorArray(MorphRangesId, _morphRanges);
             Shader.SetGlobalVector(ViewPositionId, viewPosition);
             Shader.SetGlobalVectorArray(BiomeColorsId, _biomeColors);
+            PushSky();
+        }
+
+        // Every frame rather than once, like the morph ranges, and so that the sky can be tuned
+        // in the inspector during play. A handful of multiplies; nothing allocates.
+        void PushSky()
+        {
+            bool  linear  = QualitySettings.activeColorSpace == ColorSpace.Linear;
+            Color sky     = linear ? Settings.SkyAmbient.linear    : Settings.SkyAmbient;
+            Color ground  = linear ? Settings.GroundAmbient.linear : Settings.GroundAmbient;
+            Color haze    = linear ? Settings.HazeColor.linear     : Settings.HazeColor;
+            float density = Settings.HazeVisibility > 0f ? VisibilityOpticalDepth / Settings.HazeVisibility : 0f;
+            Shader.SetGlobalVector(SkyAmbientId,    new Vector4(sky.r, sky.g, sky.b, 0f));
+            Shader.SetGlobalVector(GroundAmbientId, new Vector4(ground.r, ground.g, ground.b, 0f));
+            Shader.SetGlobalVector(HazeId,          new Vector4(haze.r, haze.g, haze.b, density));
+            Shader.SetGlobalVector(SurfaceId,       new Vector4((float)Surface.Type, (float)Surface.Radius,
+                                                                1f / Mathf.Max(Settings.HazeScaleHeight, 1f), 0f));
         }
 
         // Unused slots are black, which the shader never weights: a vertex's weights are zero

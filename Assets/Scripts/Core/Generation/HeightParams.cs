@@ -47,6 +47,39 @@ namespace Sonoma.Core.Generation
 
         int BandEnd(double edge) => math.clamp(FloorLog2(OctaveWavelength0 / edge) + 1, 0, OctaveCount);
 
+        // Close-up roughness (C10): octaves 0 .. CrossoverOctave-1 fall off by Persistence and
+        // the finer ones by FinePersistence. Create sets FinePersistence to Persistence, which
+        // makes the crossover irrelevant and the sum bit-identical to the single-slope one.
+        public float  FinePersistence;
+        public int    CrossoverOctave;
+
+        // The crossover as a wavelength in metres, like the band edges: octaves at least that
+        // long keep Persistence. Counted by exponent, so an octave exactly at the crossover
+        // stays coarse however the division rounds.
+        public HeightParams WithRoughness(float finePersistence, double crossover)
+        {
+            if (!(finePersistence > 0.0f) || finePersistence > 1.0f)
+                throw new ArgumentOutOfRangeException(nameof(finePersistence),
+                    "HeightParams: fine persistence must be in (0, 1].");
+            if (!(crossover > 0.0) || double.IsInfinity(crossover))
+                throw new ArgumentOutOfRangeException(nameof(crossover),
+                    "HeightParams: the roughness crossover must be a finite, positive wavelength.");
+
+            var p = this;
+            p.FinePersistence = finePersistence;
+            p.CrossoverOctave = BandEnd(crossover);
+            return p;
+        }
+
+        // The amplitude of octave k relative to octave 0, as the sum applies it. For the tests
+        // and the roughness figures; the sum itself multiplies as it goes.
+        public double OctaveAmplitude(int k)
+        {
+            double amp = 1.0;
+            for (int o = 0; o < k; o++) amp *= o + 1 < CrossoverOctave ? Persistence : FinePersistence;
+            return amp;
+        }
+
         // Octaves representable at this depth's vertex spacing.
         //
         // Octave k has wavelength lambda0 / 2^k; a chunk at depth d has nominal vertex
@@ -132,6 +165,8 @@ namespace Sonoma.Core.Generation
                 Persistence       = persistence,
                 Lacunarity        = lacunarity,
                 Seed              = seed,
+                FinePersistence   = persistence,
+                CrossoverOctave   = octaveCount,
             };
         }
 

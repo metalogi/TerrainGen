@@ -104,10 +104,41 @@ namespace Sonoma.Systems.Configuration
         public float Lacunarity = 2f;
         public uint Seed = 42;
 
+        [Header("Close-up Roughness")]
+        [Tooltip("Wavelength in metres below which the detail noise falls off by FinePersistence " +
+                 "instead of Persistence. 0 turns it off: one slope throughout, bit for bit as " +
+                 "before. At persistence 0.5 every octave is as steep as the last, so small " +
+                 "features are tiny on a big world -- 10 m bumps about 9 mm tall on Earth -- and " +
+                 "a FinePersistence above 0.5 below a crossover roughens the small scales alone.")]
+        [Min(0f)]
+        public double RoughnessCrossover = 0.0;
+        [Tooltip("Persistence for the octaves finer than RoughnessCrossover, in (0, 1]. Each step " +
+                 "above 0.5 makes every finer octave steeper, which spends the LOD relief " +
+                 "allowance: size it against the relief tests' measured C, not by eye alone.")]
+        public float FinePersistence = 0.5f;
+
         [Header("Macro Layer")]
         [Tooltip("Persistent per-root-quad maps of base height and climate, built at startup and " +
                  "read by every chunk. None means no macro layer: the terrain is the detail noise " +
                  "alone, bit for bit as before the macro layer existed.")]
         public MacroLayerSettings Macro;
+
+        [Header("Sky")]
+        [Tooltip("Ambient light from straight up. Read only by a material with Sky Light and Haze " +
+                 "on (_SONOMA_SKY): level ground gets this, a wall half this and half " +
+                 "GroundAmbient, by the hemisphere each faces.")]
+        public Color SkyAmbient = new Color(0.26f, 0.28f, 0.32f, 1f);
+        [Tooltip("Ambient light from straight down: the light the ground bounces back.")]
+        public Color GroundAmbient = new Color(0.09f, 0.08f, 0.07f, 1f);
+        [Tooltip("The colour of the haze, lit by the sun on the day side and by SkyAmbient alone " +
+                 "on the night side.")]
+        public Color HazeColor = new Color(0.5f, 0.6f, 0.75f, 1f);
+        [Tooltip("How far you can see through the haze at the base surface, in metres: the " +
+                 "distance at which it has taken 98% of the contrast. 0 turns haze off.")]
+        [Min(0f)]
+        public float HazeVisibility = 0f;
+        [Tooltip("Altitude over which the haze thins by a factor of e, in metres.")]
+        [Min(1f)]
+        public float HazeScaleHeight = 3000f;
     }
 }

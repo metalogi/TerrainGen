@@ -166,8 +166,10 @@ public class TopologyFlyCamera : MonoBehaviour
     // possible height just past the horizon of the lowest possible ground: the tangent from the
     // camera to the sphere of radius R - hMax, continued to where it leaves the sphere of
     // R + hMax. hMax is HeightScale / (1 - Persistence), the sum of every octave's amplitude --
-    // about 2.6 times the highest terrain actually generated, which only makes the far plane
-    // generous. The other topologies have no horizon, so they get the ratio cap alone.
+    // generous for a single-slope spectrum. It leaves out the macro layer's base height, the
+    // biomes' band amplitudes and the two-slope spectrum, so on the stress scenes it is an
+    // estimate rather than a bound, and a peak above it just past the horizon could be culled.
+    // The other topologies have no horizon, so they get the ratio cap alone.
     //
     // Near the ground the cap is what binds: at two metres the near plane is 0.2 m and the far
     // 200 km, short of the 1,160 km horizon bound, so mountains beyond 200 km are not drawn.

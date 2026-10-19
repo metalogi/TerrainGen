@@ -156,6 +156,21 @@ namespace Sonoma.Core.Generation
         // calls the original when the gains are zero.
         public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed,
                                  float3 bandGain, int lowBandEnd, int midBandEnd)
+            => Fbm(p, octaveCount, persistence, lacunarity, seed, bandGain, lowBandEnd, midBandEnd,
+                   persistence, octaveCount);
+
+        // The same, with a two-slope spectrum for close-up roughness (C10): octaves 0 ..
+        // crossoverOctave-1 fall off by persistence, and every octave after them by
+        // finePersistence. At persistence 0.5 each octave is as steep as the last, so small
+        // features are tiny -- 10 m bumps about 9 mm tall on Earth -- and a finePersistence
+        // above 0.5 roughens the small scales alone, leaving the continents as tuned.
+        //
+        // Octave k's amplitude depends on k alone, so the sum keeps its strict-prefix property.
+        // With finePersistence equal to persistence every multiply is the same one, and the sum
+        // is the one above to the bit.
+        public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed,
+                                 float3 bandGain, int lowBandEnd, int midBandEnd,
+                                 float finePersistence, int crossoverOctave)
         {
             double lac = lacunarity;
             double3 q  = p;
@@ -166,7 +181,7 @@ namespace Sonoma.Core.Generation
             {
                 float gain = k < lowBandEnd ? bandGain.x : k < midBandEnd ? bandGain.y : bandGain.z;
                 sum += amp * (1.0 + gain) * Gradient3D(q, seed + (uint)k);
-                amp *= persistence;
+                amp *= k + 1 < crossoverOctave ? persistence : finePersistence;
                 q   *= lac;
             }
 

@@ -45,9 +45,13 @@ namespace Sonoma.Systems.Configuration
         public float TemperatureNoise = 5f;
         [Tooltip("Moisture is 0.5 plus this times fBm, clamped to 0..1.")]
         public float MoistureNoise = 1.5f;
-        [Tooltip("Ruggedness is 0.5 plus this times fBm, clamped to 0..1. It scales detail " +
-                 "amplitude independently of climate (M5b).")]
+        [Tooltip("Ruggedness is RuggednessCentre plus this times fBm, clamped to 0..1. It scales the " +
+                 "mid band, the mountain band, independently of climate (M5b).")]
         public float RuggednessNoise = 1.5f;
+        [Tooltip("The ruggedness the fBm varies around. 0.5 is even; lower puts more of the world " +
+                 "at 0, plains, and less at 1, mountain belts. The macro map export's ruggedness " +
+                 "image shows the belts.")]
+        public float RuggednessCentre = 0.5f;
 
         [Header("Noise")]
         [Tooltip("Macro seed. Offset internally from the detail noise's, so the same value in both " +
@@ -66,23 +70,24 @@ namespace Sonoma.Systems.Configuration
         [Tooltip("Degrees C that count as one unit of climate distance.")]
         public float TemperatureScale = 15f;
         [Tooltip("Moisture that counts as one unit of climate distance.")]
-        public float MoistureScale = 0.25f;
+        public float MoistureScale = 0.5f;
 
         [Header("Octave Bands")]
         [Tooltip("Wavelength in metres dividing the detail noise's low band from its mid band. In " +
                  "metres, so a band means the same scale of feature on any world.")]
         public double LowBandEdge = 50000.0;
-        [Tooltip("Wavelength in metres dividing the mid band from the high band.")]
+        [Tooltip("Wavelength in metres dividing the mid band, the one ruggedness scales, from the " +
+                 "high band.")]
         public double MidBandEdge = 500.0;
 
         [Header("Ruggedness")]
-        [Tooltip("Amplitude of the mid and high bands where the ruggedness map is 0, on top of the " +
-                 "biomes'. 1 and 1 leave them alone.")]
+        [Tooltip("Amplitude of the mid band where the ruggedness map is 0, on top of the biomes'. " +
+                 "1 and 1 leave it alone.")]
         [Min(0f)]
         public float RuggednessMin = 1f;
-        [Tooltip("Amplitude of the mid and high bands where the ruggedness map is 1. With the " +
-                 "largest biome amplitude it sets the largest amplitude anywhere, which multiplies " +
-                 "the LOD relief demand.")]
+        [Tooltip("Amplitude of the mid band where the ruggedness map is 1: the mountain belts. The " +
+                 "LOD relief allowance has to cover it, and the relief tests measure each scene's " +
+                 "demand at it.")]
         [Min(0f)]
         public float RuggednessMax = 1f;
 
@@ -109,6 +114,8 @@ namespace Sonoma.Systems.Configuration
                 TemperatureNoise   = TemperatureNoise,
                 MoistureNoise      = MoistureNoise,
                 RuggednessNoise    = RuggednessNoise,
+                // A centre in the inspector, a shift from 0.5 at runtime (C5), so 0.5 is exact.
+                RuggednessShift    = RuggednessCentre - 0.5f,
                 Seed               = Seed,
                 Biomes             = biomes,
                 BiomeSharpness     = BiomeSharpness,

@@ -13,6 +13,7 @@ Material:
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
   - _SONOMA_BIOMES
+  - _SONOMA_SKY
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
@@ -104,6 +105,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _SonomaBiomes: 1
+    - _SonomaSky: 1
     - _AddPrecomputedVelocity: 0
     - _AlphaClip: 0
     - _AlphaToMask: 0
@@ -134,8 +136,8 @@ Material:
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _ReceiveShadows: 1
-    - _SlopeBlend: 0.15
-    - _SlopeThreshold: 0.55
+    - _SlopeBlend: 0.08
+    - _SlopeThreshold: 0.04
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1

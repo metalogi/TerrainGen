@@ -21,6 +21,15 @@
 // Under it the ground colour is the weights' blend of _SonomaBiomeColors and the elevation
 // bands are unused; the cliff overlay stays. Only ForwardLit reads colour, so only it changes.
 //
+// The sky is a second feature keyword of the same kind, _SONOMA_SKY, on in TerrainBiomes.mat
+// and off in SampleScene's material (M5b). Under it ForwardLit takes its ambient from the
+// local up -- sky colour from above, ground colour from below, by the hemisphere a tilted
+// surface faces -- rather than from world-space SH, whose up is world Y and so is the local up
+// only at a planet's north pole. And it adds aerial haze: the colour fades towards the light
+// the air scatters, by the transmittance of an exponential atmosphere along the view ray. That
+// is the cue that separates one ridge from the ridge behind it, which a directional light
+// alone shows only near the terminator.
+//
 // Per-frame globals:
 //   _SonomaWorldOrigin (float3), from WorldOriginSystem.PushOriginToShader — added to
 //   positionWS so triplanar samples on true world coordinates and stays continuous
@@ -45,6 +54,12 @@
 //   per biome slot, from the BiomeDefinition assets. A global for the reason the morph ranges
 //   are; written into a material instead it would, in the Editor, permanently edit the .mat
 //   asset from play mode.
+//
+//   _SonomaSkyAmbient, _SonomaGroundAmbient, _SonomaHaze and _SonomaSurface (float4 each),
+//   from TerrainRoot.PushShaderGlobals out of the scene's TerrainSettings: the ambient from
+//   straight up and straight down, the haze colour and its density at the base surface, and
+//   the surface's type, radius and the haze's inverse scale height. Read only under
+//   _SONOMA_SKY. Globals because they are per scene and the material is shared by four.
 //
 //   _SonomaViewPosition (float3), from TerrainRoot.PushShaderGlobals — the position the
 //   morph measures distance from, in render space, and the same one LodSelector selected
@@ -99,6 +114,9 @@ Shader "Sonoma/TerrainTriplanar"
 
         [Header(Biomes)]
         [Toggle(_SONOMA_BIOMES)] _SonomaBiomes ("Biome Colours", Float) = 0
+
+        [Header(Sky)]
+        [Toggle(_SONOMA_SKY)] _SonomaSky ("Sky Light and Haze", Float) = 0
     }
 
     SubShader
@@ -235,8 +253,72 @@ Shader "Sonoma/TerrainTriplanar"
 
             // Biome colours. Local and shader_feature on purpose; see the header.
             #pragma shader_feature_local _SONOMA_BIOMES
+            // Sky light and haze, likewise.
+            #pragma shader_feature_local _SONOMA_SKY
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+
+            #if defined(_SONOMA_SKY)
+                // Per scene, from TerrainRoot.PushShaderGlobals; see the header. Linear colours.
+                float4 _SonomaSkyAmbient;    // rgb: ambient from straight up
+                float4 _SonomaGroundAmbient; // rgb: ambient from straight down
+                float4 _SonomaHaze;          // rgb: haze colour; a: density at the base surface, per metre
+                float4 _SonomaSurface;       // x: SurfaceType (0 plane grid, 1 cube sphere, 2 cylinder);
+                                             // y: radius; z: 1 / haze scale height, per metre
+
+                // Altitude above the base surface of a point in absolute coordinates. SurfaceMath's
+                // sphere is centred on the absolute origin, its cylinder runs along the Z axis and
+                // is seen from inside, and its plane grid lies at y = 0. In float, so at Earth
+                // radius it is good to about half a metre, which haze with a scale height of
+                // kilometres does not notice.
+                float SonomaAltitude(float3 p)
+                {
+                    if (_SonomaSurface.x > 1.5) return _SonomaSurface.y - length(p.xy);
+                    if (_SonomaSurface.x > 0.5) return length(p) - _SonomaSurface.y;
+                    return p.y;
+                }
+
+                // Optical depth along the straight path from eye to p, both in render space, in
+                // metres of air at base-surface density: the integral of exp(-h / H) over the
+                // path, with the altitude h taken as linear within each of SONOMA_HAZE_STEPS
+                // steps. Linear within a step, each step integrates exactly, to
+                // len x (e^-a - e^-b) / (b - a) for end altitudes a and b in scale heights, and
+                // that is what keeps a path that climbs out of the air -- across a ring to its far
+                // side, or from orbit -- from being charged the base density all the way: the step
+                // comes to about len x H / climb. A straight path across a sphere's surface dips
+                // below the line between its ends, so a step this coarse undercounts grazing
+                // paths over the horizon, which are hazed out regardless. The step length comes
+                // from render space, where a short path keeps its precision; only the altitudes
+                // need the origin added back.
+                #define SONOMA_HAZE_STEPS 4
+                float SonomaOpticalDepth(float3 eye, float3 p)
+                {
+                    float invH  = _SonomaSurface.z;
+                    float len   = distance(eye, p) / SONOMA_HAZE_STEPS;
+                    float a     = max(SonomaAltitude(eye + _SonomaWorldOrigin) * invH, -20.0);
+                    float depth = 0.0;
+                    [unroll]
+                    for (int i = 1; i <= SONOMA_HAZE_STEPS; i++)
+                    {
+                        float3 q  = lerp(eye, p, i / (float)SONOMA_HAZE_STEPS);
+                        float  b  = max(SonomaAltitude(q + _SonomaWorldOrigin) * invH, -20.0);
+                        float  db = b - a;
+                        depth += len * (abs(db) > 1e-4 ? (exp(-a) - exp(-b)) / db : exp(-a));
+                        a = b;
+                    }
+                    return depth;
+                }
+
+                // What the haze between the eye and the ground scatters towards the eye: its
+                // colour, lit by the sun where the air is in daylight and by the sky alone where it
+                // is not. Daylight is judged at the fragment, from its own up, with a twilight band
+                // about the terminator rather than a hard line.
+                half3 SonomaHazeLight(float3 topoUp, Light ml)
+                {
+                    half day = smoothstep(-0.1, 0.3, dot(topoUp, ml.direction));
+                    return _SonomaHaze.rgb * (ml.color * day + _SonomaSkyAmbient.rgb);
+                }
+            #endif
 
             struct Attributes
             {
@@ -383,9 +465,26 @@ Shader "Sonoma/TerrainTriplanar"
                 Light  ml      = GetMainLight(shadowCoord, input.positionWS, half4(1, 1, 1, 1));
                 half   NdotL   = saturate(dot(N, ml.direction));
                 half3  direct  = albedo * ml.color * (ml.distanceAttenuation * ml.shadowAttenuation) * NdotL;
-                half3  ambient = albedo * SampleSH(N) * 0.5;
 
-                return half4(direct + ambient, 1);
+                #if defined(_SONOMA_SKY)
+                    // The sky by the local up: a surface tilted from it sees the sky in proportion
+                    // (1 + cos tilt) / 2 and the ground in the rest.
+                    half  skyView = 0.5 + 0.5 * dot(N, topoUp);
+                    half3 ambient = albedo * lerp(_SonomaGroundAmbient.rgb, _SonomaSkyAmbient.rgb, skyView);
+                    half3 color   = direct + ambient;
+
+                    // Aerial perspective, from the camera rendering this pass: _WorldSpaceCameraPos
+                    // is right here, where it is wrong for the morph, because ForwardLit is a camera
+                    // pass and URP binds it for one; the shadow passes are where it goes stale. At a
+                    // density of zero the transmittance is exactly 1 and the colour is unchanged.
+                    half T = exp(-_SonomaHaze.a * SonomaOpticalDepth(_WorldSpaceCameraPos, input.positionWS));
+                    color  = color * T + SonomaHazeLight(topoUp, ml) * (1.0 - T);
+                #else
+                    half3 ambient = albedo * SampleSH(N) * 0.5;
+                    half3 color   = direct + ambient;
+                #endif
+
+                return half4(color, 1);
             }
             ENDHLSL
         }

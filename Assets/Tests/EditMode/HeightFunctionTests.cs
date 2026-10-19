@@ -443,8 +443,66 @@ namespace Sonoma.Tests
                     Assert.AreEqual(math.asuint(now),
                         math.asuint(TerrainHeightFunction.Height(point, oct, MacroSample.Zero, p)),
                         "MacroSample.Zero is not default(MacroSample)");
+
+                    // A two-slope spectrum whose fine persistence is the coarse one is the same
+                    // spectrum (C10), wherever its crossover falls.
+                    var same = p.WithRoughness(p.Persistence, p.OctaveWavelength0 / 64.0);
+                    Assert.AreEqual(math.asuint(m4), math.asuint(TerrainHeightFunction.Height(point, oct, default, same)),
+                        $"{name}: FinePersistence equal to Persistence changed the height");
                 }
             }
+        }
+
+        // C10: the octave amplitudes follow Persistence down to the crossover and FinePersistence
+        // below it; the crossover falls on the octave the exponent says; and the sum is still a
+        // strict prefix of itself, each octave adding exactly its own term, which is what the
+        // geomorph target depends on.
+        [Test]
+        public void FineOctavesTakeFinePersistence()
+        {
+            var p = EarthScaleTests.RoughParams;
+
+            // The crossover by the exponent: the octaves at least RoughnessCrossover metres long.
+            int c = (int)math.floor(math.log2(p.OctaveWavelength0 / EarthScaleTests.RoughnessCrossover)) + 1;
+            Assert.AreEqual(c, p.CrossoverOctave);
+            Assert.AreNotEqual(p.Persistence, p.FinePersistence, "the test needs two slopes to tell apart");
+            for (int k = 0; k < EarthScaleTests.OctaveCount; k++)
+            {
+                // The persistences are floats, so taken as the doubles they are, not as decimals.
+                double want = k < c ? math.pow((double)p.Persistence, k)
+                                    : math.pow((double)p.Persistence, c - 1) * math.pow((double)p.FinePersistence, k - c + 1);
+                Assert.AreEqual(want, p.OctaveAmplitude(k), 1e-12 * want, $"octave {k}");
+            }
+
+            // An edge exactly on an octave's wavelength keeps that octave coarse.
+            var exact = EarthScaleTests.Params(EarthScaleTests.OctaveCount)
+                                       .WithRoughness(0.7f, EarthScaleTests.Params(EarthScaleTests.OctaveCount).OctaveWavelength0 / 8.0);
+            Assert.AreEqual(4, exact.CrossoverOctave, "octave 3's wavelength is exactly the crossover");
+
+            // Each octave's term, by the difference of successive prefixes, is its amplitude times
+            // the single-slope sum's term for that octave.
+            var rng = new Unity.Mathematics.Random(99u);
+            for (int s = 0; s < 100; s++)
+            {
+                double3 x = rng.NextDouble3(-500.0, 500.0);
+                for (int n = 1; n <= 20; n++)
+                {
+                    double rough = LatticeNoise.Fbm(x, n, p.Persistence, p.Lacunarity, p.Seed, float3.zero, 0, 0,
+                                                    p.FinePersistence, p.CrossoverOctave)
+                                 - LatticeNoise.Fbm(x, n - 1, p.Persistence, p.Lacunarity, p.Seed, float3.zero, 0, 0,
+                                                    p.FinePersistence, p.CrossoverOctave);
+                    double plain = LatticeNoise.Fbm(x, n, p.Persistence, p.Lacunarity, p.Seed)
+                                 - LatticeNoise.Fbm(x, n - 1, p.Persistence, p.Lacunarity, p.Seed);
+                    double scale = p.OctaveAmplitude(n - 1) / math.pow((double)p.Persistence, n - 1);
+                    Assert.AreEqual(scale * plain, rough, 1e-12 * math.max(1.0, math.abs(plain)), $"octave {n - 1} at {x}");
+                }
+            }
+
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => p.WithRoughness(0f, 1000.0), "fine persistence 0");
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => p.WithRoughness(1.5f, 1000.0), "fine persistence above 1");
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => p.WithRoughness(0.7f, 0.0), "no crossover");
+            var plainParams = EarthScaleTests.Params(EarthScaleTests.OctaveCount);
+            Assert.AreEqual(plainParams.Persistence, plainParams.FinePersistence, "Create leaves one slope");
         }
     }
 }

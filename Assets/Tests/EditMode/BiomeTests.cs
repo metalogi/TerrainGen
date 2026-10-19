@@ -18,7 +18,7 @@ namespace Sonoma.Tests
             return MacroParams.Create(s, hp, new MacroConfig
             {
                 LevelCount = 1, Persistence = 0.5f, Biomes = biomes, BiomeSharpness = sharpness,
-                TemperatureScale = 15f, MoistureScale = 0.25f,
+                TemperatureScale = MacroTests.TemperatureScale, MoistureScale = MacroTests.MoistureScale,
                 RuggednessGainMin = ruggedMin, RuggednessGainMax = ruggedMax,
             });
         }
@@ -73,6 +73,41 @@ namespace Sonoma.Tests
             }
         }
 
+        // The shipped table at its shipped scales puts climates where they belong: cold is tundra
+        // however wet, hot and dry is desert, hot and wet is rainforest, temperate is grassland.
+        //
+        // The cold half is the one that went wrong. At a moisture scale of 0.25 the whole 0..1
+        // moisture range was four units of climate distance, as much as 60 degrees, so cold, wet
+        // ground at -10 C and moisture 1 sat as near rainforest (24 C, 0.85) as tundra (-8 C, 0.4),
+        // and a planet whose south polar region came out wet drew it as rainforest while the dry
+        // north was tundra. At 0.5, moisture spans two units and temperature dominates the extremes.
+        [Test]
+        public void ShippedBiomesFollowClimate()
+        {
+            var p = Shipped();
+            const int Grassland = 0, Desert = 1, Tundra = 2, Rainforest = 3;
+
+            void Expect(int biome, float t, float m, string why)
+            {
+                float4 w = Biomes.Classify(Climate(t, m), p);
+                Assert.Greater(w[biome], 0.6f, $"{why}: at {t} C, moisture {m}, weights {w}");
+            }
+
+            for (float m = 0f; m <= 1.001f; m += 0.1f)
+            for (float t = -40f; t <= -5f; t += 5f)
+                Expect(Tundra, t, m, "cold is tundra at any moisture");
+
+            for (float m = 0f; m <= 0.2001f; m += 0.1f)
+            for (float t = 28f; t <= 40f; t += 4f)
+                Expect(Desert, t, m, "hot and dry is desert");
+
+            for (float m = 0.8f; m <= 1.001f; m += 0.1f)
+            for (float t = 22f; t <= 40f; t += 6f)
+                Expect(Rainforest, t, m, "hot and wet is rainforest");
+
+            Expect(Grassland, 15f, 0.5f, "temperate is grassland");
+        }
+
         // No biomes: no weights, and every band gain exactly zero -- the M5a height to the bit.
         // Biomes whose amplitudes are all one, and a ruggedness range of 1..1: the same.
         [Test]
@@ -95,9 +130,9 @@ namespace Sonoma.Tests
             Assert.AreEqual(1f, none.MaxAmplitude);
         }
 
-        // C7: one biome's weight carries its gains; ruggedness scales only the mid and high bands,
-        // from RuggednessGainMin at 0 to RuggednessGainMax at 1; MaxAmplitude is the largest band
-        // amplitude anywhere.
+        // C7: one biome's weight carries its gains; ruggedness scales only the mid band, the
+        // mountain band, from RuggednessGainMin at 0 to RuggednessGainMax at 1, and leaves the low
+        // and high bands to the biomes; MaxBandAmplitude is each band's largest amplitude anywhere.
         [Test]
         public void BandGainBlendsBiomesAndRuggedness()
         {
@@ -108,15 +143,19 @@ namespace Sonoma.Tests
             float3 G(float4 w, float rugged) => Biomes.BandGain(w, rugged, p);
             float3 only = new float3(0.5f, 1.5f, 2f);                  // a's amplitudes
             Assert.AreEqual(only.x - 1f, G(new float4(1, 0, 0, 0), 0.5f).x, 1e-6, "low band ignores ruggedness");
+            Assert.AreEqual(only.y * 0.5f - 1f, G(new float4(1, 0, 0, 0), 0f).y, 1e-6, "mid at no ruggedness");
             Assert.AreEqual(only.y * 1.25f - 1f, G(new float4(1, 0, 0, 0), 0.5f).y, 1e-6, "mid at half ruggedness");
-            Assert.AreEqual(only.z * 0.5f - 1f, G(new float4(1, 0, 0, 0), 0f).z, 1e-6, "high at no ruggedness");
-            Assert.AreEqual(only.z * 2f - 1f, G(new float4(1, 0, 0, 0), 1f).z, 1e-6, "high at full ruggedness");
+            Assert.AreEqual(only.y * 2f - 1f, G(new float4(1, 0, 0, 0), 1f).y, 1e-6, "mid at full ruggedness");
+            Assert.AreEqual(only.z - 1f, G(new float4(1, 0, 0, 0), 0f).z, 1e-6, "high band ignores ruggedness");
+            Assert.AreEqual(only.z - 1f, G(new float4(1, 0, 0, 0), 1f).z, 1e-6, "high band ignores ruggedness");
 
             float3 half = G(new float4(0.5f, 0.5f, 0, 0), 0.5f);
             Assert.AreEqual(0f, half.x, 1e-6, "an even blend of -0.5 and 0.5");
 
-            // The largest: a's high band at full ruggedness, 2 x 2.
-            Assert.AreEqual(4f, p.MaxAmplitude, 1e-6);
+            // Each band's largest: b's low band, a's mid band at full ruggedness (1.5 x 2), a's
+            // high band.
+            Assert.AreEqual(new float3(1.5f, 3f, 2f), p.MaxBandAmplitude);
+            Assert.AreEqual(3f, p.MaxAmplitude, 1e-6);
         }
 
         // The weights as the vertex carries them: four bytes, biome 0 lowest, each within half a

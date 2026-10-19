@@ -20,33 +20,61 @@ namespace Sonoma.Tests
         internal const double Radius        = 6371000.0;
         internal const int    Resolution    = 33;
         internal const int    MaxDepth      = 19;
-        internal const float  HeightScale   = 9000f;
-        internal const float  SplitFactor   = 3f;
+        internal const float  HeightScale   = 4000f;
+        internal const float  SplitFactor   = 4f;
         internal const float  Hysteresis    = 1.1f;
-        internal const float  MorphStart    = 0.15f;
+        internal const float  MorphStart    = 0.10f;
         internal const float  Preload       = 1f;
-        internal const int    Budget        = 5800;   // MaxResidentChunks
+        internal const int    Budget        = 9400;   // MaxResidentChunks
         internal const float  SkirtDepth    = 1f;
-        internal const float  SkirtFraction = 0.07f;
+        internal const float  SkirtFraction = 0.58f;
         internal const int    OctaveCount   = 24;
-        internal const float  Persistence   = 0.5f;
+        internal const float  Persistence   = 0.7f;
         internal const float  Lacunarity    = 2f;
         internal const uint   Seed          = 42u;
 
+        // The relief spectrum (C10): persistence 0.7 above 5 km and 0.53 below, so the octaves
+        // fall off slowly at the scale of hills and mountains -- 79 m over 5 km, 161 m over 20 km,
+        // 329 m over 100 km before biomes and ruggedness -- and at about the old rate below it,
+        // which leaves 10 m features 26 cm. One slope of 0.5 at this HeightScale would make them
+        // 4 mm, and 5 km features 2 m; it was the flat look from a kilometre up.
+        internal const double RoughnessCrossover = 5000.0;
+        internal const float  FinePersistence    = 0.53f;
+        internal const double TenMetreFeature    = 0.261;
+        internal const double TenMetreTarget     = 0.2;
+        internal const double TenMetreOnOneSlope = 0.0038;
+
         // The relief demand at Earth depth, C = halfRelief / (nodeSize * HeightScale / S0) for
         // the roughest node -- an ESTIMATE, not a measurement. A face at depth 19 is 4^19 nodes,
-        // so nothing has scanned it: 20,000 random depth-19 nodes gave a maximum of 8.05, the
-        // same sample at depth 16 already 9.74, and scaling the depth-19 99.9th percentile by
-        // depth 8's max/p99.9 ratio gives about 9. 15 is half again over the largest sampled
-        // value. The arbiter is the runtime: LodSelector names the roughest chunk it generated
-        // when the terrain shuts down. If that ever exceeds this, raise it here and re-check.
-        const double EarthReliefFactor = 15.0;
+        // so nothing has scanned it.
+        //
+        // On M4's single-slope spectrum, 20,000 random depth-19 nodes gave a maximum of 8.05 and
+        // 15 was half again over the largest. With the mountain spectrum the same method --
+        // 20,000 random nodes per depth, half again over the roughest -- gave 350.4 at depth 19,
+        // so 526, and the biomes' 1.44 on every band needed SplitFactor 4 at MorphStartFraction
+        // 0.10 (2026-10-18).
+        //
+        // With the mountain belts, ruggedness scales the 5-150 km band alone, up to 2.97, and the
+        // fine band is left at the biomes' 0.9 at most. Measured with the bands at
+        // EarthReliefMeasuredAt, (1, 3, 1), over each of those: the roughest depth-19 node has a
+        // half-relief of 0.173 of its size, 449 in these units, so C is 674 (2026-10-18). That is
+        // less than 526 x 1.44: the fine band, no longer amplified, was most of the cost. In units
+        // of HeightScale / S0 it still needs SplitFactor 4 -- at 3 no usable MorphStartFraction
+        // carries it (asserted below) -- and 0.10 carries it with a little to spare. The arbiter is
+        // the runtime: LodSelector names the roughest chunk it generated when the terrain shuts
+        // down. If that ever exceeds this, raise it here and re-check.
+        internal const double EarthReliefFactor = 674.0;
+        internal static readonly float3 EarthReliefMeasuredAt = new float3(1f, 3f, 1f);
 
         internal static SurfaceDef Earth => SurfaceDef.CubeSphere(Radius);
 
         internal static HeightParams Params(int octaveCount) =>
             HeightParams.Create(Earth, Resolution, 0.0, octaveCount, HeightScale, Persistence,
                                 Lacunarity, Seed);
+
+        // As EarthStress runs it, with the roughness spectrum.
+        internal static HeightParams RoughParams =>
+            Params(OctaveCount).WithRoughness(FinePersistence, RoughnessCrossover);
 
         internal static LodMath Lod(in HeightParams p) =>
             LodMath.Create(Earth, p, SplitFactor, MorphStart, Hysteresis, Preload, MaxDepth);
@@ -83,37 +111,36 @@ namespace Sonoma.Tests
             Assert.AreEqual(19.8, oldFinest, 0.1, "finest wavelength at depth 19 with 20 octaves");
         }
 
-        // C1: SplitFactor 3 is safe on Earth even though it was unsafe on SampleScene, because the
-        // relief demand is C x HeightScale / S0 and S0 grows with the radius while HeightScale
-        // need not. Both directions are asserted, so the table in the plan cannot rot into a
-        // comment nobody re-derives: Earth's LOD configuration clears Earth's terrain with room
-        // to spare, and does NOT clear SampleScene's.
+        // C1, revisited in M5b: the relief demand is C x HeightScale / S0, and a spectrum with
+        // mountains in it has a large C. Both directions are asserted, so the reason for the
+        // configuration cannot rot into a comment nobody re-derives: Earth's LOD configuration,
+        // SplitFactor 4 at MorphStartFraction 0.10, clears Earth's terrain at the relief tests'
+        // margins, and SplitFactor 3 does not at any MorphStartFraction the inspector allows.
         [Test]
         public void EarthConfigurationClearsTheReliefAllowance()
         {
             var p   = Params(OctaveCount);
             var lod = Lod(p);
 
-            // LodMath.Create accepted 0.15, which it does only under this ceiling.
-            Assert.AreEqual(0.1882, LodMath.MaxMorphStartFraction(SplitFactor, Hysteresis, lod.SizeSpread), 1e-4);
+            // LodMath.Create accepted 0.10, which it does only under this ceiling.
+            Assert.AreEqual(0.2537, LodMath.MaxMorphStartFraction(SplitFactor, Hysteresis, lod.SizeSpread), 1e-4);
 
             // MaxHalfRelief is a fixed fraction of the node at every depth; demand is not, since C
-            // grows with depth at persistence 0.5. EarthReliefFactor is taken at the deepest
-            // level and applied to all of them, which is conservative everywhere above it.
-            double plain = EarthReliefFactor * HeightScale / p.S0;
-            Assert.AreEqual(0.0130, plain, 1e-4, "Earth relief demand as a fraction of node size");
-            // At EarthMacro's largest band amplitude, 2.25 (C7), and with its base height added.
-            double demand   = MacroTests.DetailDemand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
-            double combined = MacroTests.Demand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
-            Assert.AreEqual(0.0292, demand,   1e-4, "Earth relief demand at the largest biome amplitude");
-            Assert.AreEqual(0.0312, combined, 1e-4, "Earth relief demand with EarthMacro, as a fraction of node size");
+            // grows with depth -- steeply below the roughness crossover. EarthReliefFactor is taken
+            // at the deepest level and applied to all of them, which is conservative everywhere
+            // above it. It was measured at the mountain belts' band amplitudes (C7), which
+            // DetailDemand holds EarthMacro to; and with EarthMacro's base height added.
+            double demand   = MacroTests.DetailDemand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0);
+            double combined = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0);
+            Assert.AreEqual(0.2591, demand,   1e-4, "Earth relief demand in the mountain belts, as a fraction of node size");
+            Assert.AreEqual(0.2612, combined, 1e-4, "Earth relief demand with EarthMacro, as a fraction of node size");
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);
-                Assert.AreEqual(0.1146, allowance, 1e-4, $"depth {d}: allowance as a fraction of node size");
+                Assert.AreEqual(0.6146, allowance, 1e-4, $"depth {d}: allowance as a fraction of node size");
                 // Twice over, because the demand is an estimate rather than a bound. Raising
-                // HeightScale to about 40,000 fails here without biomes, about 17,000 with them; at
-                // 100,000 the allowance is overrun outright, as asserted below.
+                // HeightScale to about 4,700 fails here; at 100,000 the allowance is overrun
+                // outright, as asserted below.
                 Assert.Greater(allowance, 2.0 * demand,
                     $"depth {d}: the Earth configuration leaves less than 2x the estimated relief demand");
                 // And with EarthMacro's base height added, by the margin StressSceneTests asks.
@@ -123,37 +150,30 @@ namespace Sonoma.Tests
             }
             Assert.Less(lod.MaxHalfRelief(MaxDepth) / lod.NominalSize(MaxDepth),
                         EarthReliefFactor * 100000.0 / p.S0,
-                "HeightScale 100,000 should overrun the SplitFactor 3 allowance; the C1 table has moved");
+                "HeightScale 100,000 should overrun the SplitFactor 4 allowance; the C1 table has moved");
 
-            // SampleScene's terrain under Earth's LOD configuration: its measured worst node at
-            // depth 8 (a full six-face scan, not an estimate) needs five times what SplitFactor 3
-            // allows. Not 3.15, which was a sample and would have passed here by less.
-            var sp   = HeightParams.Create(SurfaceDef.CubeSphere(Sample.Radius), Sample.Resolution, 0.0,
-                                           Sample.OctaveCount, Sample.HeightScale, Sample.Persistence,
-                                           Sample.Lacunarity, Sample.Seed);
-            var slod = LodMath.Create(SurfaceDef.CubeSphere(Sample.Radius), sp, SplitFactor, MorphStart,
-                                      Hysteresis, Sample.Preload, Sample.MaxDepth);
-            double sampleDemand    = Sample.WorstReliefFactor * Sample.HeightScale / sp.S0;
-            double sampleAllowance = slod.MaxHalfRelief(Sample.MaxDepth) / slod.NominalSize(Sample.MaxDepth);
-            Assert.AreEqual(0.601, sampleDemand, 1e-3, "SampleScene's relief demand at depth 8");
-            Assert.Greater(sampleDemand, 5.0 * sampleAllowance,
-                "SampleScene's terrain should overrun the Earth LOD configuration about 5x over");
+            // And SplitFactor 3 cannot carry this terrain at all: even at the lowest
+            // MorphStartFraction the inspector allows, 0.02, its allowance is under twice the demand.
+            var three = LodMath.Create(Earth, p, 3f, 0.02f, Hysteresis, Preload, MaxDepth);
+            Assert.Less(three.MaxHalfRelief(MaxDepth) / three.NominalSize(MaxDepth), 2.0 * demand,
+                "SplitFactor 3 now clears Earth's terrain; SplitFactor 4 and its chunks may not be needed");
         }
 
         // C2: the resident working set at MaxDepth 19 stays under MaxResidentChunks all the way
         // down a descent from orbit, and its worst case is pinned so a change to SplitFactor or
         // PreloadFactor that quietly multiplies memory fails here rather than in the profiler.
         //
-        // Select is WorkingSetTests.Select without the relief. At Earth scale the roughest node's
-        // pad is about 0.013 of its size at EarthReliefFactor, against 0.60 on SampleScene, so
-        // zero heights are close enough to the truth -- and NodeDistance with zero heights is the
-        // selector's own distance for a node with no relief, not a padless copy of it.
+        // Select is WorkingSetTests.Select without the relief, and NodeDistance with zero heights
+        // is the selector's own distance for a node with no relief, not a padless copy of it. The
+        // mountain spectrum (M5b) pads the roughest nodes by up to a tenth of their size; padding
+        // every node by that much, which overstates it, raises the worst case from 8,198 to 8,394,
+        // and the budget is 12% over that.
         //
-        // The pinned camera is the worst over face 0, from a 257 x 257 scan of camera positions
-        // at 0.5, 2 and 10 m altitude on 2026-10-10: 5118 at 0.5 and 2 m, 5110 at 10 m, all at
-        // (u, v) = (20/256, 0) -- on a face edge, near but not at the corner. With no split held by
-        // hysteresis the worst is 4458, at the corner itself. A cube's six faces are congruent and
-        // the geometry has no terrain in it, so face 0 stands for all of them.
+        // The pinned camera is the worst over the first quadrant of face 0 at SplitFactor 4, from a
+        // 65 x 65 scan of camera positions 2 m up refined on a 1/512 lattice (2026-10-18): 8,198 at
+        // (u, v) = (76/512, 0), on a face edge. At SplitFactor 3 it was 5,118, at (20/256, 0) -- the
+        // working set scales as the square of SplitFactor, near enough. A cube's six faces are
+        // congruent and the geometry has no terrain in it, so face 0 stands for all of them.
         [Test]
         public void WorkingSetFitsTheResidentBudget()
         {
@@ -162,7 +182,7 @@ namespace Sonoma.Tests
             var p     = Params(OctaveCount);
             var lod   = Lod(p);
 
-            SurfaceMath.SurfaceFrame(s, roots[0], 20.0 / 256.0, 0.0, out double3 ground, out float3 up);
+            SurfaceMath.SurfaceFrame(s, roots[0], 76.0 / 512.0, 0.0, out double3 ground, out float3 up);
 
             // From 10,000 km down to the ground, roughly two steps an octave of altitude.
             int peak = 0;
@@ -174,7 +194,7 @@ namespace Sonoma.Tests
             }
 
             int wanted = Select(s, roots, lod, ground + (double3)up * 2.0);
-            Assert.AreEqual(5118, wanted, 51,
+            Assert.AreEqual(8198, wanted, 82,
                 "the worst-case working set has moved by more than 1%; re-measure it and re-check " +
                 "MaxResidentChunks against the new figure");
             Assert.GreaterOrEqual(wanted, peak, "the descent found a worse working set above the ground");
@@ -215,16 +235,16 @@ namespace Sonoma.Tests
 
         // C5: on Earth the skirt has to scale with the node. The gap it hides in a transient
         // two-depth state is on the order of the coarse node's relief, twice the demand of its
-        // size -- 6.2% at EarthReliefFactor, at the largest biome amplitude and with EarthMacro's
-        // base height (MacroTests.Demand); 2.6% for the detail noise alone -- which is about a
-        // metre at depth 19 and two kilometres at depth 8. SampleScene's absolute 2 m would hide
-        // nothing coarser than depth 19; SkirtFraction 0.07 covers the estimate at every depth,
-        // 12% over.
+        // size -- 52% with the mountain belts and EarthMacro's base height (MacroTests.Demand);
+        // 2.6% on the single-slope spectrum before biomes -- which is about 10 m at depth 19 and
+        // 21 km at depth 8. SampleScene's absolute 2 m would hide nothing at all; SkirtFraction
+        // 0.58 covers the estimate at every depth, 11% over. A skirt is underground, so the cost
+        // is culling bounds.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
             var    p      = Params(OctaveCount);
-            double demand = MacroTests.Demand(EarthReliefFactor, HeightScale, "EarthStress", p.S0);
+            double demand = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0);
 
             for (int d = 0; d <= MaxDepth; d++)
             {
@@ -234,11 +254,12 @@ namespace Sonoma.Tests
                     $"depth {d}: the skirt is shorter than the relief of a node there");
             }
 
-            // An absolute 2 m skirt, as SampleScene has, covers only the finest depth.
+            // An absolute 2 m skirt, as SampleScene has, covers no depth at all: with the roughness
+            // spectrum even a depth-19 node's gap is 4.8 m.
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double gap = 2.0 * demand * LodMath.NominalSize(p.S0, d);
-                Assert.AreEqual(d >= 19, 2.0 > gap, $"depth {d}: an absolute 2 m skirt");
+                Assert.IsFalse(2.0 > gap, $"depth {d}: an absolute 2 m skirt");
             }
         }
     }

@@ -328,6 +328,38 @@ namespace Sonoma.Tests
                 int e = source.IndexOf("ENDHLSL", s, System.StringComparison.Ordinal);
                 StringAssert.DoesNotContain("_SONOMA_BIOMES", source.Substring(s, e - s),
                     $"{pass} has no colour to blend, and a keyword there only multiplies variants");
+                StringAssert.DoesNotContain("_SONOMA_SKY", source.Substring(s, e - s),
+                    $"{pass} has no colour to light or haze, and a keyword there only multiplies variants");
+            }
+        }
+
+        // The sky (M5b), from the shader source, for the biome path's reasons: a local
+        // shader_feature in ForwardLit, so SampleScene's material never builds it; its per-scene
+        // values globals, outside the per-material constant buffer, since four scenes with four
+        // skies share one material; and the plain path's world-space SH ambient left as it was,
+        // so SampleScene draws as it did.
+        [Test]
+        public void ShaderSkyIsAForwardLitFeature()
+        {
+            string path   = Path.Combine(Application.dataPath, "Shaders", "SonomaTerrainTriplanar.shader");
+            string source = File.ReadAllText(path);
+
+            int start = source.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
+            int end   = source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal);
+            string lit = source.Substring(start, end - start);
+
+            StringAssert.Contains("#pragma shader_feature_local _SONOMA_SKY", lit,
+                "the sky path must be a local shader_feature, not a global or a multi_compile");
+            StringAssert.IsMatch(@"#else\s*half3 ambient = albedo \* SampleSH\(N\) \* 0\.5;", lit,
+                "the plain path's ambient has changed, and SampleScene draws with it");
+
+            int cbStart = source.IndexOf("CBUFFER_START(UnityPerMaterial)", System.StringComparison.Ordinal);
+            int cbEnd   = source.IndexOf("CBUFFER_END", cbStart, System.StringComparison.Ordinal);
+            string cb   = source.Substring(cbStart, cbEnd - cbStart);
+            foreach (string global in new[] { "_SonomaSkyAmbient", "_SonomaGroundAmbient", "_SonomaHaze", "_SonomaSurface" })
+            {
+                StringAssert.Contains("float4 " + global + ";", lit, $"ForwardLit does not declare {global}");
+                StringAssert.DoesNotContain(global, cb, $"{global} is in UnityPerMaterial; it is a global TerrainRoot pushes");
             }
         }
 
