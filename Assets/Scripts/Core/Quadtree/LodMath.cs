@@ -115,8 +115,8 @@ namespace Sonoma.Core.Quadtree
         // asserts without a delta.
         public double NominalSize(int depth) => NominalSize(S0, depth);
 
-        // The same, for code that has S0 but no LodMath -- GenerationScheduler sizes skirts
-        // with it. One expression, so the two cannot disagree on a node's size.
+        // The same, for code that has S0 but no LodMath -- GenerationScheduler sizes
+        // skirts' chord sag with it. One expression, so the two cannot disagree on a node's size.
         public static double NominalSize(double s0, int depth) => s0 / (double)(1L << math.clamp(depth, 0, 62));
 
         public double SplitDistance(int depth)   => SplitFactor * NominalSize(depth);
