@@ -39,6 +39,11 @@ namespace Sonoma.Tests
             public float      MorphStart = 0.15f;
             public float      Persistence = 0.5f;
 
+            // The LOD measures in a world with every height scaled by this (LodVertical). Every
+            // stress scene runs 0.2 with five times its M5b HeightScale, so its LOD sees the
+            // relief, and wants the chunks, that M5b sized it for.
+            public float      LodVerticalScale = 0.2f;
+
             // Close-up roughness (C10): octaves finer than RoughnessCrossover metres fall off by
             // FinePersistence. Each scene's 10 m features are the octave amplitude nearest 10 m,
             // TenMetreFeature, pinned by CloseUpRoughnessMeetsItsTarget.
@@ -71,8 +76,10 @@ namespace Sonoma.Tests
             // As the scene runs it: with its roughness spectrum.
             public HeightParams RoughParams => Params.WithRoughness(FinePersistence, RoughnessCrossover);
 
+            // As TerrainRoot builds it: flattened by LodVerticalScale over the scene's height bound.
             public LodMath Lod(in HeightParams p) =>
-                LodMath.Create(Surface, p, SplitFactor, MorphStart, Hysteresis, Preload, MaxDepth);
+                LodMath.Create(Surface, p, SplitFactor, MorphStart, Hysteresis, Preload, MaxDepth)
+                       .WithVertical(MacroTests.Vertical(Name, RoughParams, LodVerticalScale));
         }
 
         // A quarter of Earth's radius, two depths shallower for the same 0.62 m vertex spacing.
@@ -81,23 +88,23 @@ namespace Sonoma.Tests
         // face edge: the selection is scale-free, and only the depth differs.
         //
         // The relief spectrum (M5b), Earth's: persistence 0.7 above 5 km and 0.53 below, at
-        // HeightScale 2000 -- 81 m over 5 km, 165 m over 20 km, 336 m over 100 km before biomes and
-        // ruggedness, three times that in the mountain belts, and 10 m features 27 cm. With the
-        // bands at (1, 3, 1) the roughest of 20,000 random nodes per depth has a half-relief of
-        // 0.174 of its node at depth 17 (2026-10-18), C 226.5, and 340 is half again over it. That
-        // needs SplitFactor 4 at MorphStartFraction 0.123 or less; the small planet runs 0.12. The
-        // worst working set at SplitFactor 4 is 7,206, at (76/512, 0); padding every node by a
-        // tenth of its size, which overstates the relief, makes it 7,386, and the budget is 12%
-        // over that.
+        // HeightScale 10,000 -- 405 m over 5 km, 825 m over 20 km, 1.7 km over 100 km before biomes
+        // and ruggedness, three times that in the mountain belts, and 10 m features 1.33 m: five
+        // times M5b's 2,000. With the bands at (1, 3, 1) the roughest of 20,000 random nodes per
+        // depth has a half-relief of 0.174 of its node at depth 17 at M5b's relief (2026-10-18),
+        // C 226.5, and 340 is half again over it. Flattened by LodVerticalScale 0.2, that needs
+        // SplitFactor 4 at MorphStartFraction 0.123 or less; the small planet runs 0.12. The worst
+        // working set, flattened, is 7,426 at the face corner (2026-10-19; M5b's unflattened scan
+        // found 7,206), and the budget is 12% over that.
         internal static readonly Scene SmallPlanet = new Scene
         {
             Name = "SmallPlanetStress", Asset = "Assets/Settings/SmallPlanetTerrainSettings.asset",
             Surface = SurfaceDef.CubeSphere(1592750.0),
-            MaxDepth = 17, OctaveCount = 22, Budget = 8300, HeightScale = 2000f, SkirtFraction = 0.56f,
+            MaxDepth = 17, OctaveCount = 22, Budget = 8300, HeightScale = 10000f, SkirtFraction = 2.8f,
             SplitFactor = 4f, MorphStart = 0.12f, Persistence = 0.7f,
-            RoughnessCrossover = 5000.0, FinePersistence = 0.53f, TenMetreFeature = 0.266, TenMetreOnOneSlope = 0.0076,
+            RoughnessCrossover = 5000.0, FinePersistence = 0.53f, TenMetreFeature = 1.332, TenMetreOnOneSlope = 0.0382,
             ReliefFactor = 340.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 76.0 / 512.0, WorstV = 0.0, Worst = 7206,
+            WorstQuad = 0, WorstU = 0.0, WorstV = 4.0 / 512.0, Worst = 7426,
         };
 
         // A ring of the small planet's radius, as wide as one column of its eight is long, viewed
@@ -105,21 +112,23 @@ namespace Sonoma.Tests
         // seam, partway across the ring -- and mirrored about the middle, at 277/512.
         //
         // The relief spectrum (M5b): persistence 0.7 above 5 km and 0.5 below, at HeightScale
-        // 2000 -- 115 m over 5 km, 235 m over 20 km, 480 m over 100 km before biomes and
+        // 10,000 -- 575 m over 5 km, 1.2 km over 20 km, 2.4 km over 100 km before biomes and
         // ruggedness, three times that in the mountain belts, and the features nearest 10 m
-        // (13.3 m across) 22.5 cm. With the bands at (1, 3, 1) the roughest of 20,000 nodes per
-        // depth has C 113.7 at depth 16 (2026-10-18), and 171 is half again over it. A cylinder's
-        // allowance is large enough that the ring stays at SplitFactor 3; the belts take its
-        // MorphStartFraction from 0.15, where they would leave nothing to spare, to 0.14.
+        // (13.3 m across) 1.13 m: five times M5b's 2,000. With the bands at (1, 3, 1) the roughest
+        // of 20,000 nodes per depth has C 113.7 at depth 16 (2026-10-18), and 171 is half again
+        // over it. A cylinder's allowance is large enough that the ring stays at SplitFactor 3,
+        // flattened by LodVerticalScale 0.2; the belts take its MorphStartFraction from 0.15,
+        // where they would leave nothing to spare, to 0.14. The worst working set, flattened, is
+        // 4,996 (2026-10-19; M5b's unflattened scan found 4,944).
         internal static readonly Scene Ringworld = new Scene
         {
             Name = "RingworldStress", Asset = "Assets/Settings/RingworldTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1),
-            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 2000f, SkirtFraction = 0.43f,
+            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 10000f, SkirtFraction = 2.1f,
             MorphStart = 0.14f, Persistence = 0.7f,
-            RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 0.225, TenMetreOnOneSlope = 0.0153,
+            RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.0763,
             ReliefFactor = 171.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 42.0 / 512.0, WorstV = 213.0 / 512.0, Worst = 4944,
+            WorstQuad = 0, WorstU = 19.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 4996,
         };
 
         // An O'Neill-style interior, 10 km in radius and 30 km long: depth 9 gives 0.65 m vertex
@@ -127,21 +136,25 @@ namespace Sonoma.Tests
         // roughest depth-8 node, the worst node's C climbs about 0.75 a depth, and 9 is half again
         // over that one-depth extrapolation -- the same margin Earth's 15 has over its largest
         // sample. The whole interior is within a few split distances of a camera anywhere in it,
-        // so every root subdivides and 32 roots want 3,124 chunks; the worst camera is in an
-        // interior row, on root 1 (row 1 of column 0). A rim row's worst is 3,020.
+        // so every root subdivides; the worst camera is in an interior row, on root 1 (row 1 of
+        // column 0). Unflattened, M5b's 32 roots wanted 3,124 chunks. Flattened, they want 3,804
+        // (2026-10-19), 22% more, and the budget went from 3,600 to 4,300 for it: LodVertical's
+        // anchor puts the flattened terrain 1.9 km nearer the axis (0.8 of its 2.4 km envelope),
+        // which in a 10 km cylinder shrinks the world the LOD sees by a fifth. That is the price
+        // of the flattened distance never being longer than the true one.
         //
-        // Roughness: the terrarium's 10 m features were already 19.5 cm, its HeightScale being a
-        // fiftieth of its radius, and fine persistence 0.55 below 100 m makes them 29 cm. The
-        // roughest of 20,000 nodes per depth then has C 4.8; 9 still covers it, and the terrarium
-        // has almost no allowance to spare for more.
+        // Roughness: fine persistence 0.55 below 100 m made M5b's 10 m features 29 cm, and
+        // HeightScale 1,000, five times M5b's 200, makes them 1.43 m. The roughest of 20,000 nodes
+        // per depth has C 4.8 at that spectrum; 9 still covers it, and flattened by 0.2 the
+        // terrarium's allowance has the room M5b's did.
         internal static readonly Scene Terrarium = new Scene
         {
             Name = "TerrariumStress", Asset = "Assets/Settings/TerrariumTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4),
-            MaxDepth = 9, OctaveCount = 14, Budget = 3600, HeightScale = 200f, SkirtFraction = 0.66f,
-            RoughnessCrossover = 100.0, FinePersistence = 0.55f, TenMetreFeature = 0.286, TenMetreOnOneSlope = 0.195,
+            MaxDepth = 9, OctaveCount = 14, Budget = 4300, HeightScale = 1000f, SkirtFraction = 2.1f,
+            RoughnessCrossover = 100.0, FinePersistence = 0.55f, TenMetreFeature = 1.430, TenMetreOnOneSlope = 0.9766,
             ReliefFactor = 9.0,
-            WorstQuad = 1, WorstU = 105.0 / 512.0, WorstV = 429.0 / 512.0, Worst = 3124,
+            WorstQuad = 1, WorstU = 21.0 / 512.0, WorstV = 427.0 / 512.0, Worst = 3804,
         };
 
         internal static readonly Scene[] All = { SmallPlanet, Ringworld, Terrarium };
@@ -182,8 +195,10 @@ namespace Sonoma.Tests
                 var lod = sc.Lod(p);
                 Assert.Less(sc.MorphStart, LodMath.MaxMorphStartFraction(sc.SplitFactor, Hysteresis, lod.SizeSpread), sc.Name);
 
-                double demand   = MacroTests.DetailDemand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0);
-                double combined = MacroTests.Demand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0);
+                // Spent in the flattened world, so LodVerticalScale times the true demand.
+                double demand   = MacroTests.DetailDemand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0, sc.LodVerticalScale);
+                double combined = MacroTests.Demand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0, sc.LodVerticalScale);
+                Assert.AreEqual(sc.LodVerticalScale, lod.Vertical.Scale, 1e-7, $"{sc.Name}: the LOD's vertical scale");
                 for (int d = 0; d <= sc.MaxDepth; d++)
                 {
                     double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);
@@ -193,6 +208,12 @@ namespace Sonoma.Tests
                         $"{sc.Name}, depth {d}: allowance {allowance:F4} leaves less than " +
                         $"{MacroTests.CombinedMargin}x the demand with the macro layer, {combined:F4}");
                 }
+
+                // And unflattened, the same terrain overruns it even at the roughest node actually
+                // measured, C / 1.5, with no margin asked: the case for LodVerticalScale.
+                double trueDemand = MacroTests.DetailDemand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0);
+                Assert.Less(lod.MaxHalfRelief(sc.MaxDepth) / lod.NominalSize(sc.MaxDepth), trueDemand / 1.5,
+                    $"{sc.Name}: the true relief now fits the allowance; LodVerticalScale may not be needed");
             }
 
             double cylinder = Ringworld.Lod(Ringworld.Params).MaxHalfRelief(0) / Ringworld.Lod(Ringworld.Params).NominalSize(0);
@@ -247,12 +268,12 @@ namespace Sonoma.Tests
                 int    peak = 0;
                 for (double alt = top; alt >= 2.0; alt *= 0.7)
                 {
-                    int n = EarthScaleTests.Select(s, roots, lod, ground + (double3)up * alt);
+                    int n = EarthScaleTests.Select(s, roots, lod, lod.Vertical.MapPoint(s, ground + (double3)up * alt));
                     Assert.Less(n, sc.Budget, $"{sc.Name}: {n} chunks wanted at {alt:F0} m; MaxResidentChunks is {sc.Budget}");
                     peak = math.max(peak, n);
                 }
 
-                int wanted = EarthScaleTests.Select(s, roots, lod, ground + (double3)up * 2.0);
+                int wanted = EarthScaleTests.Select(s, roots, lod, lod.Vertical.MapPoint(s, ground + (double3)up * 2.0));
                 Assert.AreEqual(sc.Worst, wanted, sc.Worst / 100,
                     $"{sc.Name}: the worst-case working set has moved by more than 1%; re-measure it " +
                     "and re-check MaxResidentChunks against the new figure");

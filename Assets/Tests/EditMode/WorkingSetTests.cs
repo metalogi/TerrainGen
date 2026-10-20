@@ -130,6 +130,9 @@ namespace Sonoma.Tests
             Assert.AreEqual(Hysteresis,  settings.HysteresisFactor,   "HysteresisFactor");
             Assert.AreEqual(MorphStart,  settings.MorphStartFraction, "MorphStartFraction");
             Assert.AreEqual(Preload,     settings.PreloadFactor,      "PreloadFactor");
+            // Unflattened: every M3 figure here was measured on the true world, and LodVertical's
+            // identity is what keeps them valid (LodVerticalTests.IdentityIsBitExact).
+            Assert.AreEqual(1f,          settings.LodVerticalScale,   "LodVerticalScale");
             Assert.AreEqual(Budget,      settings.MaxResidentChunks,  "MaxResidentChunks");
             // M4's node-relative skirt term. At 0 SampleScene's meshes are bit-identical to the
             // ones every M3 figure was measured on (ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction).

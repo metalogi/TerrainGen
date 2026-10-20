@@ -81,5 +81,44 @@ namespace Sonoma.Core.Generation
             }
             return Height(surfacePoint, p.MaxOctave(maxDepth), sample, p);
         }
+
+        // A bound on |Height| anywhere on the surface, at any depth: every octave at the largest
+        // amplitude its band can take anywhere (MacroParams.MaxBandAmplitude, which is 1 on every
+        // band without a macro layer), the noise at its bound of 1, which it attains, and the
+        // macro base height's bound the same way over the octaves the finest level carries.
+        //
+        // A bound, not an estimate, because LodVertical's envelope needs one: a vertex outside
+        // it is flattened by a different rule from the camera, and the LOD picked for it may then
+        // be coarser than true distance would give. It runs well above the real extremes, since
+        // the octaves rarely all peak at one point -- on Earth at HeightScale 20,000, 81 km -- and
+        // that costs only finer LOD than needed for a camera between the real peaks and it.
+        public static double MaxAbsHeight(in HeightParams p, in MacroParams macro)
+        {
+            float3 band = macro.Enabled ? macro.MaxBandAmplitude : new float3(1f);
+
+            double detail = 0.0, amp = 1.0;
+            for (int k = 0; k < p.OctaveCount; k++)
+            {
+                // The band and the fall-off exactly as LatticeNoise.Fbm applies them.
+                float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
+                detail += amp * math.abs(gain);
+                amp    *= k + 1 < p.CrossoverOctave ? p.Persistence : p.FinePersistence;
+            }
+
+            double baseHeight = 0.0;
+            if (macro.Enabled)
+            {
+                int    octaves = math.max(0, macro.MaxOctave(macro.Layout.LevelCount - 1) + 1);
+                double a       = 1.0;
+                for (int j = 0; j < octaves; j++)
+                {
+                    baseHeight += a;
+                    a          *= macro.Persistence;
+                }
+                baseHeight *= math.abs(macro.BaseHeightScale);
+            }
+
+            return math.abs(p.HeightScale) * detail + baseHeight;
+        }
     }
 }

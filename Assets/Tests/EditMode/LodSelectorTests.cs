@@ -389,7 +389,8 @@ namespace Sonoma.Tests
             foreach (var c in cameras)
             {
                 SurfaceMath.SurfaceFrame(s, roots[0], c.u, c.v, out double3 ground, out float3 up);
-                double3 camera = ground + (double3)up * c.alt;
+                // Flattened, as TerrainRoot hands the camera to the selector (LodVertical).
+                double3 camera = lod.Vertical.MapPoint(s, ground + (double3)up * c.alt);
 
                 _selector?.Dispose();
                 _selector = new LodSelector(s, roots, lod, _scheduler, _pool, 0);
@@ -402,10 +403,12 @@ namespace Sonoma.Tests
 
                 // The corner is where the first replica put its worst fresh case, 4,942. The
                 // selector itself wants this many there: 4,458 at SplitFactor 3, which C2 and
-                // the M4 plan quote, and 7,002 at the SplitFactor 4 Earth has run since M5b.
+                // the M4 plan quote, 7,002 at the SplitFactor 4 Earth has run since M5b, and
+                // 7,062 in the world LodVerticalScale 0.2 flattens it to, whose anchor moves the
+                // terrain 65 km towards the centre.
                 if (c.u == 0.0 && c.v == 0.0)
-                    Assert.AreEqual(7002, _selector.WantedCount,
-                        "the fresh working set at the face corner has moved; at SplitFactor 4 it is 7,002");
+                    Assert.AreEqual(7062, _selector.WantedCount,
+                        "the fresh working set at the face corner has moved; flattened at SplitFactor 4 it is 7,062");
             }
         }
 

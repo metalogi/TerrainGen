@@ -33,6 +33,7 @@ namespace Sonoma.Tests
             Assert.AreEqual(Hysteresis,    s.HysteresisFactor,   "HysteresisFactor");
             Assert.AreEqual(MorphStart,    s.MorphStartFraction, "MorphStartFraction");
             Assert.AreEqual(Preload,       s.PreloadFactor,      "PreloadFactor");
+            Assert.AreEqual(LodVerticalScale, s.LodVerticalScale, "LodVerticalScale");
             Assert.AreEqual(Budget,        s.MaxResidentChunks,  "MaxResidentChunks");
             Assert.IsTrue(s.SkirtsEnabled,                       "SkirtsEnabled");
             Assert.AreEqual(SkirtDepth,    s.SkirtDepth,         "SkirtDepth");

@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Unity.Mathematics;
 using Sonoma.Core.Generation;
+using Sonoma.Core.Quadtree;
 using Sonoma.Core.Surface;
 
 namespace Sonoma.Tests
@@ -169,22 +170,39 @@ namespace Sonoma.Tests
         // relief cost per metre of height falls with its wavelength, so the mid band at 3 costs
         // less than every band at 1.44 did. The scene's largest amplitudes are checked against
         // measuredAt, so raising one in an asset fails here until C is re-measured at it.
-        internal static double DetailDemand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0)
+        //
+        // verticalScale is the scene's LodVerticalScale for the demand on the LOD relief allowance,
+        // which is spent in the flattened world (LodVertical), and 1 for the true relief -- what a
+        // skirt has to hide, since skirts are geometry.
+        internal static double DetailDemand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0,
+                                            double verticalScale = 1.0)
         {
             float3 max = For(scene).MaxBandAmplitude;
             Assert.IsTrue(math.all(max <= measuredAt),
                 $"{scene}: band amplitudes reach {max}, over the {measuredAt} its relief factor was " +
                 "measured at; re-measure C at the new amplitudes");
-            return reliefFactor * heightScale / s0;
+            return verticalScale * reliefFactor * heightScale / s0;
         }
 
         // The relief demand with the macro layer, as a fraction of node size: the detail estimate
         // plus the macro's. Half-relief is subadditive, so the sum bounds the relief of the two
         // together -- conservatively, since it assumes each one's roughest node is the other's,
         // and in the most amplified biome. Measured before biomes, the terrarium's combined worst
-        // was 4.63 in units of HeightScale / S0 against the sum's 16.
-        internal static double Demand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0)
-            => DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0) + MacroReliefFactor * For(scene).BaseHeightScale / s0;
+        // was 4.63 in units of HeightScale / S0 against the sum's 16. The flattened world scales
+        // both, since it scales the whole height.
+        internal static double Demand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0,
+                                      double verticalScale = 1.0)
+            => DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0, verticalScale)
+             + verticalScale * MacroReliefFactor * For(scene).BaseHeightScale / s0;
+
+        // The flattened world a stress scene's LOD measures in, as TerrainRoot builds it: its
+        // LodVerticalScale over the height bound of its spectrum, bands and macro layer.
+        internal static LodVertical Vertical(string scene, in HeightParams rough, float verticalScale)
+        {
+            var m = For(scene);
+            var p = rough.WithBands(m.LowBandEdge, m.MidBandEdge);
+            return LodVertical.Create(m.Surface, verticalScale, TerrainHeightFunction.MaxAbsHeight(p, m.Params));
+        }
 
         // What the relief tests ask of the allowance against Demand. Not the 2x they ask against
         // the detail estimate alone: Demand already stacks two worst cases padded by half again

@@ -68,6 +68,13 @@
 //   shadow pass but not for the additional-lights one, so a scene with a shadow-casting
 //   point or spot light and no shadowed directional light renders the terrain's shadow
 //   caster against a stale camera and morphs it by a different k than ForwardLit used.
+//   It is the camera as the LOD sees it, flattened by LodVertical.
+//
+//   _SonomaLodVertical (float4), from TerrainRoot.PushShaderGlobals — (Flatten, Anchor, 0, 0),
+//   the map the morph flattens each vertex by before measuring its distance: positionWS minus
+//   Flatten x (elevation - Anchor) x topoUp, the vertex as LodVertical.MapPoint moves it, so the
+//   shader measures in the flattened world the selector selected in. (0, 0), what an unset global
+//   reads as, is the identity. This is why every pass reads TEXCOORD1.
 //
 // The morph runs in ALL FOUR passes. Morphing only ForwardLit leaves shadows and the
 // depth prepass on unmorphed geometry, which presents as shadow acne and depth-test
@@ -178,8 +185,11 @@ Shader "Sonoma/TerrainTriplanar"
         float4 _SonomaMorphRanges[SONOMA_MAX_MORPH_DEPTH + 1];
 
         // Render space (world - origin), like positionWS before the _SonomaWorldOrigin
-        // correction and like every chunk transform.
+        // correction and like every chunk transform. Flattened, as the LOD sees the camera.
         float3 _SonomaViewPosition;
+
+        // (Flatten, Anchor, 0, 0); see the header and LodVertical.
+        float4 _SonomaLodVertical;
 
         // Distance is measured from the UNMORPHED position. That matters twice over: it is
         // what lets every pass arrive at the same k for the same vertex, and it is what
@@ -202,9 +212,16 @@ Shader "Sonoma/TerrainTriplanar"
         // "morph in every pass" rule exists to prevent, arrived at from the other side.
         // TerrainRoot pushes this once a frame from the camera it also selected with, so all
         // four passes agree by construction rather than by URP's pass order.
-        float SonomaMorphFactor(float3 positionOS, float depth)
+        //
+        // The vertex is flattened before the distance is taken, by the map LodVertical gives
+        // the camera and LodMath.NodeDistance the bounding spheres: moved along its topology
+        // up by Flatten x (elevation - Anchor), with the UNMORPHED elevation, TEXCOORD1.w, for
+        // the reason the position is unmorphed. topoUp and elevation are attributes, the same
+        // bits in every chunk that shares the vertex, so the move is too.
+        float SonomaMorphFactor(float3 positionOS, float4 topoElevation, float depth)
         {
-            float3 wp   = TransformObjectToWorld(positionOS);
+            float3 wp   = TransformObjectToWorld(positionOS)
+                        - topoElevation.xyz * (_SonomaLodVertical.x * (topoElevation.w - _SonomaLodVertical.y));
             float  dist = distance(wp, _SonomaViewPosition);
             float2 r    = _SonomaMorphRanges[clamp((int)depth, 0, SONOMA_MAX_MORPH_DEPTH)].xy;
             return saturate((dist - r.x) / max(r.y - r.x, 1e-5));
@@ -212,10 +229,10 @@ Shader "Sonoma/TerrainTriplanar"
 
         // Returns the factor it used, so a caller that has more than position and normal to
         // blend -- ForwardLit, with its elevation -- does not recompute it.
-        float SonomaMorph(inout float3 positionOS, inout float3 normalOS,
+        float SonomaMorph(inout float3 positionOS, inout float3 normalOS, float4 topoElevation,
                           float4 morphPosition, float3 morphNormal)
         {
-            float k    = SonomaMorphFactor(positionOS, morphPosition.w);
+            float k    = SonomaMorphFactor(positionOS, topoElevation, morphPosition.w);
             positionOS = lerp(positionOS, morphPosition.xyz, k);
             normalOS   = lerp(normalOS,   morphNormal,       k);
             // Deliberately not normalized here: the fragment stages normalize what they
@@ -226,10 +243,10 @@ Shader "Sonoma/TerrainTriplanar"
         // Position only, for the depth prepass, which has no normal to morph. Its position
         // must still match the other passes exactly, or the depth test rejects the lit
         // geometry it is supposed to accept.
-        void SonomaMorphPosition(inout float3 positionOS, float4 morphPosition)
+        void SonomaMorphPosition(inout float3 positionOS, float4 topoElevation, float4 morphPosition)
         {
             positionOS = lerp(positionOS, morphPosition.xyz,
-                              SonomaMorphFactor(positionOS, morphPosition.w));
+                              SonomaMorphFactor(positionOS, topoElevation, morphPosition.w));
         }
         ENDHLSL
 
@@ -372,7 +389,7 @@ Shader "Sonoma/TerrainTriplanar"
 
                 float3 positionOS = input.positionOS.xyz;
                 float3 normalOS   = input.normalOS;
-                float  k = SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm.xyz);
+                float  k = SonomaMorph(positionOS, normalOS, input.uv2, input.morphPos, input.morphNrm.xyz);
 
                 VertexPositionInputs vpi = GetVertexPositionInputs(positionOS);
                 VertexNormalInputs   vni = GetVertexNormalInputs(normalOS);
@@ -512,6 +529,7 @@ Shader "Sonoma/TerrainTriplanar"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
+                float4 topoElev   : TEXCOORD1;   // the morph flattens by it; see SonomaMorphFactor
                 float4 morphPos   : TEXCOORD2;
                 float4 morphNrm   : TEXCOORD3;   // .w unused here; the layout is shared
             };
@@ -521,7 +539,7 @@ Shader "Sonoma/TerrainTriplanar"
             {
                 float3 positionOS = input.positionOS.xyz;
                 float3 normalOS   = input.normalOS;
-                SonomaMorph(positionOS, normalOS, input.morphPos, input.morphNrm.xyz);
+                SonomaMorph(positionOS, normalOS, input.topoElev, input.morphPos, input.morphNrm.xyz);
 
                 ShadowVar o;
                 float3 positionWS = TransformObjectToWorld(positionOS);
@@ -560,15 +578,16 @@ Shader "Sonoma/TerrainTriplanar"
             #pragma fragment DepthFrag
 
             // POSITION alone was enough before the morph; the depth prepass now has to
-            // move its vertices exactly as ForwardLit does, so it needs TEXCOORD2 too.
-            struct DAttr { float4 positionOS : POSITION; float4 morphPos : TEXCOORD2; };
+            // move its vertices exactly as ForwardLit does, so it needs TEXCOORD2 too, and
+            // TEXCOORD1, which the morph flattens the vertex by before measuring.
+            struct DAttr { float4 positionOS : POSITION; float4 topoElev : TEXCOORD1; float4 morphPos : TEXCOORD2; };
             struct DVar  { float4 positionCS : SV_POSITION; };
 
             DVar DepthVert(DAttr i)
             {
                 DVar o;
                 float3 positionOS = i.positionOS.xyz;
-                SonomaMorphPosition(positionOS, i.morphPos);
+                SonomaMorphPosition(positionOS, i.topoElev, i.morphPos);
                 o.positionCS = TransformObjectToHClip(positionOS);
                 return o;
             }
@@ -591,6 +610,7 @@ Shader "Sonoma/TerrainTriplanar"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
+                float4 topoElev   : TEXCOORD1;   // the morph flattens by it; see SonomaMorphFactor
                 float4 morphPos   : TEXCOORD2;
                 float4 morphNrm   : TEXCOORD3;   // .w unused here; the layout is shared
             };
@@ -601,7 +621,7 @@ Shader "Sonoma/TerrainTriplanar"
                 DNVar o;
                 float3 positionOS = i.positionOS.xyz;
                 float3 normalOS   = i.normalOS;
-                SonomaMorph(positionOS, normalOS, i.morphPos, i.morphNrm.xyz);
+                SonomaMorph(positionOS, normalOS, i.topoElev, i.morphPos, i.morphNrm.xyz);
 
                 o.positionCS = TransformObjectToHClip(positionOS);
                 o.normalWS   = TransformObjectToWorldNormal(normalOS);

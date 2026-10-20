@@ -23,6 +23,19 @@ namespace Sonoma.Core.Quadtree
         public float  PreloadFactor;       // request children this much further out than the split
         public int    MaxDepth;
 
+        // The flattened world distances are measured in (LodVertical). The identity by default,
+        // and Create leaves it so: it needs the terrain's height envelope, which is known only
+        // once the macro layer is, so TerrainRoot sets it with WithVertical. Every threshold here
+        // is unchanged by it -- it moves the camera, the vertices and the spheres, not the ranges.
+        public LodVertical Vertical;
+
+        public LodMath WithVertical(in LodVertical vertical)
+        {
+            var lod = this;
+            lod.Vertical = vertical;
+            return lod;
+        }
+
         // The ceiling that follows from the ranges having to nest: see Create. It is the
         // weaker of the two bounds; MaxMorphStartFraction is the one that actually binds.
         public const float NestingMorphStartFraction = 0.5f;
@@ -66,6 +79,10 @@ namespace Sonoma.Core.Quadtree
         //
         // A negative result means the configuration has no room for terrain at all at this
         // depth. That is a real answer, not an error.
+        //
+        // The relief is the FLATTENED one when Vertical is not the identity: the pad is
+        // Vertical.MapRelief of the node's half-relief, so a terrain carries 1 / LodVerticalScale
+        // times the relief this allows. That is the whole point of LodVertical.
         //
         // Deliberately NOT enforced by Create. The relief of an fbm at a given scale is a
         // property of the noise rather than of the configuration. Measured over every node on
@@ -175,6 +192,15 @@ namespace Sonoma.Core.Quadtree
         // to be depth-only (NominalSize).
         public static double NodeDistance(in SurfaceDef surface, in RootQuad root, NodeId node,
                                           double3 camera, float minHeight, float maxHeight)
+            => NodeDistance(surface, root, node, camera, minHeight, maxHeight, default);
+
+        // The same, in the flattened world (LodVertical): the sphere centred on the node's
+        // mid-elevation as flattened and widened by its flattened half-relief. `camera` must
+        // already be flattened -- LodVertical.MapPoint, as TerrainRoot hands it to the selector.
+        // With the identity it is the distance above to the bit.
+        public static double NodeDistance(in SurfaceDef surface, in RootQuad root, NodeId node,
+                                          double3 camera, float minHeight, float maxHeight,
+                                          in LodVertical vertical)
         {
             SurfaceMath.SurfaceFrame(surface, root,
                 0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax),
@@ -203,8 +229,12 @@ namespace Sonoma.Core.Quadtree
             //
             // The float sum and difference are deliberate: they are what the selector computed
             // from its stored float heights before this was shared, bit for bit.
-            centre += (double3)normal * (0.5 * (minHeight + maxHeight));
-            radius += 0.5 * (maxHeight - minHeight);
+            //
+            // Flattened, the sphere is the flattened node's: the vertices move by the same map
+            // (LodVertical.MapPoint, and the shader's copy of it), so a vertex inside the true
+            // sphere's height range is inside this one, which is all the boundary proof uses.
+            centre += (double3)normal * vertical.MapHeight(0.5 * (minHeight + maxHeight));
+            radius += vertical.MapRelief(0.5 * (maxHeight - minHeight));
 
             return math.max(0.0, math.distance(camera, centre) - radius);
         }
