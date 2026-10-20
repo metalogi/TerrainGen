@@ -379,17 +379,61 @@ namespace Sonoma.Tests
             }
         }
 
+        // The skirt the real ChunkMeshJob hangs, with a nonzero fraction and chord sag: the drop
+        // it reports is ChunkMeshLayout.SkirtDrop of the relief it measured, every skirt bottom
+        // sits exactly that far below its top along the top's topology up, its morph target
+        // likewise, and the vertex bounds it reports are the box round every vertex and morph
+        // target, skirts included -- the culling bounds GenerationScheduler sets. The skirt tests
+        // in StressSceneTests price the drop through the same ChunkMeshLayout calls; this is what
+        // ties those calls to the job.
+        [Test]
+        public void JobHangsTheSkirtItReports()
+        {
+            using var none = MacroMaps.Disabled();
+            const float SkirtDepth = 1.5f, Fraction = 0.8f, Sag = 7.25f;
+            var built = Build(new NodeId(0, Depth, 1, 2), none, SkirtDepth, Fraction, Sag);
+            int R = Resolution;
+
+            float minH = built.HeightBounds[0], maxH = built.HeightBounds[1], drop = built.HeightBounds[2];
+            Assert.Greater(maxH - minH, 1f, "the chunk is flat, so the relief term is not exercised");
+            Assert.AreEqual(ChunkMeshLayout.SkirtDrop(SkirtDepth, Fraction, maxH - minH, Sag), drop, drop * 1e-6,
+                "the job's drop is not SkirtDrop of the relief it measured");
+
+            for (int edge = 0; edge < 4; edge++)
+            for (int k = 0; k < R; k++)
+            {
+                var top    = built.Verts[ChunkMeshLayout.SkirtTopIndex(R, edge, k)];
+                var bottom = built.Verts[ChunkMeshLayout.SkirtBottomIndex(R, edge, k)];
+                float3 up  = top.TopoElevation.xyz;
+                Assert.Less(math.length(top.Position - up * drop - bottom.Position), 1e-4f,
+                    $"edge {edge}, post {k}: the skirt bottom is not {drop} m below its top");
+                Assert.Less(math.length(top.MorphPosition.xyz - up * drop - bottom.MorphPosition.xyz), 1e-4f,
+                    $"edge {edge}, post {k}: the skirt bottom's morph target is not {drop} m below its top's");
+            }
+
+            float3 lo = float.MaxValue, hi = float.MinValue;
+            foreach (var v in built.Verts)
+            {
+                lo = math.min(lo, math.min(v.Position, v.MorphPosition.xyz));
+                hi = math.max(hi, math.max(v.Position, v.MorphPosition.xyz));
+            }
+            Assert.AreEqual(lo, built.VertexBounds[0], "the reported bounds' minimum is not the vertices'");
+            Assert.AreEqual(hi, built.VertexBounds[1], "the reported bounds' maximum is not the vertices'");
+        }
+
         // -- Building a chunk through the real job path ------------------------
 
         struct Built
         {
             public double3         Anchor;
             public TerrainVertex[] Verts;
+            public float[]         HeightBounds;   // min, max, skirt drop
+            public float3[]        VertexBounds;   // min, max
         }
 
         // Through the real jobs, with the macro maps the scheduler would hand them; the jobs pick
         // each one's level from the node themselves.
-        Built Build(NodeId node, MacroMaps macro)
+        Built Build(NodeId node, MacroMaps macro, float skirtDepth = 0f, float skirtFraction = 0f, float chordSag = 0f)
         {
             var root    = _roots[node.Quad];
             int R       = _params.Resolution;
@@ -405,6 +449,7 @@ namespace Sonoma.Tests
             var splats        = new NativeArray<uint>(samples,    Allocator.TempJob);
             var coarseSplats  = new NativeArray<uint>(coarse,     Allocator.TempJob);
             var heightBounds  = new NativeArray<float>(3,         Allocator.TempJob);
+            var vertexBounds  = new NativeArray<float3>(2,        Allocator.TempJob);
 
             var meshData = Mesh.AllocateWritableMeshData(1);
             var data     = meshData[0];
@@ -437,22 +482,25 @@ namespace Sonoma.Tests
 
             new ChunkMeshJob
             {
-                Resolution = R, Anchor = anchor, SkirtDepth = 0f, Depth = node.Depth,
+                Resolution = R, Anchor = anchor, Depth = node.Depth,
+                SkirtDepth = skirtDepth, SkirtFraction = skirtFraction, ChordSag = chordSag,
                 BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
                 CoarseBasePoints = coarsePoints, CoarseBaseNormals = coarseNormals,
                 CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
-                Mesh = data, HeightBounds = heightBounds,
+                Mesh = data, HeightBounds = heightBounds, VertexBounds = vertexBounds,
             }.Schedule().Complete();
 
-            var verts = data.GetVertexData<TerrainVertex>().ToArray();
+            var verts   = data.GetVertexData<TerrainVertex>().ToArray();
+            var hBounds = heightBounds.ToArray();
+            var vBounds = vertexBounds.ToArray();
 
             meshData.Dispose();
             basePoints.Dispose(); baseNormals.Dispose(); heights.Dispose();
             coarsePoints.Dispose(); coarseNormals.Dispose(); coarseHeights.Dispose();
             splats.Dispose(); coarseSplats.Dispose();
-            heightBounds.Dispose();
+            heightBounds.Dispose(); vertexBounds.Dispose();
 
-            return new Built { Anchor = anchor, Verts = verts };
+            return new Built { Anchor = anchor, Verts = verts, HeightBounds = hBounds, VertexBounds = vBounds };
         }
     }
 }

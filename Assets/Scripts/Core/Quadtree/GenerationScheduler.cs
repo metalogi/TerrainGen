@@ -44,6 +44,7 @@ namespace Sonoma.Core.Quadtree
             public NativeArray<float>   Heights,     CoarseHeights;
             public NativeArray<uint>    Splats,      CoarseSplats;
             public NativeArray<float>   HeightBounds;
+            public NativeArray<float3>  VertexBounds;
 
             public void DisposeBuffers()
             {
@@ -56,6 +57,7 @@ namespace Sonoma.Core.Quadtree
                 if (Splats.IsCreated)        Splats.Dispose();
                 if (CoarseSplats.IsCreated)  CoarseSplats.Dispose();
                 if (HeightBounds.IsCreated)  HeightBounds.Dispose();
+                if (VertexBounds.IsCreated)  VertexBounds.Dispose();
             }
         }
 
@@ -66,7 +68,6 @@ namespace Sonoma.Core.Quadtree
         readonly int          _resolution;
         readonly float        _skirtDepth;
         readonly float        _skirtFraction;
-        readonly double       _curvature, _sizeSpread;   // for ChunkMeshLayout.ChordSag
         readonly int          _maxInFlight;
         readonly float        _uploadBudgetMs;
         readonly bool         _flipWinding;
@@ -118,8 +119,6 @@ namespace Sonoma.Core.Quadtree
             _resolution     = p.Resolution;
             _skirtDepth     = skirtDepth;
             _skirtFraction  = skirtFraction;
-            _curvature      = surface.Type == SurfaceType.PlaneGrid ? 0.0 : 1.0 / surface.Radius;
-            _sizeSpread     = SurfaceMath.MaxNodeSizeSpread(surface);
             _maxInFlight    = math.max(1, maxInFlight);
             _uploadBudgetMs = math.max(0.1f, uploadBudgetMs);
             _flipWinding    = SurfaceMath.UvFrameIsRightHanded(surface);
@@ -209,6 +208,7 @@ namespace Sonoma.Core.Quadtree
                 Splats        = new NativeArray<uint>(samples,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 CoarseSplats  = new NativeArray<uint>(coarse,     Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 HeightBounds  = new NativeArray<float>(3,         Allocator.Persistent),
+                VertexBounds  = new NativeArray<float3>(2,        Allocator.Persistent),
                 MeshData      = Mesh.AllocateWritableMeshData(1),
             };
 
@@ -246,13 +246,13 @@ namespace Sonoma.Core.Quadtree
             {
                 Resolution = R, Anchor = p.Anchor, Depth = node.Depth,
                 SkirtDepth = _skirtDepth, SkirtFraction = _skirtFraction,
-                ChordSag   = (float)ChunkMeshLayout.ChordSag(_curvature, _sizeSpread,
+                ChordSag   = ChunkMeshLayout.SkirtChordSag(_surface, _skirtFraction,
                                  LodMath.NominalSize(_params.S0, node.Depth), R),
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
                 Splats = p.Splats,
                 CoarseBasePoints = p.CoarsePoints, CoarseBaseNormals = p.CoarseNormals,
                 CoarseHeights = p.CoarseHeights, CoarseSplats = p.CoarseSplats,
-                Mesh = data, HeightBounds = p.HeightBounds,
+                Mesh = data, HeightBounds = p.HeightBounds, VertexBounds = p.VertexBounds,
             }.Schedule(JobHandle.CombineDependencies(fine, coarseJob));
 
             p.Handle = mesh;
@@ -307,16 +307,14 @@ namespace Sonoma.Core.Quadtree
 
             Mesh.ApplyAndDisposeWritableMeshData(p.MeshData, mesh, MeshUpdateFlags.DontRecalculateBounds);
 
-            // Bounds from the job's measured min/max rather than a recalculation pass, which
-            // would walk every vertex again on the main thread, padded by the skirt drop the job
-            // derived from them, so they cover what it drew.
-            var root   = _roots[p.Node.Quad];
-            float half = (float)(SurfaceMath.NodeWorldSize(_surface, root, p.Node) * 0.5);
-            float minH = p.HeightBounds[0], maxH = p.HeightBounds[1], drop = p.HeightBounds[2];
-            float pad  = math.max(math.abs(minH), math.abs(maxH)) + drop;
-            mesh.bounds = new Bounds(Vector3.zero, new Vector3(half * 2f + pad * 2f,
-                                                               half * 2f + pad * 2f,
-                                                               half * 2f + pad * 2f));
+            // Bounds are the box the job drew round every vertex and morph target, skirts
+            // included, so no recalculation pass walks the mesh again on the main thread. They
+            // used to be a cube round the base anchor padded by the absolute elevation: kilometres
+            // of pad on a 20 m chunk, which made the deepest chunks' bounds hundreds of times
+            // their size.
+            float minH = p.HeightBounds[0], maxH = p.HeightBounds[1];
+            float3 lo = p.VertexBounds[0], hi = p.VertexBounds[1];
+            mesh.bounds = new Bounds((Vector3)(0.5f * (lo + hi)), (Vector3)(hi - lo));
 
             chunk.Anchor = p.Anchor;
             chunk.Rebase(WorldOriginSystem.WorldOrigin);

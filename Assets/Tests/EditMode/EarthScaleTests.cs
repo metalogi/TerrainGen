@@ -274,7 +274,7 @@ namespace Sonoma.Tests
         // and StressSceneTests.AssertSkirtsCover builds real transient edges at Earth's heights
         // and checks each side's skirt against the gap it has to hide. The TRUE heights, not the
         // flattened ones: a skirt is geometry, and LodVerticalScale flattens only what the LOD
-        // measures. Earth's gaps reach about 0.04 of a node size; SampleScene's absolute 2 m
+        // measures. Earth's gaps reach about 0.08 of a node size; SampleScene's absolute 2 m
         // would hide none of the shallow ones, and the sample shows that most edges need more
         // than the absolute 1 m. A skirt is underground, so the cost is culling bounds.
         [Test]
