@@ -27,7 +27,7 @@ namespace Sonoma.Tests
         internal const float  Preload       = 1f;
         internal const int    Budget        = 9400;   // MaxResidentChunks
         internal const float  SkirtDepth    = 1f;
-        internal const float  SkirtFraction = 2.9f;
+        internal const float  SkirtFraction = 1f;     // of each chunk's relief + chord sag
 
         // The LOD measures in a world with every height scaled by this (LodVertical), so Earth at
         // HeightScale 20,000 spends the relief allowance, and wants the chunks, that it did at
@@ -269,45 +269,19 @@ namespace Sonoma.Tests
             return wanted.Count;
         }
 
-        // C5: on Earth the skirt has to scale with the node. The gap it hides in a transient
-        // two-depth state is on the order of the coarse node's relief, twice the demand of its
-        // size -- 2.6 node sizes at HeightScale 20,000 with the mountain belts and EarthMacro's
-        // base height (MacroTests.Demand), 52% at M5b's 4,000, and 2.6% on the single-slope
-        // spectrum before biomes -- which is about 51 m at depth 19 and 106 km at depth 8. The
-        // TRUE relief, not the flattened one: a skirt is geometry, and LodVerticalScale flattens
-        // only what the LOD measures. SampleScene's absolute 2 m would hide nothing at all;
-        // SkirtFraction 2.9 covers the estimate, 12% over, wherever it is under twice the height
-        // envelope. Coarser than that the estimate outgrows anything the terrain can reach, and
-        // the gap is at most the envelope's width, which is where ChunkMeshLayout.SkirtDrop caps
-        // the drop. Uncapped, 2.9 node sizes at depth 0 is 30,000 km: through the planet and out
-        // of the far side. A skirt is underground, so the cost is culling bounds.
+        // C5: on Earth the skirt has to scale, from 20 m nodes to 10,400 km ones. It scales with
+        // each chunk's own relief, plus the curvature's chord sag (ChunkMeshLayout.SkirtDrop),
+        // and StressSceneTests.AssertSkirtsCover builds real transient edges at Earth's heights
+        // and checks each side's skirt against the gap it has to hide. The TRUE heights, not the
+        // flattened ones: a skirt is geometry, and LodVerticalScale flattens only what the LOD
+        // measures. Earth's gaps reach about 0.04 of a node size; SampleScene's absolute 2 m
+        // would hide none of the shallow ones, and the sample shows that most edges need more
+        // than the absolute 1 m. A skirt is underground, so the cost is culling bounds.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
-            var    p         = Params(OctaveCount);
-            double demand    = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0);
-            double maxRelief = 2.0 * MacroTests.MaxAbsHeight("EarthStress", RoughParams);
-
-            for (int d = 0; d <= MaxDepth; d++)
-            {
-                double size = LodMath.NominalSize(p.S0, d);
-                double gap  = math.min(2.0 * demand * size, maxRelief);
-                float  drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, size, maxRelief);
-                Assert.Greater(drop, gap, $"depth {d}: the skirt is shorter than the relief of a node there");
-                Assert.Less(drop, Radius, $"depth {d}: a {drop / 1000.0:F0} km skirt reaches past the planet's centre");
-            }
-
-            // The cap is what keeps the roots inside the planet: their uncapped share alone is
-            // longer than its diameter.
-            Assert.Greater(SkirtFraction * p.S0, 2.0 * Radius, "the root's uncapped skirt no longer pierces the planet");
-
-            // An absolute 2 m skirt, as SampleScene has, covers no depth at all: with the roughness
-            // spectrum at HeightScale 20,000 even a depth-19 node's gap is 51 m.
-            for (int d = 0; d <= MaxDepth; d++)
-            {
-                double gap = 2.0 * demand * LodMath.NominalSize(p.S0, d);
-                Assert.IsFalse(2.0 > gap, $"depth {d}: an absolute 2 m skirt");
-            }
+            StressSceneTests.AssertSkirtsCover("EarthStress",
+                new StressSceneTests.SceneHeights("EarthStress", Earth, RoughParams), MaxDepth, SkirtFraction);
         }
     }
 }

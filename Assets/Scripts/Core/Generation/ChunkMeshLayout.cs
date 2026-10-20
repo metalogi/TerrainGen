@@ -67,24 +67,44 @@ namespace Sonoma.Core.Generation
         public static int SkirtBottomIndex(int R, int edge, int k) => SkirtBase(R, edge) + k;
 
         // How far a chunk's skirt hangs below its edge: an absolute floor plus a share of the
-        // node. The gap a skirt has to hide in a transient two-depth state is on the order of
-        // the coarse node's relief, which halves with every depth, so an absolute depth alone
-        // suits one scale only -- on an Earth-sized sphere the depths run from 20 m nodes to
-        // 10,400 km ones.
+        // chunk's own relief, max - min over its R x R grid, which ChunkMeshJob measures before
+        // it writes the skirt. The gap a skirt has to hide in a transient two-depth state is the
+        // detail one side has and the other lacks, plus the coarse side's chords cutting under
+        // the curve, and measured at real chunk edges it stays under a fraction of the relief of
+        // whichever side has to cover it (StressSceneTests.SkirtCoversTheTransientGap). So a
+        // plain gets a short skirt and a mountainside a long one, where a share of the node gave
+        // every chunk at a depth the mountain's.
         //
         // In double and narrowed once, so a fraction of 0 returns skirtDepth to the bit: a
         // float plus 0.0 is exact. That is what lets SampleScene, which sets no fraction, build
         // the same meshes it always has.
         //
-        // The node's share is capped at maxRelief, the largest height difference the terrain
-        // has anywhere: twice TerrainHeightFunction.MaxAbsHeight, since every height lies within
-        // that bound and no gap between two meshes can be deeper. Without the cap the share grows
-        // with the node and outruns the terrain at coarse depths: Earth's SkirtFraction of 2.9
-        // hung a depth-0 skirt 30,000 km, through the planet and 17,000 km out of the far side,
-        // drawn from orbit as a fin over the near hemisphere. The cap also keeps a coarse chunk's
-        // culling bounds, padded by its drop, to the terrain's size.
-        public static float SkirtDrop(float skirtDepth, float skirtFraction, double nominalSize, double maxRelief)
-            => (float)(skirtDepth + Math.Min(skirtFraction * nominalSize, maxRelief));
+        // There is no cap. The node-relative rule before this one needed a cap at twice
+        // TerrainHeightFunction.MaxAbsHeight: Earth's fraction of 2.9 node sizes hung a depth-0
+        // skirt 30,000 km, through the planet and out of the far side as a fin seen from orbit.
+        // A measured relief can never exceed that bound, so capping the relief term does
+        // nothing. Capping the whole share would clip ChordSag where it is largest, about 328 km
+        // at Earth's depth 0 and 82 km at depth 1 against a 168 km cap, and reopen the curvature
+        // gaps there. Earth's longest possible drop is about 500 km, inside its 6,371 km radius, and
+        // StressSceneTests.NoSkirtReachesPastTheCentre holds every stress scene to that.
+        public static float SkirtDrop(float skirtDepth, float skirtFraction, double relief)
+            => (float)(skirtDepth + skirtFraction * relief);
+
+        // The part of the gap that is the surface's curvature, not the terrain's: how far a
+        // neighbour's straight edge segments can cut under the curve this chunk's vertices sit
+        // on (over it, inside a cylinder, where the normal points at the axis). The longest
+        // such segment is eight of this chunk's vertex spacings, a neighbour two depths coarser
+        // fully morphed to its parent, and a chord c of a circle of curvature k sags k c^2 / 8.
+        // Spacing is the nominal one times the surface's node-size spread, an upper bound.
+        // Zero on a plane. On a smooth sphere it is the whole gap: up to 1.9 km at Earth's depth
+        // 3, against a sag term of 5.1 km there, where a share of the relief would give a metre's
+        // skirt; under a centimetre from depth 13 on. GenerationScheduler adds it to the relief
+        // the fraction applies to.
+        public static double ChordSag(double curvature, double sizeSpread, double nominalSize, int resolution)
+        {
+            double chord = 8.0 * sizeSpread * nominalSize / (resolution - 1);
+            return 0.125 * curvature * chord * chord;
+        }
 
         // Grid triangulation is (i00, i11, i10), (i00, i01, i11). It is not arbitrary: M3's
         // geomorph invariant -- a fully morphed child mesh is triangle-for-triangle its

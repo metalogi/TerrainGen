@@ -94,14 +94,17 @@ namespace Sonoma.Systems.Configuration
                  "finest chunks hides nothing at coarse depths. One sized for coarse depths is " +
                  "never seen -- the skirt drops along the heightfield's own direction, so it lies " +
                  "underground and shows only through a crack -- but it pads every fine chunk's " +
-                 "culling bounds by the same kilometres. SkirtFraction scales with the node.")]
+                 "culling bounds by the same kilometres. SkirtFraction scales with the chunk.")]
         public float SkirtDepth = 10f;
-        [Tooltip("Node-relative part of the skirt's drop: each chunk's skirt hangs " +
-                 "SkirtDepth + SkirtFraction x its nominal node size below its edge, and its " +
-                 "culling bounds are padded by the same. 0 leaves the skirt absolute and the " +
-                 "meshes bit-identical to a build without this field. Needed when the depths " +
-                 "span several orders of magnitude, as on an Earth-sized sphere, where the gap " +
-                 "runs from about half a metre at depth 19 to a kilometre at depth 8.")]
+        [Tooltip("Relief-relative part of the skirt's drop: each chunk's skirt hangs " +
+                 "SkirtDepth + SkirtFraction x (its own measured relief, max - min height over " +
+                 "its grid, + the surface's chord sag at its depth) below its edge, and its " +
+                 "culling bounds are padded by the same. So a plain hangs a short skirt and a " +
+                 "mountainside a long one. 0 leaves the skirt absolute and the meshes " +
+                 "bit-identical to a build without this field. Needed when the depths span " +
+                 "several orders of magnitude, as on an Earth-sized sphere, where the gap runs " +
+                 "from under a metre at depth 19 to kilometres at depth 4. See " +
+                 "ChunkMeshLayout.SkirtDrop.")]
         [Min(0f)]
         public float SkirtFraction = 0f;
 

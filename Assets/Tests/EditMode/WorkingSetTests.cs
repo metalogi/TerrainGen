@@ -134,8 +134,8 @@ namespace Sonoma.Tests
             // identity is what keeps them valid (LodVerticalTests.IdentityIsBitExact).
             Assert.AreEqual(1f,          settings.LodVerticalScale,   "LodVerticalScale");
             Assert.AreEqual(Budget,      settings.MaxResidentChunks,  "MaxResidentChunks");
-            // M4's node-relative skirt term. At 0 SampleScene's meshes are bit-identical to the
-            // ones every M3 figure was measured on (ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction).
+            // The relief-relative skirt term (M4's, node-relative until M5b). At 0 SampleScene's
+            // meshes are bit-identical to the ones every M3 figure was measured on (ChunkMeshLayoutTests.SkirtDropIsExactWithNoFraction).
             Assert.AreEqual(0f,          settings.SkirtFraction,      "SkirtFraction");
             Assert.AreEqual(0.0,         settings.OctaveWavelength0,  "OctaveWavelength0");
             Assert.AreEqual(OctaveCount, settings.OctaveCount,        "OctaveCount");

@@ -38,7 +38,7 @@ namespace Sonoma.Tests
         //
         // Base heights are about a third of each planet's or ring's detail HeightScale, and equal
         // to the terrarium's, whose 10 km world wants hundreds of metres. They add to the relief
-        // each scene's LOD allowance has to cover, so the relief and skirt tests size the demand
+        // each scene's LOD allowance has to cover, so the relief tests size the demand
         // with them (Demand, below).
         //
         // Measured with the macro (2026-10-18, 300 random nodes per depth, 600 in the terrarium,
@@ -172,8 +172,7 @@ namespace Sonoma.Tests
         // measuredAt, so raising one in an asset fails here until C is re-measured at it.
         //
         // verticalScale is the scene's LodVerticalScale for the demand on the LOD relief allowance,
-        // which is spent in the flattened world (LodVertical), and 1 for the true relief -- what a
-        // skirt has to hide, since skirts are geometry.
+        // which is spent in the flattened world (LodVertical), and 1 for the true relief.
         internal static double DetailDemand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0,
                                             double verticalScale = 1.0)
         {

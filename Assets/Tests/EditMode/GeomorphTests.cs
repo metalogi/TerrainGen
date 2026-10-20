@@ -404,7 +404,7 @@ namespace Sonoma.Tests
             var coarseHeights = new NativeArray<float>(coarse,    Allocator.TempJob);
             var splats        = new NativeArray<uint>(samples,    Allocator.TempJob);
             var coarseSplats  = new NativeArray<uint>(coarse,     Allocator.TempJob);
-            var heightBounds  = new NativeArray<float>(2,         Allocator.TempJob);
+            var heightBounds  = new NativeArray<float>(3,         Allocator.TempJob);
 
             var meshData = Mesh.AllocateWritableMeshData(1);
             var data     = meshData[0];

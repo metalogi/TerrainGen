@@ -14,7 +14,12 @@ namespace Sonoma.Core.Generation
     {
         public int     Resolution;
         public double3 Anchor;
+        // The skirt's drop is ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, relief +
+        // ChordSag), with the relief this job measures over the main grid: known only once the
+        // heights are. ChordSag is the curvature's part (ChunkMeshLayout.ChordSag).
         public float   SkirtDepth;
+        public float   SkirtFraction;
+        public float   ChordSag;
         public float   Depth;              // packed into the morph attribute for M3
 
         [ReadOnly] public NativeArray<double3> BasePoints;
@@ -28,7 +33,7 @@ namespace Sonoma.Core.Generation
         [ReadOnly] public NativeArray<uint>    CoarseSplats;
 
         public Mesh.MeshData Mesh;
-        [WriteOnly] public NativeArray<float> HeightBounds;   // [0] = min, [1] = max
+        [WriteOnly] public NativeArray<float> HeightBounds;   // [0] = min, [1] = max, [2] = skirt drop
 
         public void Execute()
         {
@@ -87,21 +92,25 @@ namespace Sonoma.Core.Generation
                 };
             }
 
-            // Skirts: one duplicated row per edge, pushed along the inward base normal.
+            // Skirts: one duplicated row per edge, pushed along the inward base normal, by a
+            // drop sized from this chunk's own relief.
+            float drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction,
+                                                   (double)(maxH - minH) + ChordSag);
             for (int edge = 0; edge < 4; edge++)
             for (int k = 0; k < R; k++)
             {
                 int top = ChunkMeshLayout.SkirtTopIndex(R, edge, k);
                 var v   = verts[top];
-                v.Position -= v.TopoElevation.xyz * SkirtDepth;
+                v.Position -= v.TopoElevation.xyz * drop;
                 // The morph target moves with it, so a morphing skirt stays attached to a
                 // morphing edge instead of tearing away from it.
-                v.MorphPosition = new float4(v.MorphPosition.xyz - v.TopoElevation.xyz * SkirtDepth, Depth);
+                v.MorphPosition = new float4(v.MorphPosition.xyz - v.TopoElevation.xyz * drop, Depth);
                 verts[ChunkMeshLayout.SkirtBottomIndex(R, edge, k)] = v;
             }
 
             HeightBounds[0] = minH;
             HeightBounds[1] = maxH;
+            HeightBounds[2] = drop;
         }
 
         // Index into the (R+2) x (R+2) sampled grid for chunk vertex (i, j), i and j in -1 .. R.

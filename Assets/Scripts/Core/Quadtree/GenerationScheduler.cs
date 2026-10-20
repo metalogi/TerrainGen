@@ -36,7 +36,6 @@ namespace Sonoma.Core.Quadtree
         {
             public NodeId  Node;
             public double3 Anchor;
-            public float   SkirtDepth;      // this chunk's drop; see ChunkMeshLayout.SkirtDrop
             public JobHandle Handle;
             public Mesh.MeshDataArray MeshData;
 
@@ -67,7 +66,7 @@ namespace Sonoma.Core.Quadtree
         readonly int          _resolution;
         readonly float        _skirtDepth;
         readonly float        _skirtFraction;
-        readonly double       _skirtMaxRelief;   // see ChunkMeshLayout.SkirtDrop
+        readonly double       _curvature, _sizeSpread;   // for ChunkMeshLayout.ChordSag
         readonly int          _maxInFlight;
         readonly float        _uploadBudgetMs;
         readonly bool         _flipWinding;
@@ -119,14 +118,13 @@ namespace Sonoma.Core.Quadtree
             _resolution     = p.Resolution;
             _skirtDepth     = skirtDepth;
             _skirtFraction  = skirtFraction;
+            _curvature      = surface.Type == SurfaceType.PlaneGrid ? 0.0 : 1.0 / surface.Radius;
+            _sizeSpread     = SurfaceMath.MaxNodeSizeSpread(surface);
             _maxInFlight    = math.max(1, maxInFlight);
             _uploadBudgetMs = math.max(0.1f, uploadBudgetMs);
             _flipWinding    = SurfaceMath.UvFrameIsRightHanded(surface);
             _ownsMacro      = macro == null;
             _macro          = macro ?? MacroMaps.Disabled();
-            // From the terrain this scheduler generates, so no caller can hand it a cap that
-            // disagrees with the heights: every height lies within MaxAbsHeight of zero.
-            _skirtMaxRelief = 2.0 * TerrainHeightFunction.MaxAbsHeight(p, _macro.Params);
         }
 
         // Requests a node, or re-prices one already queued.
@@ -202,11 +200,6 @@ namespace Sonoma.Core.Quadtree
                 Node          = node,
                 Anchor        = SurfaceMath.SurfacePoint(_surface, root,
                                     0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax)),
-                // From the nominal size, like every other per-depth quantity, so every chunk at
-                // a depth hangs the same skirt. Computed once here and used twice: for the mesh,
-                // and for the bounds pad in Upload, which must cover what the mesh job drew.
-                SkirtDepth    = ChunkMeshLayout.SkirtDrop(_skirtDepth, _skirtFraction,
-                                    LodMath.NominalSize(_params.S0, node.Depth), _skirtMaxRelief),
                 BasePoints    = new NativeArray<double3>(samples, Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 BaseNormals   = new NativeArray<float3>(samples,  Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 Heights       = new NativeArray<float>(samples,   Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
@@ -215,7 +208,7 @@ namespace Sonoma.Core.Quadtree
                 CoarseHeights = new NativeArray<float>(coarse,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 Splats        = new NativeArray<uint>(samples,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 CoarseSplats  = new NativeArray<uint>(coarse,     Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
-                HeightBounds  = new NativeArray<float>(2,         Allocator.Persistent),
+                HeightBounds  = new NativeArray<float>(3,         Allocator.Persistent),
                 MeshData      = Mesh.AllocateWritableMeshData(1),
             };
 
@@ -251,7 +244,10 @@ namespace Sonoma.Core.Quadtree
 
             var mesh = new ChunkMeshJob
             {
-                Resolution = R, Anchor = p.Anchor, SkirtDepth = p.SkirtDepth, Depth = node.Depth,
+                Resolution = R, Anchor = p.Anchor, Depth = node.Depth,
+                SkirtDepth = _skirtDepth, SkirtFraction = _skirtFraction,
+                ChordSag   = (float)ChunkMeshLayout.ChordSag(_curvature, _sizeSpread,
+                                 LodMath.NominalSize(_params.S0, node.Depth), R),
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
                 Splats = p.Splats,
                 CoarseBasePoints = p.CoarsePoints, CoarseBaseNormals = p.CoarseNormals,
@@ -312,11 +308,12 @@ namespace Sonoma.Core.Quadtree
             Mesh.ApplyAndDisposeWritableMeshData(p.MeshData, mesh, MeshUpdateFlags.DontRecalculateBounds);
 
             // Bounds from the job's measured min/max rather than a recalculation pass, which
-            // would walk every vertex again on the main thread.
+            // would walk every vertex again on the main thread, padded by the skirt drop the job
+            // derived from them, so they cover what it drew.
             var root   = _roots[p.Node.Quad];
             float half = (float)(SurfaceMath.NodeWorldSize(_surface, root, p.Node) * 0.5);
-            float minH = p.HeightBounds[0], maxH = p.HeightBounds[1];
-            float pad  = math.max(math.abs(minH), math.abs(maxH)) + p.SkirtDepth;
+            float minH = p.HeightBounds[0], maxH = p.HeightBounds[1], drop = p.HeightBounds[2];
+            float pad  = math.max(math.abs(minH), math.abs(maxH)) + drop;
             mesh.bounds = new Bounds(Vector3.zero, new Vector3(half * 2f + pad * 2f,
                                                                half * 2f + pad * 2f,
                                                                half * 2f + pad * 2f));
