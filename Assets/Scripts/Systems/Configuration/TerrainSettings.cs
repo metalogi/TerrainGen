@@ -50,6 +50,16 @@ namespace Sonoma.Systems.Configuration
                  "and 4350 at 1.5 on geometry alone, and more on rough terrain. Keep " +
                  "MaxResidentChunks above whichever you pick.")]
         public float PreloadFactor = 1.15f;
+        [Tooltip("LOD selection and the morph measure distance as if every terrain height were " +
+                 "scaled by this, while the terrain is drawn at full height (LodVertical). 1 " +
+                 "measures in the true world, bit for bit as before this existed. The LOD relief " +
+                 "allowance is a budget on slope, and HeightScale multiplies every slope; below 1 " +
+                 "a terrain spends the allowance, and wants the chunks, of one this much flatter, " +
+                 "so 0.2 carries five times the relief at the same SplitFactor. The LOD is never " +
+                 "coarser than true distance would give; where height differences dominate, " +
+                 "looking down into a deep valley, it is finer than it needs to be.")]
+        [Range(0.05f, 1f)]
+        public float LodVerticalScale = 1f;
 
         [Header("Generation Pipeline")]
         [Tooltip("Maximum chunk generation jobs in flight at once.")]

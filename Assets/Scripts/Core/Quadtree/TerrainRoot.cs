@@ -55,6 +55,7 @@ namespace Sonoma.Core.Quadtree
         const  int              MorphRangeCount = 32;
         static readonly int     MorphRangesId   = Shader.PropertyToID("_SonomaMorphRanges");
         static readonly int     ViewPositionId  = Shader.PropertyToID(WorldOriginSystem.ViewPositionGlobal);
+        static readonly int     LodVerticalId   = Shader.PropertyToID("_SonomaLodVertical");
         readonly        Vector4[] _morphRanges  = new Vector4[MorphRangeCount];
 
         // The biome colours the _SONOMA_BIOMES shader path blends by the vertex's weights, one
@@ -137,6 +138,15 @@ namespace Sonoma.Core.Quadtree
             // Before the scheduler, whose jobs read it; built on workers and waited for, once.
             _macro = BuildMacro();
 
+            // The flattened world the LOD measures in, which needs a bound on the terrain's height,
+            // and so the macro layer's. Before the selector, which copies the LodMath.
+            _lod = _lod.WithVertical(LodVertical.Create(Surface, Settings.LodVerticalScale,
+                                     TerrainHeightFunction.MaxAbsHeight(_params, _macro.Params)));
+            if (!_lod.Vertical.IsIdentity)
+                Debug.Log($"[TerrainRoot] LOD measures distance with terrain heights scaled by " +
+                          $"{_lod.Vertical.Scale:G3}, within a height envelope of " +
+                          $"{_lod.Vertical.Envelope / 1000.0:F1} km. See LodVertical.");
+
             _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution);
             _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
                                                  skirtFraction, Settings.MaxInFlightJobs,
@@ -145,7 +155,7 @@ namespace Sonoma.Core.Quadtree
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
 
-            PushShaderGlobals(ViewPositionRenderSpace());
+            PushShaderGlobals(LodViewPosition(ViewPositionRenderSpace()));
         }
 
         // Everything the vertex shader needs to run the morph.
@@ -164,6 +174,11 @@ namespace Sonoma.Core.Quadtree
         // stale camera. It is also the same value passed to LodSelector.Run below, so
         // selection and the morph cannot drift apart within a frame -- including a frame that
         // rebases, because WorldOriginSystem.ShiftOrigin moves this value with the world.
+        //
+        // It is the camera as the LOD sees it, flattened by LodVertical, and _SonomaLodVertical
+        // is the map the shader flattens each vertex by before measuring: (Flatten, Anchor),
+        // and (0, 0) -- the identity -- for a configuration that never set it, which is also
+        // what an unset global reads as.
         void PushShaderGlobals(Vector3 viewPosition)
         {
             for (int d = 0; d < MorphRangeCount; d++)
@@ -173,6 +188,8 @@ namespace Sonoma.Core.Quadtree
             }
             Shader.SetGlobalVectorArray(MorphRangesId, _morphRanges);
             Shader.SetGlobalVector(ViewPositionId, viewPosition);
+            Shader.SetGlobalVector(LodVerticalId, new Vector4((float)_lod.Vertical.Flatten,
+                                                             (float)_lod.Vertical.Anchor, 0f, 0f));
             Shader.SetGlobalVectorArray(BiomeColorsId, _biomeColors);
             PushSky();
         }
@@ -247,11 +264,25 @@ namespace Sonoma.Core.Quadtree
             // Read the camera once and feed both from it. The shader morphs by a per-vertex
             // distance and the selector splits by a per-node one; they are only guaranteed to
             // describe the same world if they are measured from the same point.
-            Vector3 view = ViewPositionRenderSpace();
+            Vector3 view = LodViewPosition(ViewPositionRenderSpace());
 
             PushShaderGlobals(view);
             _selector.Run(WorldOriginSystem.WorldOrigin + new double3(view.x, view.y, view.z));
             _scheduler.Update();
+        }
+
+        // The camera as the LOD sees it (LodVertical.MapPoint), still in render space. Mapped in
+        // double from the absolute position, because the map is defined by altitude above the
+        // base surface, and narrowed once; Update then hands the selector this same Vector3 with
+        // the origin added back, so the two still measure from one point. The identity returns
+        // the camera untouched, so SampleScene's view position is the bits it always was.
+        Vector3 LodViewPosition(Vector3 view)
+        {
+            if (_lod.Vertical.IsIdentity) return view;
+
+            double3 origin = WorldOriginSystem.WorldOrigin;
+            double3 flat   = _lod.Vertical.MapPoint(Surface, origin + new double3(view.x, view.y, view.z));
+            return (Vector3)(float3)(flat - origin);
         }
 
         // The camera transform is render space (world - origin), which is also the space

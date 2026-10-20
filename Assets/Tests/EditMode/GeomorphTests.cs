@@ -271,6 +271,13 @@ namespace Sonoma.Tests
             Assert.IsFalse(factor.Contains("_WorldSpaceCameraPos"),
                 "the morph distance is measured from _WorldSpaceCameraPos, which URP does not " +
                 "set for the additional-lights shadow pass; see TerrainRoot.PushShaderGlobals");
+            // And measured in the flattened world the selector selected in (LodVertical): the
+            // vertex moved by _SonomaLodVertical along its topology up before the distance is
+            // taken. A pass that measured the true vertex against the flattened camera would
+            // pick a k that is neither world's, and nothing else here would notice.
+            Assert.IsTrue(factor.Contains("_SonomaLodVertical"),
+                "the morph distance is not taken in the flattened world LodSelector selects in; " +
+                "see LodVertical");
 
             foreach (string pass in new[] { "ForwardLit", "ShadowCaster", "DepthOnly", "DepthNormals" })
             {
@@ -285,6 +292,8 @@ namespace Sonoma.Tests
                     $"pass {pass} does not apply the geomorph");
                 Assert.IsTrue(body.Contains("TEXCOORD2"),
                     $"pass {pass} does not read the morph attribute");
+                Assert.IsTrue(body.Contains("TEXCOORD1"),
+                    $"pass {pass} does not read the topology up and elevation the morph flattens by");
             }
         }
 

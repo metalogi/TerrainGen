@@ -88,6 +88,9 @@ namespace Sonoma.Core.Quadtree
 
         // -- The frame -------------------------------------------------------
 
+        // The camera in absolute world space, as the LOD sees it: already flattened by the
+        // LodMath's Vertical (LodVertical.MapPoint), because the shader has to measure from the
+        // same point and TerrainRoot pushes it there. With the identity it is the camera.
         public void Run(double3 cameraWorldPosition)
         {
             _camera = cameraWorldPosition;
@@ -345,7 +348,7 @@ namespace Sonoma.Core.Quadtree
                 double allowed = _lod.MaxHalfRelief(_worstReliefDepth);
                 Debug.LogWarning(
                     $"[LodSelector] the roughest terrain this session was at depth {_worstReliefDepth}: " +
-                    $"a half-relief of {_worstReliefHalf:F2} m where this configuration allows " +
+                    $"a half-relief of {_worstReliefHalf:F2} m{FlattenedNote()} where this configuration allows " +
                     $"{allowed:F2} m (node size {_lod.NominalSize(_worstReliefDepth):F2} m). Retune " +
                     "against this chunk, not the first one to overrun.");
             }
@@ -459,10 +462,14 @@ namespace Sonoma.Core.Quadtree
         // worst case over a whole face, the excess is usually small, and skirts cover a good
         // deal of it. What it costs when it is exceeded is a hairline seam along LOD boundaries
         // in the roughest terrain, which is worth knowing about and is very easy to misdiagnose.
+        //
+        // The relief judged is the one NodeDistance pads with: flattened by LodMath.Vertical, so
+        // with a LodVerticalScale below 1 the figures reported are the flattened half-relief, the
+        // true one times that scale.
         void WarnIfTerrainIsTooRoughToCloseBoundaries(in GenerationScheduler.Result result)
         {
             int    depth   = result.Node.Depth;
-            double half    = 0.5 * (result.MaxHeight - result.MinHeight);
+            double half    = _lod.Vertical.MapRelief(0.5 * (result.MaxHeight - result.MinHeight));
             double allowed = _lod.MaxHalfRelief(depth);
             if (half <= allowed) return;
 
@@ -482,15 +489,19 @@ namespace Sonoma.Core.Quadtree
             _reliefWarned = true;
             Debug.LogWarning(
                 $"[LodSelector] terrain at depth {depth} has a half-relief of " +
-                $"{half:F2} m where this configuration allows {allowed:F2} m " +
+                $"{half:F2} m{FlattenedNote()} where this configuration allows {allowed:F2} m " +
                 $"(node size {_lod.NominalSize(depth):F2} m). LOD boundaries in the " +
                 "roughest terrain may not close: the coarse side can begin morphing before the " +
                 "fine side has finished, leaving a hairline seam that skirts will mostly, but " +
-                "not always, cover. Lower MorphStartFraction, raise SplitFactor, lower " +
-                "HysteresisFactor, or reduce HeightScale or MaxDepth. See LodMath.MaxHalfRelief. " +
-                "This is the first chunk to overrun, not the worst; the worst is reported when " +
-                "the terrain shuts down.");
+                "not always, cover. Lower MorphStartFraction or LodVerticalScale, raise " +
+                "SplitFactor, lower HysteresisFactor, or reduce HeightScale or MaxDepth. See " +
+                "LodMath.MaxHalfRelief. This is the first chunk to overrun, not the worst; the " +
+                "worst is reported when the terrain shuts down.");
         }
+
+        // Warning text only, so its allocation is no concern.
+        string FlattenedNote() => _lod.Vertical.IsIdentity ? ""
+            : $" as the LOD sees it, at LodVerticalScale {_lod.Vertical.Scale:G3}";
 
         // Bounding-sphere distance, padded by the node's relief once it has been built. The
         // arithmetic, and why the pad moves the sphere rather than inflating it, live in
@@ -500,7 +511,7 @@ namespace Sonoma.Core.Quadtree
         {
             _nodes.TryGetValue(node, out var state);
             return LodMath.NodeDistance(_surface, _roots[node.Quad], node, _camera,
-                                        state.MinHeight, state.MaxHeight);
+                                        state.MinHeight, state.MaxHeight, _lod.Vertical);
         }
 
         // Play-mode teardown. The pool destroys the meshes; this only drops the references,

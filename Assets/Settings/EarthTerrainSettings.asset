@@ -14,17 +14,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.TerrainSettings
   ChunkResolution: 33
   MaxDepth: 19
-  HeightScale: 4000
+  HeightScale: 20000
   SplitFactor: 4
   HysteresisFactor: 1.1
   MorphStartFraction: 0.1
   PreloadFactor: 1
+  LodVerticalScale: 0.2
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
   MaxResidentChunks: 9400
   SkirtsEnabled: 1
   SkirtDepth: 1
-  SkirtFraction: 0.58
+  SkirtFraction: 2.9
   OctaveWavelength0: 0
   OctaveCount: 24
   Persistence: 0.7
