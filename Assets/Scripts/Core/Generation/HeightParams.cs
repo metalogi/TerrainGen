@@ -108,13 +108,14 @@ namespace Sonoma.Core.Generation
         // starved.
         public bool IsOctaveStarved(int depth) => depth + K0 > OctaveCount - 1;
 
-        // No MaxAbsHeight helper here on purpose. An analytic bound on |Height| is easy --
-        // HeightScale times the geometric series in Persistence -- but it is about 2.6x the
-        // measured maximum, and the quantity the LOD boundary actually cares about is the
-        // *relief across a node*, not the absolute elevation. See LodMath.MaxHalfRelief and
-        // LodSelector.NodeDistance: padding a bounding sphere by absolute elevation is what
-        // made deep nodes 21x oversized, and bounding fbm relief in advance is what made a
-        // Create-time check refuse perfectly good worlds.
+        // The analytic bound on |Height| -- HeightScale times the geometric series in
+        // Persistence, about 2.6x the measured maximum -- is TerrainHeightFunction.MaxAbsHeight,
+        // with the band gains and the macro layer. It is for what needs a true bound everywhere:
+        // LodVertical's envelope and the cap on a skirt's drop. It is the wrong tool for the LOD
+        // boundary, which cares about the *relief across a node*, not the absolute elevation.
+        // See LodMath.MaxHalfRelief and LodSelector.NodeDistance: padding a bounding sphere by
+        // absolute elevation is what made deep nodes 21x oversized, and bounding fbm relief in
+        // advance is what made a Create-time check refuse perfectly good worlds.
 
         public static HeightParams Create(in SurfaceDef s, int resolution, double octaveWavelength0,
                                           int octaveCount, float heightScale, float persistence,

@@ -195,19 +195,25 @@ namespace Sonoma.Tests
             => DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0, verticalScale)
              + verticalScale * MacroReliefFactor * For(scene).BaseHeightScale / s0;
 
-        // The flattened world a stress scene's LOD measures in, as TerrainRoot builds it: its
-        // LodVerticalScale over the height bound of its spectrum, bands and macro layer.
-        internal static LodVertical Vertical(string scene, in HeightParams rough, float verticalScale)
+        // A stress scene's height bound, as TerrainRoot and GenerationScheduler take it: its
+        // spectrum with its bands, and its macro layer.
+        internal static double MaxAbsHeight(string scene, in HeightParams rough)
         {
             var m = For(scene);
-            var p = rough.WithBands(m.LowBandEdge, m.MidBandEdge);
-            return LodVertical.Create(m.Surface, verticalScale, TerrainHeightFunction.MaxAbsHeight(p, m.Params));
+            return TerrainHeightFunction.MaxAbsHeight(rough.WithBands(m.LowBandEdge, m.MidBandEdge), m.Params);
         }
+
+        // The flattened world a stress scene's LOD measures in, as TerrainRoot builds it: its
+        // LodVerticalScale over the height bound.
+        internal static LodVertical Vertical(string scene, in HeightParams rough, float verticalScale)
+            => LodVertical.Create(For(scene).Surface, verticalScale, MaxAbsHeight(scene, rough));
 
         // What the relief tests ask of the allowance against Demand. Not the 2x they ask against
         // the detail estimate alone: Demand already stacks two worst cases padded by half again
-        // that never fall on one node, and 2x over that would have the terrarium, at 1.31x,
-        // carry about 40 m of base height. Its 200 m passes at 1.25x; above about 220 m it fails.
+        // that never fall on one node. At M5b's relief the terrarium cleared this at 1.31x, where
+        // 2x would have let it carry about 40 m of base height, and above about 220 m it failed.
+        // Flattened by LodVerticalScale 0.2 it clears 2.0x, still the least of the four scenes,
+        // and its base height could reach about 1,100 m before this fails.
         internal const double CombinedMargin = 1.25;
 
         // Each stress scene's macro layer is a valid configuration, small enough to build at
@@ -646,6 +652,48 @@ namespace Sonoma.Tests
                     }
                 }
             }
+        }
+
+        // Between texels the read is NOT bounded by them: Catmull-Rom's outer weights are
+        // negative, and against texels whose signs follow the weights' a read at a cell's centre
+        // reaches exactly MacroSampler.MaxOvershoot of the largest texel. That is the factor
+        // TerrainHeightFunction.MaxAbsHeight puts on the base height, so LodVertical's envelope
+        // and the skirts' cap are bounds rather than typical cases; without it the base height
+        // could read half again past the envelope. Random texels and reads stay within it.
+        [Test]
+        public void MacroReadOvershootIsBoundedAndAttained()
+        {
+            var layout = new MacroLayout(Cells0, 1, 1);
+            var texels = new float4[layout.TexelCount];
+            int c      = Cells0 / 2;
+            // At t = 0.5 the weights are (-1/16, 9/16, 9/16, -1/16) on each axis.
+            int[] sign = { -1, 1, 1, -1 };
+            for (int a = 0; a < 4; a++)
+            for (int b = 0; b < 4; b++)
+                texels[layout.Index(0, 0, c - 1 + a, c - 1 + b)] = new float4(sign[a] * sign[b], 0f, 0f, 0f);
+
+            double centre = (c + 0.5) / Cells0;
+            double worst  = MacroSampler.Sample(new ArrayTexels(texels), layout, 0, 0, centre, centre).BaseHeight;
+            Assert.AreEqual(MacroSampler.MaxOvershoot, worst, 1e-12, "the adversarial read at a cell centre");
+
+            var rng = new Unity.Mathematics.Random(0x0E5u);
+            for (int k = 0; k < texels.Length; k++) texels[k] = new float4(rng.NextFloat(-1f, 1f), 0f, 0f, 0f);
+            for (int t = 0; t < 20000; t++)
+            {
+                double read = MacroSampler.Sample(new ArrayTexels(texels), layout, 0, 0, rng.NextDouble(), rng.NextDouble()).BaseHeight;
+                Assert.LessOrEqual(math.abs(read), MacroSampler.MaxOvershoot + 1e-12, "a read past the overshoot bound");
+            }
+
+            // And the height bound carries it: with no detail noise, MaxAbsHeight is the texel
+            // bound -- BaseHeightScale times the macro octaves' geometric sum -- times the factor.
+            var s       = SurfaceDef.CubeSphere(6371000.0);
+            var hp      = HeightParams.Create(s, Resolution, 0.0, 20, 0f, 0.5f, 2f, 42u);
+            var macro   = MacroParams.Create(s, hp, Config());
+            double sum  = 0.0, amp = 1.0;
+            for (int j = 0; j <= macro.MaxOctave(macro.Layout.LevelCount - 1); j++) { sum += amp; amp *= macro.Persistence; }
+            Assert.AreEqual(macro.BaseHeightScale * sum * MacroSampler.MaxOvershoot,
+                            TerrainHeightFunction.MaxAbsHeight(hp, macro), 1e-9,
+                            "MaxAbsHeight's base height share is not the texel bound times the overshoot");
         }
 
         static void ExpectTexel(float4[] maps, ArrayTexels texel, in MacroLayout layout, int q,

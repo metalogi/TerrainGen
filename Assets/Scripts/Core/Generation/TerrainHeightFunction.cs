@@ -85,24 +85,26 @@ namespace Sonoma.Core.Generation
         // A bound on |Height| anywhere on the surface, at any depth: every octave at the largest
         // amplitude its band can take anywhere (MacroParams.MaxBandAmplitude, which is 1 on every
         // band without a macro layer), the noise at its bound of 1, which it attains, and the
-        // macro base height's bound the same way over the octaves the finest level carries.
+        // macro base height's bound the same way over the octaves the finest level carries, times
+        // the most the bicubic read can overshoot its texels (MacroSampler.MaxOvershoot).
         //
-        // A bound, not an estimate, because LodVertical's envelope needs one: a vertex outside
-        // it is flattened by a different rule from the camera, and the LOD picked for it may then
-        // be coarser than true distance would give. It runs well above the real extremes, since
-        // the octaves rarely all peak at one point -- on Earth at HeightScale 20,000, 81 km -- and
-        // that costs only finer LOD than needed for a camera between the real peaks and it.
+        // A bound, not an estimate, for its two users. LodVertical's envelope needs one: a vertex
+        // outside it is flattened by a different rule from the camera, and the LOD picked for it
+        // may then be coarser than true distance would give. And twice it caps a skirt's drop
+        // (ChunkMeshLayout.SkirtDrop), which must still reach any gap. It runs well above the real
+        // extremes, since the octaves rarely all peak at one point -- on Earth at HeightScale
+        // 20,000, 84 km -- and that costs only finer LOD than needed for a camera between the real
+        // peaks and it, and skirts longer than they need to be at the coarsest depths.
         public static double MaxAbsHeight(in HeightParams p, in MacroParams macro)
         {
             float3 band = macro.Enabled ? macro.MaxBandAmplitude : new float3(1f);
 
-            double detail = 0.0, amp = 1.0;
+            double detail = 0.0;
             for (int k = 0; k < p.OctaveCount; k++)
             {
-                // The band and the fall-off exactly as LatticeNoise.Fbm applies them.
+                // The band as LatticeNoise.Fbm applies it, and the fall-off as it does too.
                 float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
-                detail += amp * math.abs(gain);
-                amp    *= k + 1 < p.CrossoverOctave ? p.Persistence : p.FinePersistence;
+                detail += p.OctaveAmplitude(k) * math.abs(gain);
             }
 
             double baseHeight = 0.0;
@@ -115,7 +117,7 @@ namespace Sonoma.Core.Generation
                     baseHeight += a;
                     a          *= macro.Persistence;
                 }
-                baseHeight *= math.abs(macro.BaseHeightScale);
+                baseHeight *= math.abs(macro.BaseHeightScale) * MacroSampler.MaxOvershoot;
             }
 
             return math.abs(p.HeightScale) * detail + baseHeight;

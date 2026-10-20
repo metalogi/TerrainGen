@@ -67,6 +67,7 @@ namespace Sonoma.Core.Quadtree
         readonly int          _resolution;
         readonly float        _skirtDepth;
         readonly float        _skirtFraction;
+        readonly double       _skirtMaxRelief;   // see ChunkMeshLayout.SkirtDrop
         readonly int          _maxInFlight;
         readonly float        _uploadBudgetMs;
         readonly bool         _flipWinding;
@@ -123,6 +124,9 @@ namespace Sonoma.Core.Quadtree
             _flipWinding    = SurfaceMath.UvFrameIsRightHanded(surface);
             _ownsMacro      = macro == null;
             _macro          = macro ?? MacroMaps.Disabled();
+            // From the terrain this scheduler generates, so no caller can hand it a cap that
+            // disagrees with the heights: every height lies within MaxAbsHeight of zero.
+            _skirtMaxRelief = 2.0 * TerrainHeightFunction.MaxAbsHeight(p, _macro.Params);
         }
 
         // Requests a node, or re-prices one already queued.
@@ -202,7 +206,7 @@ namespace Sonoma.Core.Quadtree
                 // a depth hangs the same skirt. Computed once here and used twice: for the mesh,
                 // and for the bounds pad in Upload, which must cover what the mesh job drew.
                 SkirtDepth    = ChunkMeshLayout.SkirtDrop(_skirtDepth, _skirtFraction,
-                                    LodMath.NominalSize(_params.S0, node.Depth)),
+                                    LodMath.NominalSize(_params.S0, node.Depth), _skirtMaxRelief),
                 BasePoints    = new NativeArray<double3>(samples, Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 BaseNormals   = new NativeArray<float3>(samples,  Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 Heights       = new NativeArray<float>(samples,   Allocator.Persistent, NativeArrayOptions.UninitializedMemory),

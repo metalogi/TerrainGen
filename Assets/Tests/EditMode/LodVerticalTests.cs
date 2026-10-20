@@ -68,6 +68,25 @@ namespace Sonoma.Tests
             }
         }
 
+        // The identity packs for the shader as zero, which is also what an unset
+        // _SonomaLodVertical reads as -- so a scene that never pushes it, or a frame before
+        // TerrainRoot does, morphs in the true world rather than a flattened one. Storing the
+        // scale rather than the flatten would pack the identity as (1, ...), and an unset global
+        // would then be the flattest map there is.
+        [Test]
+        public void IdentityPacksAsAnUnsetGlobal()
+        {
+            Assert.AreEqual(float4.zero, default(LodVertical).ShaderParams, "default(LodVertical)");
+            foreach (var (name, s) in Surfaces)
+            {
+                float4 q = LodVertical.Create(s, 1f, 5000.0).ShaderParams;
+                Assert.AreEqual(0f, q.x, $"{name}: a vertical scale of 1 packs a non-zero flatten");
+                // The anchor may be set at the identity; at a zero flatten it moves nothing.
+                Assert.AreEqual(0f, q.z, $"{name}: z is unused");
+                Assert.AreEqual(0f, q.w, $"{name}: w is unused");
+            }
+        }
+
         // LodMath.NodeDistance as M5b shipped it, frozen.
         static double FrozenNodeDistance(in SurfaceDef surface, in RootQuad root, NodeId node,
                                          double3 camera, float minHeight, float maxHeight)
@@ -171,8 +190,11 @@ namespace Sonoma.Tests
                     // The shader moves along topoUp, the float normal; MapPoint along the exact one,
                     // by the altitude it measures, which the float normal leaves about 1e-7 of the
                     // height off h. Both are a tenth of a millimetre over kilometres, and that is
-                    // all they differ by.
-                    double3 shader    = vertex - (double3)n * (v.Flatten * (h - v.Anchor));
+                    // all they differ by. The map comes as the shader gets it, packed by
+                    // ShaderParams and read as SonomaMorphFactor reads it, so a swapped packing
+                    // fails here.
+                    float4  q         = v.ShaderParams;
+                    double3 shader    = vertex - (double3)n * (q.x * (h - q.y));
                     double  tolerance = 1e-6 * (math.abs(h) + math.abs(v.Anchor)) + 1e-9 * math.max(1.0, s.Radius);
                     Assert.AreEqual(0.0, math.distance(shader, v.MapPoint(s, vertex)), tolerance,
                         "the flattened vertex is not what the shader computes from topoUp and elevation");

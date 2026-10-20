@@ -234,21 +234,26 @@ namespace Sonoma.Tests
         // fraction of 0 must give back the absolute depth to the bit at every node size, or every
         // existing chunk's skirt moves by a rounding error and the scene is no longer the one the
         // M3 figures were measured on.
+        //
+        // The cap is on the node's share alone, so it cannot reach the absolute depth either,
+        // whatever the terrain's relief -- zero included.
         [Test]
         public void SkirtDropIsExactWithNoFraction()
         {
             foreach (float depth in new[] { 0f, 1e-3f, 1f, 2f, 10f, 1234.567f })
             for (int d = 0; d <= 62; d++)
             foreach (double s0 in new[] { 489.9, 10403799.0, 1.0 / 3.0 })
+            foreach (double cap in new[] { 0.0, 200.0, 168000.0, double.PositiveInfinity })
             {
                 double size = s0 / (double)(1L << d);
                 Assert.AreEqual(BitConverter.SingleToInt32Bits(depth),
-                                BitConverter.SingleToInt32Bits(ChunkMeshLayout.SkirtDrop(depth, 0f, size)),
-                                $"skirt depth {depth} at node size {size} changed with no fraction");
+                                BitConverter.SingleToInt32Bits(ChunkMeshLayout.SkirtDrop(depth, 0f, size, cap)),
+                                $"skirt depth {depth} at node size {size}, cap {cap}, changed with no fraction");
             }
 
-            // And the fraction does scale with the node.
-            Assert.AreEqual(1.0 + 0.03 * 1000.0, ChunkMeshLayout.SkirtDrop(1f, 0.03f, 1000.0), 1e-3);
+            // And the fraction does scale with the node, up to the cap and no further.
+            Assert.AreEqual(1.0 + 0.03 * 1000.0, ChunkMeshLayout.SkirtDrop(1f, 0.03f, 1000.0, 1.0e6), 1e-3);
+            Assert.AreEqual(1.0 + 25.0,          ChunkMeshLayout.SkirtDrop(1f, 0.03f, 1000.0, 25.0),  1e-3);
         }
     }
 }

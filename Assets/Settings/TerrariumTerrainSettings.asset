@@ -22,7 +22,7 @@ MonoBehaviour:
   LodVerticalScale: 0.2
   MaxInFlightJobs: 8
   UploadBudgetMs: 1.5
-  MaxResidentChunks: 4300
+  MaxResidentChunks: 4400
   SkirtsEnabled: 1
   SkirtDepth: 1
   SkirtFraction: 2.1

@@ -94,8 +94,9 @@ namespace Sonoma.Tests
         // depth has a half-relief of 0.174 of its node at depth 17 at M5b's relief (2026-10-18),
         // C 226.5, and 340 is half again over it. Flattened by LodVerticalScale 0.2, that needs
         // SplitFactor 4 at MorphStartFraction 0.123 or less; the small planet runs 0.12. The worst
-        // working set, flattened, is 7,426 at the face corner (2026-10-19; M5b's unflattened scan
-        // found 7,206), and the budget is 12% over that.
+        // working set, flattened, is 7,466 beside the face corner (2026-10-19, over the envelope
+        // with the macro read's overshoot; M5b's unflattened scan found 7,206), and the budget is
+        // 11% over that.
         internal static readonly Scene SmallPlanet = new Scene
         {
             Name = "SmallPlanetStress", Asset = "Assets/Settings/SmallPlanetTerrainSettings.asset",
@@ -104,7 +105,7 @@ namespace Sonoma.Tests
             SplitFactor = 4f, MorphStart = 0.12f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.53f, TenMetreFeature = 1.332, TenMetreOnOneSlope = 0.0382,
             ReliefFactor = 340.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 0.0, WorstV = 4.0 / 512.0, Worst = 7426,
+            WorstQuad = 0, WorstU = 0.0, WorstV = 4.0 / 512.0, Worst = 7466,
         };
 
         // A ring of the small planet's radius, as wide as one column of its eight is long, viewed
@@ -119,7 +120,7 @@ namespace Sonoma.Tests
         // over it. A cylinder's allowance is large enough that the ring stays at SplitFactor 3,
         // flattened by LodVerticalScale 0.2; the belts take its MorphStartFraction from 0.15,
         // where they would leave nothing to spare, to 0.14. The worst working set, flattened, is
-        // 4,996 (2026-10-19; M5b's unflattened scan found 4,944).
+        // 5,000 (2026-10-19; M5b's unflattened scan found 4,944).
         internal static readonly Scene Ringworld = new Scene
         {
             Name = "RingworldStress", Asset = "Assets/Settings/RingworldTerrainSettings.asset",
@@ -128,7 +129,7 @@ namespace Sonoma.Tests
             MorphStart = 0.14f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.0763,
             ReliefFactor = 171.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 19.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 4996,
+            WorstQuad = 0, WorstU = 19.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 5000,
         };
 
         // An O'Neill-style interior, 10 km in radius and 30 km long: depth 9 gives 0.65 m vertex
@@ -137,11 +138,11 @@ namespace Sonoma.Tests
         // over that one-depth extrapolation -- the same margin Earth's 15 has over its largest
         // sample. The whole interior is within a few split distances of a camera anywhere in it,
         // so every root subdivides; the worst camera is in an interior row, on root 1 (row 1 of
-        // column 0). Unflattened, M5b's 32 roots wanted 3,124 chunks. Flattened, they want 3,804
-        // (2026-10-19), 22% more, and the budget went from 3,600 to 4,300 for it: LodVertical's
-        // anchor puts the flattened terrain 1.9 km nearer the axis (0.8 of its 2.4 km envelope),
-        // which in a 10 km cylinder shrinks the world the LOD sees by a fifth. That is the price
-        // of the flattened distance never being longer than the true one.
+        // column 0); a rim row's is 3,736. Unflattened, M5b's 32 roots wanted 3,124 chunks.
+        // Flattened, they want 3,880 (2026-10-19), 24% more, and the budget went from 3,600 to
+        // 4,400 for it: LodVertical's anchor puts the flattened terrain 2.1 km nearer the axis (0.8
+        // of its 2.6 km envelope), which in a 10 km cylinder shrinks the world the LOD sees by a
+        // fifth. That is the price of the flattened distance never being longer than the true one.
         //
         // Roughness: fine persistence 0.55 below 100 m made M5b's 10 m features 29 cm, and
         // HeightScale 1,000, five times M5b's 200, makes them 1.43 m. The roughest of 20,000 nodes
@@ -151,10 +152,10 @@ namespace Sonoma.Tests
         {
             Name = "TerrariumStress", Asset = "Assets/Settings/TerrariumTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4),
-            MaxDepth = 9, OctaveCount = 14, Budget = 4300, HeightScale = 1000f, SkirtFraction = 2.1f,
+            MaxDepth = 9, OctaveCount = 14, Budget = 4400, HeightScale = 1000f, SkirtFraction = 2.1f,
             RoughnessCrossover = 100.0, FinePersistence = 0.55f, TenMetreFeature = 1.430, TenMetreOnOneSlope = 0.9766,
             ReliefFactor = 9.0,
-            WorstQuad = 1, WorstU = 21.0 / 512.0, WorstV = 427.0 / 512.0, Worst = 3804,
+            WorstQuad = 1, WorstU = 59.0 / 512.0, WorstV = 493.0 / 512.0, Worst = 3880,
         };
 
         internal static readonly Scene[] All = { SmallPlanet, Ringworld, Terrarium };
@@ -321,26 +322,38 @@ namespace Sonoma.Tests
         }
 
         // The skirt hides the transient gap between two depths, on the order of the coarse node's
-        // relief: twice the demand, macro layer included (MacroTests.Demand), of its size.
-        // SkirtFraction covers that at every depth, 5-7% over: 0.56 on the small planet and 0.43
-        // on the ring, with their mountain belts. The terrarium's is 0.66 of a node, because its
-        // hills and its base height are each a fiftieth of its radius. A skirt is underground and
-        // its only cost is culling bounds.
+        // relief: twice the TRUE demand, macro layer included (MacroTests.Demand), of its size,
+        // since a skirt is geometry and is not flattened. SkirtFraction covers that, 3-15% over,
+        // wherever it is under twice the height envelope: 2.8 node sizes on the small planet and
+        // 2.1 on the ring, with their mountain belts, and 2.1 in the terrarium, whose hills and
+        // base height are large against its radius. Coarser than that the gap is at most the
+        // envelope's width, where ChunkMeshLayout.SkirtDrop caps the drop; on the small planet the
+        // uncapped root skirt would be 7,300 km, through the planet and 4,100 km out of the far
+        // side. A skirt is underground and its only cost is culling bounds.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
             foreach (var sc in All)
             {
-                var    p      = sc.Params;
-                double demand = MacroTests.Demand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0);
+                var    p         = sc.Params;
+                double demand    = MacroTests.Demand(sc.ReliefFactor, sc.ReliefMeasuredAt, sc.HeightScale, sc.Name, p.S0);
+                double maxRelief = 2.0 * MacroTests.MaxAbsHeight(sc.Name, sc.RoughParams);
                 for (int d = 0; d <= sc.MaxDepth; d++)
                 {
                     double size = LodMath.NominalSize(p.S0, d);
-                    double gap  = 2.0 * demand * size;
-                    Assert.Greater(ChunkMeshLayout.SkirtDrop(SkirtDepth, sc.SkirtFraction, size), gap,
-                        $"{sc.Name}, depth {d}: the skirt is shorter than the relief of a node there");
+                    double gap  = math.min(2.0 * demand * size, maxRelief);
+                    float  drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, sc.SkirtFraction, size, maxRelief);
+                    Assert.Greater(drop, gap, $"{sc.Name}, depth {d}: the skirt is shorter than the relief of a node there");
+                    // On a sphere a skirt longer than the radius reaches past the centre; inside a
+                    // cylinder skirts hang outwards, and one longer than the radius is a curtain
+                    // outside the ring larger than the ring.
+                    Assert.Less(drop, sc.Surface.Radius,
+                        $"{sc.Name}, depth {d}: a {drop / 1000.0:F0} km skirt is longer than the radius");
                 }
             }
+
+            Assert.Greater(SmallPlanet.SkirtFraction * SmallPlanet.Params.S0, 2.0 * SmallPlanet.Surface.Radius,
+                "the small planet's uncapped root skirt no longer pierces it");
         }
     }
 }

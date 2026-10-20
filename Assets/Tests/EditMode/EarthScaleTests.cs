@@ -204,7 +204,7 @@ namespace Sonoma.Tests
         // 65 x 65 scan of camera positions 2 m up refined on a 1/512 lattice, flattened as the
         // runtime flattens them (2026-10-19): 8,286 at the face corner. Unflattened, M5b's scan
         // found 8,198 at (76/512, 0), on a face edge; LodVertical's anchor moves the flattened
-        // terrain 65 km towards the centre (0.8 of its 81 km envelope), which shrinks the world
+        // terrain 68 km towards the centre (0.8 of its 84 km envelope), which shrinks the world
         // the LOD sees by 1% and adds about that to the working set. At SplitFactor 3 it was
         // 5,118, at (20/256, 0) -- the working set scales as the square of SplitFactor, near
         // enough. A cube's six faces are congruent and the geometry has no terrain in it, so
@@ -276,21 +276,30 @@ namespace Sonoma.Tests
         // spectrum before biomes -- which is about 51 m at depth 19 and 106 km at depth 8. The
         // TRUE relief, not the flattened one: a skirt is geometry, and LodVerticalScale flattens
         // only what the LOD measures. SampleScene's absolute 2 m would hide nothing at all;
-        // SkirtFraction 2.9 covers the estimate at every depth, 12% over. A skirt is underground,
-        // so the cost is culling bounds.
+        // SkirtFraction 2.9 covers the estimate, 12% over, wherever it is under twice the height
+        // envelope. Coarser than that the estimate outgrows anything the terrain can reach, and
+        // the gap is at most the envelope's width, which is where ChunkMeshLayout.SkirtDrop caps
+        // the drop. Uncapped, 2.9 node sizes at depth 0 is 30,000 km: through the planet and out
+        // of the far side. A skirt is underground, so the cost is culling bounds.
         [Test]
         public void SkirtCoversTheTransientGapAtEveryDepth()
         {
-            var    p      = Params(OctaveCount);
-            double demand = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0);
+            var    p         = Params(OctaveCount);
+            double demand    = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0);
+            double maxRelief = 2.0 * MacroTests.MaxAbsHeight("EarthStress", RoughParams);
 
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double size = LodMath.NominalSize(p.S0, d);
-                double gap  = 2.0 * demand * size;
-                Assert.Greater(ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, size), gap,
-                    $"depth {d}: the skirt is shorter than the relief of a node there");
+                double gap  = math.min(2.0 * demand * size, maxRelief);
+                float  drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, size, maxRelief);
+                Assert.Greater(drop, gap, $"depth {d}: the skirt is shorter than the relief of a node there");
+                Assert.Less(drop, Radius, $"depth {d}: a {drop / 1000.0:F0} km skirt reaches past the planet's centre");
             }
+
+            // The cap is what keeps the roots inside the planet: their uncapped share alone is
+            // longer than its diameter.
+            Assert.Greater(SkirtFraction * p.S0, 2.0 * Radius, "the root's uncapped skirt no longer pierces the planet");
 
             // An absolute 2 m skirt, as SampleScene has, covers no depth at all: with the roughness
             // spectrum at HeightScale 20,000 even a depth-19 node's gap is 51 m.
