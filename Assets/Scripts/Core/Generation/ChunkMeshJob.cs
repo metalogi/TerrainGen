@@ -14,9 +14,10 @@ namespace Sonoma.Core.Generation
     {
         public int     Resolution;
         public double3 Anchor;
-        // The skirt's drop is ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, relief +
+        // The skirt's drop is ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, relief,
         // ChordSag), with the relief this job measures over the main grid: known only once the
-        // heights are. ChordSag is the curvature's part (ChunkMeshLayout.ChordSag).
+        // heights are. ChordSag is the curvature's part (ChunkMeshLayout.ChordSag), 0 for a
+        // scene with no fraction.
         public float   SkirtDepth;
         public float   SkirtFraction;
         public float   ChordSag;
@@ -34,6 +35,11 @@ namespace Sonoma.Core.Generation
 
         public Mesh.MeshData Mesh;
         [WriteOnly] public NativeArray<float> HeightBounds;   // [0] = min, [1] = max, [2] = skirt drop
+
+        // The box round every position the mesh can draw, in chunk-local space: grid and skirt
+        // vertices and their morph targets. [0] = min, [1] = max. The culling bounds, exactly:
+        // a chunk is placed by translation alone, so local is world up to a shift.
+        [WriteOnly] public NativeArray<float3> VertexBounds;
 
         public void Execute()
         {
@@ -94,8 +100,7 @@ namespace Sonoma.Core.Generation
 
             // Skirts: one duplicated row per edge, pushed along the inward base normal, by a
             // drop sized from this chunk's own relief.
-            float drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction,
-                                                   (double)(maxH - minH) + ChordSag);
+            float drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, maxH - minH, ChordSag);
             for (int edge = 0; edge < 4; edge++)
             for (int k = 0; k < R; k++)
             {
@@ -108,9 +113,21 @@ namespace Sonoma.Core.Generation
                 verts[ChunkMeshLayout.SkirtBottomIndex(R, edge, k)] = v;
             }
 
+            // A morphing vertex lies on the segment from its position to its target, so the box
+            // round both ends of every vertex holds every frame of the morph.
+            float3 lo = float.MaxValue, hi = float.MinValue;
+            for (int n = 0; n < verts.Length; n++)
+            {
+                var v = verts[n];
+                lo = math.min(lo, math.min(v.Position, v.MorphPosition.xyz));
+                hi = math.max(hi, math.max(v.Position, v.MorphPosition.xyz));
+            }
+
             HeightBounds[0] = minH;
             HeightBounds[1] = maxH;
             HeightBounds[2] = drop;
+            VertexBounds[0] = lo;
+            VertexBounds[1] = hi;
         }
 
         // Index into the (R+2) x (R+2) sampled grid for chunk vertex (i, j), i and j in -1 .. R.

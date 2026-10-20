@@ -1,4 +1,5 @@
 using System;
+using Sonoma.Core.Surface;
 
 namespace Sonoma.Core.Generation
 {
@@ -66,45 +67,64 @@ namespace Sonoma.Core.Generation
 
         public static int SkirtBottomIndex(int R, int edge, int k) => SkirtBase(R, edge) + k;
 
-        // How far a chunk's skirt hangs below its edge: an absolute floor plus a share of the
-        // chunk's own relief, max - min over its R x R grid, which ChunkMeshJob measures before
-        // it writes the skirt. The gap a skirt has to hide in a transient two-depth state is the
-        // detail one side has and the other lacks, plus the coarse side's chords cutting under
-        // the curve, and measured at real chunk edges it stays under a fraction of the relief of
-        // whichever side has to cover it (StressSceneTests.SkirtCoversTheTransientGap). So a
-        // plain gets a short skirt and a mountainside a long one, where a share of the node gave
-        // every chunk at a depth the mountain's.
+        // How far a chunk's skirt hangs below its edge: an absolute floor, a share of the
+        // chunk's own relief (max - min over its R x R grid, which ChunkMeshJob measures before
+        // it writes the skirt), and the surface's chord sag at its depth, whole.
         //
-        // In double and narrowed once, so a fraction of 0 returns skirtDepth to the bit: a
-        // float plus 0.0 is exact. That is what lets SampleScene, which sets no fraction, build
-        // the same meshes it always has.
+        // A skirt covers a neighbour up to SkirtDepthGap depths coarser, at any morph factor on
+        // either side. The gap there is the detail one side has and the other lacks, plus the
+        // coarse side's chords cutting under the curve. The first is a fraction of the relief
+        // of whichever side has to cover it, measured at real chunk edges
+        // (StressSceneTests.SkirtCoversTheTransientGap); the second is geometry, so it is added
+        // whole rather than scaled by a fraction tuned to the terrain. A plain gets a short skirt
+        // and a mountainside a long one, where a share of the node gave every chunk at a depth
+        // the mountain's.
+        //
+        // In double and narrowed once, so a fraction of 0 and a sag of 0 return skirtDepth to the
+        // bit: a float plus 0.0 is exact. GenerationScheduler passes no sag to a scene that sets
+        // no fraction, so SampleScene keeps its absolute skirt and builds the same meshes it
+        // always has.
         //
         // There is no cap. The node-relative rule before this one needed a cap at twice
         // TerrainHeightFunction.MaxAbsHeight: Earth's fraction of 2.9 node sizes hung a depth-0
         // skirt 30,000 km, through the planet and out of the far side as a fin seen from orbit.
         // A measured relief can never exceed that bound, so capping the relief term does
-        // nothing. Capping the whole share would clip ChordSag where it is largest, about 328 km
-        // at Earth's depth 0 and 82 km at depth 1 against a 168 km cap, and reopen the curvature
-        // gaps there. Earth's longest possible drop is about 500 km, inside its 6,371 km radius, and
-        // StressSceneTests.NoSkirtReachesPastTheCentre holds every stress scene to that.
-        public static float SkirtDrop(float skirtDepth, float skirtFraction, double relief)
-            => (float)(skirtDepth + skirtFraction * relief);
+        // nothing, and capping the whole drop would clip the chord sag where it is largest and
+        // reopen the curvature gaps there. StressSceneTests.NoSkirtReachesPastTheCentre holds
+        // the longest drop the rule can hang under every stress scene's radius.
+        public static float SkirtDrop(float skirtDepth, float skirtFraction, double relief, double chordSag)
+            => (float)(skirtDepth + skirtFraction * relief + chordSag);
+
+        // How many depths coarser a neighbour can be and still be covered by a skirt. Three,
+        // because the atomic swap can hold a parent at coarse LOD, waiting on its children,
+        // while its neighbour is already three depths finer.
+        public const int SkirtDepthGap = 3;
 
         // The part of the gap that is the surface's curvature, not the terrain's: how far a
         // neighbour's straight edge segments can cut under the curve this chunk's vertices sit
-        // on (over it, inside a cylinder, where the normal points at the axis). The longest
-        // such segment is eight of this chunk's vertex spacings, a neighbour two depths coarser
-        // fully morphed to its parent, and a chord c of a circle of curvature k sags k c^2 / 8.
-        // Spacing is the nominal one times the surface's node-size spread, an upper bound.
-        // Zero on a plane. On a smooth sphere it is the whole gap: up to 1.9 km at Earth's depth
-        // 3, against a sag term of 5.1 km there, where a share of the relief would give a metre's
-        // skirt; under a centimetre from depth 13 on. GenerationScheduler adds it to the relief
-        // the fraction applies to.
+        // on (over it, inside a cylinder, where the normal points at the axis). A neighbour g
+        // depths coarser, fully morphed to its own parent, draws segments 2^(g+1) of this chunk's
+        // vertex spacings long -- 16 at SkirtDepthGap -- and a chord c of a circle of curvature k
+        // sags k c^2 / 8. Spacing is the nominal one times the surface's node-size spread, an
+        // upper bound. Zero on a plane. On a smooth sphere it is the whole gap.
         public static double ChordSag(double curvature, double sizeSpread, double nominalSize, int resolution)
         {
-            double chord = 8.0 * sizeSpread * nominalSize / (resolution - 1);
+            double chord = (2 << SkirtDepthGap) * sizeSpread * nominalSize / (resolution - 1);
             return 0.125 * curvature * chord * chord;
         }
+
+        // The same for a surface, where GenerationScheduler and the tests both get it: the
+        // curvature is the radius's inverse on a cube sphere or a cylinder (in its curved
+        // direction, the larger one), and the spread is SurfaceMath.MaxNodeSizeSpread's.
+        public static double ChordSag(in SurfaceDef s, double nominalSize, int resolution)
+            => ChordSag(s.Type == SurfaceType.PlaneGrid ? 0.0 : 1.0 / s.Radius,
+                        SurfaceMath.MaxNodeSizeSpread(s), nominalSize, resolution);
+
+        // The sag a chunk's skirt adds, as the mesh job receives it: none for a scene with no
+        // SkirtFraction, which keeps an absolute skirt to the bit, and the whole ChordSag, in
+        // float, otherwise. The one rule GenerationScheduler and the tests both call.
+        public static float SkirtChordSag(in SurfaceDef s, float skirtFraction, double nominalSize, int resolution)
+            => skirtFraction > 0f ? (float)ChordSag(s, nominalSize, resolution) : 0f;
 
         // Grid triangulation is (i00, i11, i10), (i00, i01, i11). It is not arbitrary: M3's
         // geomorph invariant -- a fully morphed child mesh is triangle-for-triangle its

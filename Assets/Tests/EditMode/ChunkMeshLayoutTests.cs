@@ -230,42 +230,52 @@ namespace Sonoma.Tests
             Check(SurfaceDef.Cylinder(1000.0, 4000.0, 8), "Cylinder");
         }
 
-        // SkirtFraction arrived in M4 for the Earth-sized scene, and SampleScene sets none. A
-        // fraction of 0 must give back the absolute depth to the bit whatever the chunk's relief
-        // (and chord sag) comes to, or every existing chunk's skirt moves by a rounding error and
-        // the scene is no longer the one the M3 figures were measured on.
+        // SkirtFraction arrived in M4 for the Earth-sized scene, and SampleScene sets none. With
+        // no fraction GenerationScheduler passes no chord sag either (SkirtChordSag), and the
+        // drop must give back the absolute depth to the bit whatever the chunk's relief comes to,
+        // or every existing chunk's skirt moves by a rounding error and the scene is no longer the
+        // one the M3 figures were measured on.
         [Test]
         public void SkirtDropIsExactWithNoFraction()
         {
+            var sphere = SurfaceDef.CubeSphere(6371000.0);
             foreach (float depth in new[] { 0f, 1e-3f, 1f, 2f, 10f, 1234.567f })
             for (int d = 0; d <= 62; d++)
             foreach (double s0 in new[] { 489.9, 10403799.0, 1.0 / 3.0 })
             {
                 double relief = s0 / (double)(1L << d);
+                float  sag    = ChunkMeshLayout.SkirtChordSag(sphere, 0f, relief, 33);
+                Assert.AreEqual(0f, sag, "a scene with no fraction is passed a chord sag");
                 Assert.AreEqual(BitConverter.SingleToInt32Bits(depth),
-                                BitConverter.SingleToInt32Bits(ChunkMeshLayout.SkirtDrop(depth, 0f, relief)),
+                                BitConverter.SingleToInt32Bits(ChunkMeshLayout.SkirtDrop(depth, 0f, relief, sag)),
                                 $"skirt depth {depth} at relief {relief} changed with no fraction");
             }
 
-            // And the fraction does scale with the relief.
-            Assert.AreEqual(1.0 + 0.03 * 1000.0, ChunkMeshLayout.SkirtDrop(1f, 0.03f, 1000.0), 1e-3);
+            // The fraction scales the relief, and the sag is added whole, not by the fraction.
+            Assert.AreEqual(1.0 + 0.03 * 1000.0 + 50.0, ChunkMeshLayout.SkirtDrop(1f, 0.03f, 1000.0, 50.0), 1e-3);
+            Assert.AreEqual((float)ChunkMeshLayout.ChordSag(sphere, 1000.0, 33),
+                            ChunkMeshLayout.SkirtChordSag(sphere, 0.03f, 1000.0, 33));
+            Assert.AreEqual(0f, ChunkMeshLayout.SkirtChordSag(SurfaceDef.PlaneGrid(100.0, 2, 2), 1f, 1000.0, 33));
         }
 
-        // The chord sag is k c^2 / 8 for a chord of eight vertex spacings at the surface's largest
-        // node size, and nothing on a plane. Against the sagitta of a real circle, R - sqrt(R^2 -
-        // (c/2)^2), it is the leading term, 0.16% short at Earth's depth 2 -- far inside the
-        // slack of taking every spacing at the node-size spread, which on a cube face is up to
-        // pi/2 times the nominal one, and the smooth-sphere test's gaps confirm it.
+        // The chord sag is k c^2 / 8 for a chord of 2^(SkirtDepthGap + 1) vertex spacings -- 16,
+        // a neighbour three depths coarser, fully morphed -- at the surface's largest node size,
+        // and nothing on a plane. Against the sagitta of a real circle, R - sqrt(R^2 - (c/2)^2),
+        // it is the leading term, 0.16% short at Earth's depth 3 -- far inside the slack of taking
+        // every spacing at the node-size spread, which on a cube face is up to pi/2 times the
+        // nominal one, and the smooth-sphere test's gaps confirm it.
         [Test]
-        public void ChordSagIsTheSagittaOfEightSpacings()
+        public void ChordSagIsTheSagittaOfSixteenSpacings()
         {
+            Assert.AreEqual(3, ChunkMeshLayout.SkirtDepthGap, "the chord below is for a gap of three depths");
             Assert.AreEqual(0.0, ChunkMeshLayout.ChordSag(0.0, 1.0, 1000.0, 33));
 
-            const double R = 6371000.0, size = 10403799.0 / 4.0, spread = math.PI_DBL / 2.0;
-            double c        = 8.0 * spread * size / 32.0;
+            const double R = 6371000.0, size = 10403799.0 / 8.0, spread = math.PI_DBL / 2.0;
+            double c        = 16.0 * spread * size / 32.0;
             double sagitta  = R - math.sqrt(R * R - 0.25 * c * c);
             double sag      = ChunkMeshLayout.ChordSag(1.0 / R, spread, size, 33);
             Assert.AreEqual(sagitta, sag, sagitta * 2e-3);
+            Assert.AreEqual(sag, ChunkMeshLayout.ChordSag(SurfaceDef.CubeSphere(R), size, 33), sag * 1e-12);
 
             // Four times the node, sixteen times the sag.
             Assert.AreEqual(16.0 * ChunkMeshLayout.ChordSag(1.0 / R, spread, size, 33),

@@ -125,7 +125,7 @@ namespace Sonoma.Tests
         {
             Name = "RingworldStress", Asset = "Assets/Settings/RingworldTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1),
-            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 10000f, SkirtFraction = 1f,
+            MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 10000f, SkirtFraction = 1.2f,
             MorphStart = 0.14f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.0763,
             ReliefFactor = 171.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
@@ -323,45 +323,54 @@ namespace Sonoma.Tests
 
         // ── Skirts ───────────────────────────────────────────────────────────────────────────
         //
-        // A skirt hides the gap along an edge where the tree is briefly more than one depth
-        // apart, or one apart outside the morph's window. Each chunk's drop comes from its own
-        // relief (ChunkMeshLayout.SkirtDrop): SkirtDepth + SkirtFraction x (max - min over its
-        // grid + ChunkMeshLayout.ChordSag). These tests build real transient edges, at each
-        // scene's real heights, macro layer and biomes included, and check that the side above
-        // has the skirt to cover them.
+        // A skirt hides the gap along an edge where the tree is up to ChunkMeshLayout.SkirtDepthGap
+        // (three) depths apart, with either side at any morph factor: a parent the atomic swap
+        // holds while its neighbour has gone three deeper, or two depths a morph window apart.
+        // Each chunk's drop comes from its own relief (ChunkMeshLayout.SkirtDrop): SkirtDepth +
+        // SkirtFraction x (max - min over its grid) + ChunkMeshLayout.ChordSag. These tests build
+        // real transient edges, at each scene's real heights, macro layer and biomes included,
+        // inside root quads and across them, coarse sides down to the roots, and check that the
+        // side above has the skirt to cover them.
         //
-        // Measured on 400 edges per depth and per depth gap of one and two, in all four stress
-        // scenes (2026-10-19), what the side above has to cover, net of SkirtDepth, is at most
-        // 0.56 of its relief plus chord sag (Earth, depth 10, fine side; 0.47 on the small
-        // planet, 0.53 on the ring, 0.33 in the terrarium), and 0.46 on the coarse side. So the
-        // stress scenes run SkirtFraction 1, 1.8 times over the worst. The gap itself is at most
-        // 0.046 of a node size anywhere, against the 2.1 to 2.9 node sizes the node-relative rule
-        // hung: that rule's estimate stacked every worst case on one node, and the gap is the
-        // difference of two samplings of one function, far smaller than either one's relief.
+        // Measured on 400 edges per depth and per depth gap of one, two and three, in all four
+        // stress scenes, with each chunk's full relief (2026-10-20), what the side above has to
+        // cover, net of SkirtDepth and its chord sag, is at most this share of its relief:
         //
-        // The tests take one edge per depth and gap, and the relief on every fourth vertex, for
-        // time: about 1.5 s of terrain sampling in .NET, several times that under the Editor's
-        // Mono. Sampled coarser, the relief is a lower bound on the chunk's, so the drop a test
-        // grants is never longer than the one the job hangs.
-        internal const int    SkirtEdgesPerDepth = 1;    // per depth gap, of one and two
+        //   Earth 0.628, small planet 0.546, ring 0.760, terrarium 0.479 -- all at a gap of three
+        //
+        // The tail grows with the sample and then levels: the worst of the first 50 edges per
+        // depth and gap was 0.483 on Earth, 0.505, 0.639 and 0.478, and the worst of 200 was
+        // already the worst of 400. The 99th percentile is 0.545 or less everywhere. The gap
+        // itself is at most 0.11 of a node size. SkirtFraction is half again over each scene's
+        // worst, rounded up: 1 on Earth, the small planet and the terrarium, 1.2 on the ring.
+        // That is a sample, not the whole population, and nothing reports an uncovered gap at
+        // runtime, so a retune that roughens the terrain should rerun the measurement.
+        //
+        // The tests below take one edge per depth and gap, every gap down to depth 6 and one a
+        // depth below it, and the relief on every fourth vertex, for time. Sampled coarser, the
+        // relief is a lower bound on the chunk's, so the drop a test grants is never longer than
+        // the one the job hangs. Building the macro texels on demand is most of their cost.
+        internal const int    SkirtEdgesPerDepth = 1;    // per depth and depth gap
         internal const int    SkirtReliefStride  = 4;    // SceneHeights.ReliefStride
+        internal const int    SkirtThinFrom      = 7;    // one gap per depth from here; TransientEdges
         internal const uint   SkirtSeed          = 2026u;
 
-        // One transient edge: a chunk at depth Depth beside one Gap depths coarser, across an
-        // edge inside one root quad, each drawn at morph factors 0, 1/2 and 1. GapFine is the
-        // most the fine side's drawn edge stands above the coarse side's along the surface
-        // normal, what the fine chunk's skirt has to hide; GapCoarse the most it stands below,
-        // the coarse chunk's. Each relief is max - min over that chunk's R x R grid, which is
-        // what ChunkMeshJob measures.
+        // One transient edge: a chunk at depth Depth beside one Gap depths coarser, sharing an
+        // edge -- inside one root quad, or across two when CrossQuad -- each drawn at morph
+        // factors 0, 1/2 and 1. GapFine is the most the fine side's drawn edge stands above the
+        // coarse side's along the surface normal, what the fine chunk's skirt has to hide;
+        // GapCoarse the most it stands below, the coarse chunk's. Each relief is max - min over
+        // that chunk's R x R grid, which is what ChunkMeshJob measures.
         internal struct TransientEdge
         {
             public int    Depth, Gap;
+            public bool   CrossQuad;
             public double GapFine, GapCoarse, ReliefFine, ReliefCoarse;
         }
 
         // A scene's height function as the sample jobs evaluate it, with the macro texels made
         // on demand: a managed MacroGenerator.Build of a planet's pyramid takes tens of seconds,
-        // and an edge reads a few hundred texels of it.
+        // and an edge reads a few hundred texels of it. Not thread-safe.
         internal sealed class SceneHeights
         {
             readonly SurfaceDef   _s;
@@ -434,18 +443,21 @@ namespace Sonoma.Tests
             readonly SurfaceDef  _s;
             readonly RootQuad[]  _roots;
             readonly MacroParams _p;
-            readonly System.Collections.Concurrent.ConcurrentDictionary<int, float4> _made =
-                new System.Collections.Concurrent.ConcurrentDictionary<int, float4>();
+            readonly System.Collections.Generic.Dictionary<int, float4> _made =
+                new System.Collections.Generic.Dictionary<int, float4>();
 
             public LazyTexels(in SurfaceDef s, RootQuad[] roots, in MacroParams p) { _s = s; _roots = roots; _p = p; }
 
             // What MacroGenerator.Build stores there: the texel, or the one it is a copy of.
-            public float4 Texel(int index) => _made.GetOrAdd(index, t =>
+            public float4 Texel(int index)
             {
-                _p.Layout.Decode(t, out int q, out int l, out int i, out int j);
+                if (_made.TryGetValue(index, out float4 t)) return t;
+                _p.Layout.Decode(index, out int q, out int l, out int i, out int j);
                 _p.Layout.EdgeSource(_s, q, l, i, j, out int sq, out int si, out int sj);
-                return MacroGenerator.Texel(_s, _roots[sq], _p, l, si, sj);
-            });
+                t = MacroGenerator.Texel(_s, _roots[sq], _p, l, si, sj);
+                _made.Add(index, t);
+                return t;
+            }
         }
 
         readonly struct TexelReader : IMacroTexels
@@ -455,80 +467,110 @@ namespace Sonoma.Tests
             public float4 Texel(int index) => _t.Texel(index);
         }
 
-        // edgesPerDepth transient edges for each depth from 1 to maxDepth and each depth gap of
-        // one and two that fits, at random places on random root quads.
+        // edgesPerDepth transient edges for each depth from minDepth to maxDepth and each depth
+        // gap up to ChunkMeshLayout.SkirtDepthGap that fits, at random places on random root
+        // quads. The coarse side reaches the roots, and a side with no neighbour inside its quad
+        // takes the one across the quad edge.
+        //
+        // thinFrom, when set, takes one gap per depth from that depth on, cycling through them, for
+        // the suite's time: the chord sag, and the roots, are at the shallow depths, and deeper
+        // down a gap's ratio to the relief changes slowly with depth.
         internal static System.Collections.Generic.List<TransientEdge> TransientEdges(
-            SceneHeights w, int maxDepth, int edgesPerDepth, uint seed, int minDepth = 1)
+            SceneHeights w, int maxDepth, int edgesPerDepth, uint seed, int minDepth = 1, int thinFrom = int.MaxValue)
         {
             var list = new System.Collections.Generic.List<TransientEdge>();
             for (int d = minDepth; d <= maxDepth; d++)
-            for (int gap = 1; gap <= 2 && gap <= d; gap++)
+            for (int gap = 1; gap <= ChunkMeshLayout.SkirtDepthGap && gap <= d; gap++)
             for (int e = 0; e < edgesPerDepth; e++)
             {
+                if (d >= thinFrom && gap != 1 + d % ChunkMeshLayout.SkirtDepthGap) continue;
                 var rng = new Unity.Mathematics.Random(seed + (uint)(d * 7919 + gap * 104729 + e * 15485863));
-                if ((1 << (d - gap)) < 2) continue;    // the coarse node needs a neighbour in its quad
-                list.Add(Measure(w, d, gap, ref rng));
+                // A plane grid's outer edges and a cylinder's rims have no neighbour; draw again.
+                for (int attempt = 0; attempt < 16; attempt++)
+                    if (TryMeasure(w, d, gap, ref rng, out TransientEdge edge)) { list.Add(edge); break; }
             }
             return list;
         }
 
-        // The coarse node C at depth d - gap, the side of it the fine node F lies across, and F,
-        // one of the depth-d nodes along that side. Edges are numbered South, East, North, West,
-        // as ChunkMeshLayout walks them.
-        static TransientEdge Measure(SceneHeights w, int d, int gap, ref Unity.Mathematics.Random rng)
+        // The coarse node C at depth d - gap, the side of it the fine node F lies across, its
+        // neighbour there (SurfaceMath.Neighbour, across a root-quad edge if need be), and F, one
+        // of that neighbour's depth-d descendants along the shared side. Edges are numbered
+        // South, East, North, West, as Edge and ChunkMeshLayout number them.
+        static bool TryMeasure(SceneHeights w, int d, int gap, ref Unity.Mathematics.Random rng, out TransientEdge edge)
         {
+            edge = default;
             int span = 1 << (d - gap), f = 1 << gap;
-            int q    = rng.NextInt(0, w.QuadCount);
-            int side = rng.NextInt(0, 4);
-            int X    = rng.NextInt(side == 3 ? 1 : 0, side == 1 ? span - 1 : span);
-            int Y    = rng.NextInt(side == 0 ? 1 : 0, side == 2 ? span - 1 : span);
-            int r    = rng.NextInt(0, f);
-            var C    = new NodeId(q, d - gap, X, Y);
-            var F    = side switch
-            {
-                0 => new NodeId(q, d, X * f + r, Y * f - 1),
-                1 => new NodeId(q, d, (X + 1) * f, Y * f + r),
-                2 => new NodeId(q, d, X * f + r, (Y + 1) * f),
-                _ => new NodeId(q, d, X * f - 1, Y * f + r),
-            };
-            int fineSide = (side + 2) & 3;
-            bool alongV  = (side & 1) == 1;
+            var C    = new NodeId(rng.NextInt(0, w.QuadCount), d - gap, rng.NextInt(0, span), rng.NextInt(0, span));
+            var side = (Edge)rng.NextInt(0, 4);
+            var nb   = SurfaceMath.Neighbour(w.Surface, C, side);
+            if (!nb.Exists) return false;
 
-            DrawnEdge(w, F, fineSide, out double[] sF, out double3[] fineF, out double3[] coarseF);
-            DrawnEdge(w, C, side,     out double[] sC, out double3[] fineC, out double3[] coarseC);
+            bool onQuadEdge = side switch
+            {
+                Edge.South => C.Y == 0, Edge.North => C.Y == span - 1,
+                Edge.West  => C.X == 0, _          => C.X == span - 1,
+            };
+            bool reversed = false;
+            if (onQuadEdge)
+            {
+                Assert.IsTrue(SurfaceMath.QuadEdgeLink(w.Surface, C.Quad, side, out EdgeLink link));
+                reversed = link.Reversed;
+            }
+
+            var N  = nb.Node;
+            int r  = rng.NextInt(0, f), x0 = N.X * f, y0 = N.Y * f;
+            var F  = nb.ArrivalEdge switch
+            {
+                Edge.South => new NodeId(N.Quad, d, x0 + r, y0),
+                Edge.North => new NodeId(N.Quad, d, x0 + r, y0 + f - 1),
+                Edge.West  => new NodeId(N.Quad, d, x0, y0 + r),
+                _          => new NodeId(N.Quad, d, x0 + f - 1, y0 + r),
+            };
+
+            DrawnEdge(w, F, (int)nb.ArrivalEdge, out double[] sF, out double3[] fineF, out double3[] coarseF);
+            DrawnEdge(w, C, (int)side,           out double[] sC, out double3[] fineC, out double3[] coarseC);
 
             // Both drawn edges are piecewise linear in the along-edge parameter, and the coarse
             // side's vertices are a subset of the fine side's, so the extremes of the difference
             // lie at the fine side's vertices; four samples a cell also catch the vertices moving
-            // along the edge as they morph.
+            // along the edge as they morph. F's parameter is its own quad's, carried into C's,
+            // reversed where the link reverses it.
             const int PerCell = 4;
-            int    samples = (Resolution - 1) * PerCell;
-            double lo = alongV ? F.VMin : F.UMin, hi = alongV ? F.VMax : F.UMax;
-            double fixedC = side switch { 0 => C.VMin, 1 => C.UMax, 2 => C.VMax, _ => C.UMin };
-            var    sF2 = new double[Resolution]; var pF = new double3[Resolution];
-            var    sC2 = new double[Resolution]; var pC = new double3[Resolution];
+            int    R       = Resolution, samples = (R - 1) * PerCell;
+            bool   alongV  = side == Edge.East || side == Edge.West;
+            double fixedC  = side switch { Edge.South => C.VMin, Edge.East => C.UMax, Edge.North => C.VMax, _ => C.UMin };
+            var    sF2 = new double[R]; var pF = new double3[R];
+            var    sC2 = new double[R]; var pC = new double3[R];
             double gapFine = 0.0, gapCoarse = 0.0;
             foreach (double kf in Morphs)
             {
                 Morph(sF, fineF, coarseF, kf, sF2, pF);
+                if (reversed)
+                {
+                    for (int t = 0; t < R; t++) sF2[t] = 1.0 - sF2[t];
+                    System.Array.Reverse(sF2);
+                    System.Array.Reverse(pF);
+                }
+                double lo = sF2[0], hi = sF2[R - 1];
                 foreach (double kc in Morphs)
                 {
                     Morph(sC, fineC, coarseC, kc, sC2, pC);
                     for (int t = 0; t <= samples; t++)
                     {
                         double x = math.lerp(lo, hi, t / (double)samples);
-                        float3 n = alongV ? w.Normal(q, fixedC, x) : w.Normal(q, x, fixedC);
+                        float3 n = alongV ? w.Normal(C.Quad, fixedC, x) : w.Normal(C.Quad, x, fixedC);
                         double g = math.dot(At(sF2, pF, x) - At(sC2, pC, x), (double3)n);
                         gapFine   = math.max(gapFine, g);
                         gapCoarse = math.max(gapCoarse, -g);
                     }
                 }
             }
-            return new TransientEdge
+            edge = new TransientEdge
             {
-                Depth = d, Gap = gap, GapFine = gapFine, GapCoarse = gapCoarse,
+                Depth = d, Gap = gap, CrossQuad = onQuadEdge, GapFine = gapFine, GapCoarse = gapCoarse,
                 ReliefFine = w.Relief(F), ReliefCoarse = w.Relief(C),
             };
+            return true;
         }
 
         static readonly double[] Morphs = { 0.0, 0.5, 1.0 };
@@ -572,23 +614,22 @@ namespace Sonoma.Tests
             return p[s.Length - 1];
         }
 
-        // The drop a chunk at this depth with this relief hangs, as GenerationScheduler and
-        // ChunkMeshJob compute it.
+        // The drop a chunk at this depth with this relief hangs, through the rule
+        // GenerationScheduler and ChunkMeshJob use: ChunkMeshLayout.SkirtChordSag and SkirtDrop,
+        // with the relief narrowed to float as the job measures it.
         internal static double Drop(in SurfaceDef s, double s0, int depth, float skirtDepth, float skirtFraction, double relief)
-        {
-            double curvature = s.Type == SurfaceType.PlaneGrid ? 0.0 : 1.0 / s.Radius;
-            float  sag       = (float)ChunkMeshLayout.ChordSag(curvature, SurfaceMath.MaxNodeSizeSpread(s),
-                                                               LodMath.NominalSize(s0, depth), Resolution);
-            return ChunkMeshLayout.SkirtDrop(skirtDepth, skirtFraction, (double)(float)relief + sag);
-        }
+            => ChunkMeshLayout.SkirtDrop(skirtDepth, skirtFraction, (float)relief,
+                   ChunkMeshLayout.SkirtChordSag(s, skirtFraction, LodMath.NominalSize(s0, depth), Resolution));
 
         // Each side's skirt covers its side of every edge, and the edges are real gaps: the
-        // absolute SkirtDepth alone, SampleScene's kind of skirt, leaves most depths open.
+        // absolute SkirtDepth alone, SampleScene's kind of skirt, leaves most of them open. On a
+        // curved surface the sample has to reach the roots and cross root-quad edges, where the
+        // chord sag is largest.
         internal static void AssertSkirtsCover(string name, SceneHeights w, int maxDepth, float skirtFraction)
         {
             w.ReliefStride = SkirtReliefStride;
-            var edges = TransientEdges(w, maxDepth, SkirtEdgesPerDepth, SkirtSeed);
-            int open  = 0;
+            var edges = TransientEdges(w, maxDepth, SkirtEdgesPerDepth, SkirtSeed, thinFrom: SkirtThinFrom);
+            int open = 0, cross = 0, roots = 0;
             foreach (var e in edges)
             {
                 double fine   = Drop(w.Surface, w.S0, e.Depth, SkirtDepth, skirtFraction, e.ReliefFine);
@@ -600,9 +641,13 @@ namespace Sonoma.Tests
                     $"{name}, depth {e.Depth} beside {e.Depth - e.Gap}: the coarse side stands {e.GapCoarse:G4} m " +
                     $"above, and its skirt drops {coarse:G4} m (relief {e.ReliefCoarse:G4} m)");
                 if (math.max(e.GapFine, e.GapCoarse) > SkirtDepth) open++;
+                if (e.CrossQuad) cross++;
+                if (e.Depth == e.Gap) roots++;
             }
             Assert.Greater(open, edges.Count / 2,
                 $"{name}: a {SkirtDepth} m skirt would cover most of these edges; they test nothing");
+            Assert.Greater(cross, 0, $"{name}: no edge crosses a root quad");
+            Assert.AreEqual(ChunkMeshLayout.SkirtDepthGap, roots, $"{name}: a coarse side at the root, for each depth gap");
         }
 
         [Test]
@@ -613,9 +658,8 @@ namespace Sonoma.Tests
         }
 
         // On a smooth surface relief is zero, and what is left of the gap is the coarse side's
-        // chords cutting under the curve (inside the ring, over it): measured on 80 edges a depth,
-        // up to 1.9 km at Earth's depth 3 and 120 m on the ring at depths 2 and 3, which a share
-        // of the relief alone would leave open. ChordSag covers it, and without it they are open.
+        // chords cutting under the curve (inside the ring, over it), which a share of the relief
+        // alone would leave open. ChordSag covers it, and without it the gaps are open.
         [Test]
         public void ChordSagCoversASmoothSurface()
         {
@@ -629,7 +673,7 @@ namespace Sonoma.Tests
             foreach (var sc in scenes)
             {
                 var w     = new SceneHeights(sc.name, sc.surface, sc.rough, smooth: true) { ReliefStride = 8 };
-                var edges = TransientEdges(w, sc.depth, 1, SkirtSeed);
+                var edges = TransientEdges(w, sc.depth, 1, SkirtSeed, thinFrom: SkirtThinFrom);
                 double worst = 0.0;
                 foreach (var e in edges)
                 {
@@ -639,19 +683,20 @@ namespace Sonoma.Tests
                     Assert.LessOrEqual(e.GapCoarse, coarse, $"{sc.name} smooth, depth {e.Depth} beside {e.Depth - e.Gap}: coarse side");
                     worst = math.max(worst, math.max(e.GapFine, e.GapCoarse) - SkirtDepth - sc.fraction * e.ReliefFine);
                 }
-                Assert.Greater(worst, 50.0, $"{sc.name}: the smooth surface's chords open no gap the relief term leaves");
+                Assert.Greater(worst, 10.0, $"{sc.name}: the smooth surface's chords open no gap the relief term leaves");
             }
         }
 
         // No skirt is longer than its surface's radius, at any depth, whatever the terrain. On a
         // sphere a longer one reaches past the centre and out of the far side, drawn from orbit
         // as a fin over the near hemisphere -- which the node-relative rule did at depth 0 (Earth
-        // 30,000 km) until the review capped it. Inside a cylinder skirts hang outwards, and a
-        // longer one is a curtain outside the ring larger than the ring. The per-chunk rule needs
-        // no cap: a chunk's relief is at most twice TerrainHeightFunction.MaxAbsHeight, so the
-        // longest drop it can hang at depth d is SkirtDepth + SkirtFraction x (2 x MaxAbsHeight +
-        // ChordSag(d)), largest at depth 0 where the sag is. On Earth that is about 2 x 84 km +
-        // 328 km of sag, about 500 km against a 6,371 km radius.
+        // 30,000 km) until PR #10's review capped it. Inside a cylinder skirts hang outwards, and
+        // a longer one is a curtain outside the ring larger than the ring. The per-chunk rule
+        // needs no cap: a chunk's relief is at most twice TerrainHeightFunction.MaxAbsHeight, so
+        // the longest drop it can hang at depth d is SkirtDepth + SkirtFraction x 2 x MaxAbsHeight
+        // + ChordSag(d), largest at depth 0 where the sag is: 1,479 km on Earth (169 km of
+        // relief bound, 1,310 km of sag) against a 6,371 km radius, 424 km on the small planet
+        // against 1,593, 183 km on the ring against 1,593, and 5.6 km in the terrarium against 10.
         [Test]
         public void NoSkirtReachesPastTheCentre()
         {
