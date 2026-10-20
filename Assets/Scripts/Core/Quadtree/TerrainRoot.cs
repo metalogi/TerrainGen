@@ -188,8 +188,7 @@ namespace Sonoma.Core.Quadtree
             }
             Shader.SetGlobalVectorArray(MorphRangesId, _morphRanges);
             Shader.SetGlobalVector(ViewPositionId, viewPosition);
-            Shader.SetGlobalVector(LodVerticalId, new Vector4((float)_lod.Vertical.Flatten,
-                                                             (float)_lod.Vertical.Anchor, 0f, 0f));
+            Shader.SetGlobalVector(LodVerticalId, _lod.Vertical.ShaderParams);
             Shader.SetGlobalVectorArray(BiomeColorsId, _biomeColors);
             PushSky();
         }

@@ -405,7 +405,7 @@ namespace Sonoma.Tests
                 // selector itself wants this many there: 4,458 at SplitFactor 3, which C2 and
                 // the M4 plan quote, 7,002 at the SplitFactor 4 Earth has run since M5b, and
                 // 7,062 in the world LodVerticalScale 0.2 flattens it to, whose anchor moves the
-                // terrain 65 km towards the centre.
+                // terrain 68 km towards the centre.
                 if (c.u == 0.0 && c.v == 0.0)
                     Assert.AreEqual(7062, _selector.WantedCount,
                         "the fresh working set at the face corner has moved; flattened at SplitFactor 4 it is 7,062");

@@ -217,11 +217,19 @@ Shader "Sonoma/TerrainTriplanar"
         // the camera and LodMath.NodeDistance the bounding spheres: moved along its topology
         // up by Flatten x (elevation - Anchor), with the UNMORPHED elevation, TEXCOORD1.w, for
         // the reason the position is unmorphed. topoUp and elevation are attributes, the same
-        // bits in every chunk that shares the vertex, so the move is too.
+        // bits in every chunk that shares the vertex, so the move is too. topoUp goes through
+        // TransformObjectToWorldDir, as ForwardLit's does: chunk transforms are unrotated, so
+        // that is the identity today, and the move stays right if a parent ever rotates them.
+        //
+        // The anchor moves every point, the camera included, by about Flatten x Envelope -- 68 km
+        // on Earth -- so both ends of the distance sit that far from the render-space origin and
+        // carry float rounding of a few millimetres. Across the morph windows that is a k error
+        // under 1e-3: sub-millimetre motion, at a shared vertex or anywhere else.
         float SonomaMorphFactor(float3 positionOS, float4 topoElevation, float depth)
         {
+            float3 up   = TransformObjectToWorldDir(topoElevation.xyz);
             float3 wp   = TransformObjectToWorld(positionOS)
-                        - topoElevation.xyz * (_SonomaLodVertical.x * (topoElevation.w - _SonomaLodVertical.y));
+                        - up * (_SonomaLodVertical.x * (topoElevation.w - _SonomaLodVertical.y));
             float  dist = distance(wp, _SonomaViewPosition);
             float2 r    = _SonomaMorphRanges[clamp((int)depth, 0, SONOMA_MAX_MORPH_DEPTH)].xy;
             return saturate((dist - r.x) / max(r.y - r.x, 1e-5));

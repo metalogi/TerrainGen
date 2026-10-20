@@ -84,15 +84,17 @@ namespace Sonoma.Core.Quadtree
         // bits at the identity.
         public double MapRelief(double half) => half - Flatten * half;
 
-        // An altitude above the base surface as the LOD sees it: MapHeight inside the envelope,
-        // shifted and unscaled outside it.
-        public double MapAltitude(double altitude)
-            => altitude - Flatten * (math.clamp(altitude, -Envelope, Envelope) - Anchor);
+        // The map as the shader takes it, _SonomaLodVertical: (Flatten, Anchor, 0, 0), read in
+        // SonomaMorphFactor as positionWS - topoUp * (x * (elevation - y)). One definition, so the
+        // packing TerrainRoot pushes and the one the tests model the shader with cannot differ;
+        // LodVerticalTests holds this to MapPoint and GeomorphTests the shader to this.
+        public float4 ShaderParams => new float4((float)Flatten, (float)Anchor, 0f, 0f);
 
-        // A world point as the LOD sees it. For a vertex -- base point plus height along the
-        // normal -- this is what the shader computes as positionWS - Flatten (elevation - Anchor)
-        // topoUp; for the camera it is where TerrainRoot hands both the selector and the shader
-        // to measure from.
+        // A world point as the LOD sees it, moved along the normal at its foot so its altitude
+        // goes through MapHeight inside the envelope and is shifted, unscaled, outside it. For a
+        // vertex -- base point plus height along the normal -- this is what the shader computes
+        // as positionWS - Flatten (elevation - Anchor) topoUp, from ShaderParams; for the camera
+        // it is where TerrainRoot hands both the selector and the shader to measure from.
         public double3 MapPoint(in SurfaceDef surface, double3 p)
         {
             if (Flatten == 0.0) return p;

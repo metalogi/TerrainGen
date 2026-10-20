@@ -34,6 +34,13 @@ namespace Sonoma.Core.Generation
     // The texels themselves are float; the sum narrows to MacroSample's fields once.
     public static class MacroSampler
     {
+        // The most a read can exceed the texels it reads, as a factor on the largest |texel|.
+        // Catmull-Rom's weights sum to one but two of them are negative, so their absolute sum is
+        // 1 + t(1 - t) on each axis, 1.25 at t = 0.5, and the separable read can reach 1.25^2 of
+        // the largest texel against an adversarial pattern. Smooth, band-limited maps overshoot
+        // far less; TerrainHeightFunction.MaxAbsHeight needs a bound, not the typical case.
+        public const double MaxOvershoot = 1.5625;
+
         // Catmull-Rom's two weight shapes. w3 = g(t), w2 = h(t), w1 = h(1-t), w0 = g(1-t).
         // g(0) = g(1) = h(0) = 0 and h(1) = 1 exactly, so a read on a texel takes that texel
         // with weight one and its neighbours with weight zero.

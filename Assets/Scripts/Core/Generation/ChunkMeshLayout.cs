@@ -75,8 +75,16 @@ namespace Sonoma.Core.Generation
         // In double and narrowed once, so a fraction of 0 returns skirtDepth to the bit: a
         // float plus 0.0 is exact. That is what lets SampleScene, which sets no fraction, build
         // the same meshes it always has.
-        public static float SkirtDrop(float skirtDepth, float skirtFraction, double nominalSize)
-            => (float)(skirtDepth + skirtFraction * nominalSize);
+        //
+        // The node's share is capped at maxRelief, the largest height difference the terrain
+        // has anywhere: twice TerrainHeightFunction.MaxAbsHeight, since every height lies within
+        // that bound and no gap between two meshes can be deeper. Without the cap the share grows
+        // with the node and outruns the terrain at coarse depths: Earth's SkirtFraction of 2.9
+        // hung a depth-0 skirt 30,000 km, through the planet and 17,000 km out of the far side,
+        // drawn from orbit as a fin over the near hemisphere. The cap also keeps a coarse chunk's
+        // culling bounds, padded by its drop, to the terrain's size.
+        public static float SkirtDrop(float skirtDepth, float skirtFraction, double nominalSize, double maxRelief)
+            => (float)(skirtDepth + Math.Min(skirtFraction * nominalSize, maxRelief));
 
         // Grid triangulation is (i00, i11, i10), (i00, i01, i11). It is not arbitrary: M3's
         // geomorph invariant -- a fully morphed child mesh is triangle-for-triangle its

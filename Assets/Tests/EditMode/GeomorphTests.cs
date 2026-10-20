@@ -278,6 +278,13 @@ namespace Sonoma.Tests
             Assert.IsTrue(factor.Contains("_SonomaLodVertical"),
                 "the morph distance is not taken in the flattened world LodSelector selects in; " +
                 "see LodVertical");
+            // Read as LodVertical.ShaderParams packs it, x the flatten and y the anchor, which
+            // LodVerticalTests holds to MapPoint. Swapping the components on either side would
+            // flatten the vertices by a map the selector never used, and only one of the two
+            // tests would see it.
+            Assert.IsTrue(factor.Contains("_SonomaLodVertical.x * (topoElevation.w - _SonomaLodVertical.y)"),
+                "SonomaMorphFactor no longer reads _SonomaLodVertical as (Flatten, Anchor); see " +
+                "LodVertical.ShaderParams");
 
             foreach (string pass in new[] { "ForwardLit", "ShadowCaster", "DepthOnly", "DepthNormals" })
             {
