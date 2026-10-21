@@ -15,6 +15,7 @@ using Sonoma.Core.Surface;
 ///
 /// Controls: WASD = move, Q/E = down/up along topology up, Shift = sprint, RMB = look,
 ///           Mouse wheel = adjust speed multiplier within [WheelMultMin, WheelMultMax].
+///           F3 = toggle the height readout.
 public class TopologyFlyCamera : MonoBehaviour
 {
     [Header("Topology Source")]
@@ -51,6 +52,11 @@ public class TopologyFlyCamera : MonoBehaviour
              "the camera's own planes alone.")]
     public bool AutoClipPlanes = false;
 
+    [Header("Height Readout")]
+    [Tooltip("Draw the camera's height above the base surface in the top-left corner, with the " +
+             "ground's height above it and the clearance between them. F3 toggles it.")]
+    public bool ShowHeightReadout = true;
+
     // The near plane sits at a hundredth of the clearance above the ground directly below.
     //
     // Terrain AHEAD can be much nearer than the ground below -- a ridge rising past a camera
@@ -75,6 +81,14 @@ public class TopologyFlyCamera : MonoBehaviour
     float  _wheelMult = 1f;
     Camera _camera;
     WorldOriginSystem _origin;
+
+    // Last frame's heights, kept for the readout. Its text is rebuilt a few times a second rather
+    // than every frame, so the digits stay legible and OnGUI allocates no string per frame.
+    const float ReadoutInterval = 0.1f;
+    double   _aboveBase, _groundHeight;
+    string   _readout = "";
+    float    _readoutAt = float.NegativeInfinity;
+    GUIStyle _readoutStyle;
 
     void OnEnable()
     {
@@ -118,6 +132,9 @@ public class TopologyFlyCamera : MonoBehaviour
 
     void Update()
     {
+        if (Keyboard.current != null && Keyboard.current.f3Key.wasPressedThisFrame)
+            ShowHeightReadout = !ShowHeightReadout;
+
         bool lookActive = !RequireRightMouseToLook || _lookEnable.IsPressed();
         Cursor.lockState = lookActive ? CursorLockMode.Locked : CursorLockMode.None;
         Cursor.visible   = !lookActive;
@@ -159,6 +176,36 @@ public class TopologyFlyCamera : MonoBehaviour
         if (AutoClipPlanes && _camera != null)
             SetClipPlanes(elevation);
     }
+
+    // Height above the base surface (the sphere, cylinder or plane before any terrain), the
+    // ground's height above it directly below, and the clearance between the two. All three are
+    // last Update's, measured before that frame's move.
+    void OnGUI()
+    {
+        if (!ShowHeightReadout || Event.current.type != EventType.Repaint) return;
+
+        if (_readoutStyle == null)
+            _readoutStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize  = 14,
+                padding   = new RectOffset(8, 8, 6, 6),
+            };
+
+        if (Time.unscaledTime - _readoutAt >= ReadoutInterval)
+        {
+            _readoutAt = Time.unscaledTime;
+            _readout   = "Above base surface  " + FormatLength(_aboveBase) +
+                         "\nGround above base   " + FormatLength(_groundHeight) +
+                         "\nClearance           " + FormatLength(_aboveBase - _groundHeight);
+        }
+        GUI.Box(new Rect(10f, 10f, 300f, 66f), _readout, _readoutStyle);
+    }
+
+    // Metres to a kilometre, then kilometres: one format from two metres up to beyond orbit.
+    static string FormatLength(double metres) =>
+        math.abs(metres) < 1000.0 ? metres.ToString("F2") + " m"
+                                  : (metres / 1000.0).ToString("N3") + " km";
 
     // Near from the clearance; far from the horizon, capped at MaxClipRatio times the near.
     //
@@ -282,7 +329,12 @@ public class TopologyFlyCamera : MonoBehaviour
     // measured from the base surface, a camera two metres above a 5 km peak flew at 5 km/s.
     float ComputeElevation(Vector3 renderPos)
     {
-        if (Terrain == null) return renderPos.y;
+        if (Terrain == null)
+        {
+            _aboveBase    = renderPos.y;
+            _groundHeight = 0.0;
+            return renderPos.y;
+        }
         double3 abs = RenderToAbsoluteWorld(renderPos);
         double  elevation;
         double3 basePoint;
@@ -308,6 +360,8 @@ public class TopologyFlyCamera : MonoBehaviour
                 basePoint = new double3(abs.x, 0.0, abs.z);
                 break;
         }
-        return (float)(elevation - Terrain.HeightAt(basePoint));
+        _aboveBase    = elevation;
+        _groundHeight = Terrain.HeightAt(basePoint);
+        return (float)(_aboveBase - _groundHeight);
     }
 }
