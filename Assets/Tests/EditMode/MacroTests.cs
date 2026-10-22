@@ -141,6 +141,11 @@ namespace Sonoma.Tests
                              Levels = 4, BaseHeightScale = 1500f, EquatorTemperature = 18f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
                              RuggednessCentre = 0.2f },
+            new SceneMacro { Scene = "NarrowRingStress", Settings = StressSceneTests.NarrowRing.Asset,
+                             Asset = "Assets/Settings/NarrowRingMacro.asset", Surface = StressSceneTests.NarrowRing.Surface, MaxDepth = StressSceneTests.NarrowRing.MaxDepth,
+                             Levels = 3, BaseHeightScale = 1500f, EquatorTemperature = 18f,
+                             LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
+                             RuggednessCentre = 0.2f },
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
@@ -241,7 +246,8 @@ namespace Sonoma.Tests
         // mountains everywhere, which read as no mountains. Centred on 0.2, about a ninth is full
         // belt, a third twice the amplitude or more, and nearly a third plains under 0.6. The
         // small planet's figures are Earth's because its map is Earth's, scaled: the macro noise
-        // is sampled in units of S0. The ring's surface differs, and so do its figures. Measured
+        // is sampled in units of S0. The ring's surface differs, and so do its figures, and the
+        // narrow ring's, over a quarter the S0, differ again: fewer belts and more plains. Measured
         // on every fourth texel of the top level, where the map has all its octaves, and pinned
         // to a percentage point, so a change to the map's noise or centre is a decision rather
         // than a drift.
@@ -253,6 +259,7 @@ namespace Sonoma.Tests
                 (scene: "EarthStress",       full: 11.3, belts: 35.1, plains: 30.1),
                 (scene: "SmallPlanetStress", full: 11.3, belts: 35.1, plains: 30.1),
                 (scene: "RingworldStress",   full: 16.0, belts: 41.7, plains: 23.7),
+                (scene: "NarrowRingStress",  full:  4.1, belts: 20.6, plains: 38.7),
             };
             foreach (var (scene, full, belts, plains) in expected)
             {

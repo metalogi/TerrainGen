@@ -6,16 +6,18 @@ using Sonoma.Core.Surface;
 
 namespace Sonoma.Tests
 {
-    // The three stress scenes beside EarthStress, against the same three things EarthScaleTests
+    // The four stress scenes beside EarthStress, against the same three things EarthScaleTests
     // checks for Earth: the octave count against the depth, the LOD relief allowance, and the
-    // resident working set. All three run Earth's HysteresisFactor 1.1 and PreloadFactor 1. The
-    // small planet also runs Earth's SplitFactor 4, at MorphStartFraction 0.12; the ring and the
-    // terrarium keep SplitFactor 3, at 0.14 and 0.15, which a cylinder's larger allowance
-    // carries (M5b).
+    // resident working set. All four run Earth's HysteresisFactor 1.1 and PreloadFactor 1. The
+    // small planet also runs Earth's SplitFactor 4, at MorphStartFraction 0.12; the two rings and
+    // the terrarium keep SplitFactor 3, at 0.14, 0.14 and 0.15, which a cylinder's larger
+    // allowance carries (M5b).
     //
     //   SmallPlanetStress  a cube sphere of a quarter Earth's radius, 1,592.75 km
     //   RingworldStress    the inside of a ring of that radius, 1,250 km wide: one row of eight
     //                      root quads, each square in arc length
+    //   NarrowRingStress   the inside of a ring of three quarters that radius, 1,194.56 km, and a
+    //                      quarter the width, 312.5 km: one row of 24 near-square roots
     //   TerrariumStress    the inside of a cylinder 10 km in radius and 30 km long, 8 x 4 roots
     //
     // UnityEngine-free, so it runs in the out-of-Editor harness. The constants below are copies
@@ -158,7 +160,40 @@ namespace Sonoma.Tests
             WorstQuad = 1, WorstU = 59.0 / 512.0, WorstV = 493.0 / 512.0, Worst = 3880,
         };
 
-        internal static readonly Scene[] All = { SmallPlanet, Ringworld, Terrarium };
+        // A ring of three quarters the ring's radius, 1,194.56 km, and a quarter its width,
+        // 312.5 km: a band of 24 near-square roots, each a quarter of the ring's on a side, so
+        // depth 14 gives the ring's 0.84 m vertex spacing two depths sooner. The worst camera is
+        // near the middle of a root, partway across the band.
+        //
+        // The relief is the ring's in metres. Octave 0 is one root across, a quarter of the
+        // ring's, so the ring's octave k + 2 is this ring's octave k, and HeightScale 4,900, the
+        // ring's 10,000 times 0.7^2, gives every octave above the 5 km crossover the ring's
+        // amplitude: 575 m over 5 km, 1.2 km over 20 km, 2.4 km over 100 km, and 10 m features
+        // (13.5 m across) 1.13 m. What it lacks is the ring's two longest octaves, 1,750 and
+        // 870 km, which do not fit across it. The macro layer keeps the ring's 1,500 m of base
+        // height over a quarter the S0, at three levels rather than four (24 roots at four would
+        // be 36 MB; at three, 9 MB, and level 2's 3.4 km texels are finer than the ring's level
+        // 3). With the bands at (1, 3, 1) the roughest of 20,000 nodes per depth has C 61.1 at
+        // depth 14 (2026-10-20), and 92 is half again over it; its macro's own relief factor is
+        // 3.25, under MacroTests' 7. Flattened by LodVerticalScale 0.2 that runs the ring's
+        // SplitFactor 3 at MorphStartFraction 0.14, with 0.144 the most it allows. The worst
+        // working set, flattened, is 4,308 (2026-10-20), and the budget is 14% over it.
+        //
+        // Skirts: on 200 edges per depth and per gap the side above has to cover at most 0.654
+        // of its relief, at a gap of three (0.348 and 0.482 at one and two), so SkirtFraction is
+        // 1, half again over that, rounded up.
+        internal static readonly Scene NarrowRing = new Scene
+        {
+            Name = "NarrowRingStress", Asset = "Assets/Settings/NarrowRingTerrainSettings.asset",
+            Surface = SurfaceDef.Cylinder(1194562.5, 312500.0, 24, 1),
+            MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4900f, SkirtFraction = 1f,
+            MorphStart = 0.14f, Persistence = 0.7f,
+            RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.1495,
+            ReliefFactor = 92.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
+            WorstQuad = 0, WorstU = 211.0 / 512.0, WorstV = 251.0 / 512.0, Worst = 4308,
+        };
+
+        internal static readonly Scene[] All = { SmallPlanet, Ringworld, NarrowRing, Terrarium };
 
         // OctaveCount is exactly enough for MaxDepth: one fewer starves the deepest level (C3 of
         // the M4 plan, the "smooth mush" trap), and every scene reaches sub-metre vertex spacing.
@@ -225,13 +260,13 @@ namespace Sonoma.Tests
 
         // SurfaceMath.MaxNodeSizeSpread's cylinder entry, 1.02, was measured on one 8-column
         // cylinder of near-square root quads, and the spread depends on the shape: it is the arc
-        // over the chord of a column, so fewer columns or long thin roots raise it. Both cylinders
-        // here are 8 columns of near-square roots, and this re-measures each against the table,
+        // over the chord of a column, so fewer columns or long thin roots raise it. The cylinders
+        // here are 8 or 24 columns of near-square roots, and this re-measures each against the table,
         // since a tabled spread below the geometry's cracks LOD boundaries rather than rounding.
         [Test]
         public void CylinderSizeSpreadStaysUnderTheTable()
         {
-            foreach (var sc in new[] { Ringworld, Terrarium })
+            foreach (var sc in new[] { Ringworld, NarrowRing, Terrarium })
             {
                 var    roots = sc.Roots;
                 double s0    = SurfaceMath.NodeWorldSize(sc.Surface, roots[0], new NodeId(0, 0, 0, 0));
@@ -304,6 +339,8 @@ namespace Sonoma.Tests
                  feature: SmallPlanet.TenMetreFeature, target: SmallPlanet.TenMetreTarget, flat: SmallPlanet.TenMetreOnOneSlope),
                 (name: Ringworld.Name, hs: Ringworld.HeightScale, rough: Ringworld.RoughParams,
                  feature: Ringworld.TenMetreFeature, target: Ringworld.TenMetreTarget, flat: Ringworld.TenMetreOnOneSlope),
+                (name: NarrowRing.Name, hs: NarrowRing.HeightScale, rough: NarrowRing.RoughParams,
+                 feature: NarrowRing.TenMetreFeature, target: NarrowRing.TenMetreTarget, flat: NarrowRing.TenMetreOnOneSlope),
                 (name: Terrarium.Name, hs: Terrarium.HeightScale, rough: Terrarium.RoughParams,
                  feature: Terrarium.TenMetreFeature, target: Terrarium.TenMetreTarget, flat: Terrarium.TenMetreOnOneSlope),
             };
@@ -659,7 +696,9 @@ namespace Sonoma.Tests
 
         // On a smooth surface relief is zero, and what is left of the gap is the coarse side's
         // chords cutting under the curve (inside the ring, over it), which a share of the relief
-        // alone would leave open. ChordSag covers it, and without it the gaps are open.
+        // alone would leave open. ChordSag covers it, and without it the gaps are open. Not the
+        // narrow ring: its roots are a quarter the ring's, so its sag is too small to open a gap
+        // of 10 m past the relief term on this sample (1.5 m), and the ring is the cylinder case.
         [Test]
         public void ChordSagCoversASmoothSurface()
         {
@@ -709,6 +748,8 @@ namespace Sonoma.Tests
                  s0: SmallPlanet.Params.S0, depth: SmallPlanet.MaxDepth, fraction: SmallPlanet.SkirtFraction),
                 (name: Ringworld.Name, surface: Ringworld.Surface, rough: Ringworld.RoughParams,
                  s0: Ringworld.Params.S0, depth: Ringworld.MaxDepth, fraction: Ringworld.SkirtFraction),
+                (name: NarrowRing.Name, surface: NarrowRing.Surface, rough: NarrowRing.RoughParams,
+                 s0: NarrowRing.Params.S0, depth: NarrowRing.MaxDepth, fraction: NarrowRing.SkirtFraction),
                 (name: Terrarium.Name, surface: Terrarium.Surface, rough: Terrarium.RoughParams,
                  s0: Terrarium.Params.S0, depth: Terrarium.MaxDepth, fraction: Terrarium.SkirtFraction),
             };
