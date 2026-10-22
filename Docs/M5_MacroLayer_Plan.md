@@ -1217,6 +1217,13 @@ wetness at the parent's level, so the morphed splats still match (C6).
 M5c-2 can land before M5c-1, with wetness at its default 0. The order here puts the non-local proof
 first because that was §5's purpose for the optional pass.
 
+**Where M5c sits (decided 2026-10-21).** The sea levels come first (D1), then M5c-1 and M5c-2, then the
+ocean's `ocean-a` and `ocean-b` (`Docs/Ocean_Plan.md`), then M6, then `ocean-c`. M5c goes before the ocean
+because the ocean's Land/Coast/Ocean bound (its C8) has to be derived against the final height function,
+and M5c changes two of its terms: the derived pyramid replaces the band-limited macro levels the bound
+assumes, and the gully term changes the slopes. M5c-2's `LatticeNoise.Gradient3DD` also gives that
+bound an analytic derivative to use. The reasoning is in the ocean plan's Q10.
+
 #### Tests
 
 Pure where possible, as before.
@@ -1262,6 +1269,12 @@ Pure where possible, as before.
 
 - **D1 — outlets per scene.** `BaseLevel` on the planets (0 drains about half the sphere). For the
   ring and the terrarium: rims only, or rims plus a base level.
+
+  **Answered in part (2026-10-21):** `BaseLevel` is the scene's sea level, the same number as
+  `Docs/Ocean_Plan.md`'s `SeaLevel`, so rivers end at the coast. It is chosen per scene before M5c-1
+  starts, from the land fraction on the uneroded macro maps (the ocean plan's Q2). Erosion only lowers
+  ground, so the land fraction falls a little afterwards; check it, but do not redo the choice. The
+  values themselves, and whether the cylinders also drain at their rims, are still to be chosen.
 - **D2 — G2 or not.** Built only if G1 in play reads too smooth.
 - **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
   wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two

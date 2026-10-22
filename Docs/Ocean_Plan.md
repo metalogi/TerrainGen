@@ -3,9 +3,10 @@
 **Audience:** a coding agent working in `G:\UnityProjects\TerrainGen` with no prior context on this project.
 **Parent plan:** `SonomaRevisedPlan.md` (repo root). The ocean is not one of its milestones; it was out of
 scope for M5 ("a separate system by design", `Docs/M5_MacroLayer_Plan.md`). Where it sits relative to M6
-is open question Q1, and where it sits relative to M5c (erosion, planned) is Q10.
+(Q1) and to M5c, erosion (Q10), is now decided: sea levels first, then M5c, then `ocean-a` and
+`ocean-b`, then M6, then `ocean-c`. See Q1 and Q10.
 **Prerequisite:** M5a and M5b are complete and merged, and so is `NarrowRingStress` (main at b290fdb or
-later). All EditMode tests should pass before you start. Local changes in `ProjectSettings/` and
+later). `ocean-a` also waits for M5c (Q10), and `ocean-c` for M6 (Q1). All EditMode tests should pass before you start. Local changes in `ProjectSettings/` and
 `Assets/Settings/` (the URP assets and `Build Profiles/`) may be present; they are the user's, so leave
 them alone.
 
@@ -484,6 +485,10 @@ These need the user's decision, or a measurement, before the task that depends o
   profiling fixes rewrite (bounding-sphere caching, hash traffic, allocation-free uploads). `ocean-a` and
   `ocean-b` barely touch the selector. One option is to do `ocean-a` and `ocean-b` now and `ocean-c` after
   M6; another is to do M6 first. Which?
+
+  **Answered (2026-10-21):** split it. `ocean-a` and `ocean-b` come before M6 (after M5c, Q10), and
+  `ocean-c` after M6, so pruning is built on the selector and scheduler M6 leaves rather than rebased
+  across their rewrite.
 - **Q2 — Sea level and land fraction per scene.** With `SeaLevel` 0 and a zero-centred macro base height,
   roughly half of each world may be under water; this has not been measured. Is there a target land
   fraction (Earth-like 30%?), and is it reached by moving `SeaLevel` or by biasing the macro base height?
@@ -517,6 +522,35 @@ These need the user's decision, or a measurement, before the task that depends o
   gully term changes what C8's `Residual(d)` has to bound. Building the ocean first means re-deriving
   the bound's terms and re-running test 4 after M5c; building it second means sea level and land fraction
   (Q2) are tuned once, on the eroded terrain. Rivers would also want to end at the sea.
+
+  **Answered (2026-10-21):** after M5c, with the sea levels chosen before either. The order is:
+
+  1. **Sea level per scene (Q2), before any building.** M5c's outlets (its D1, `BaseLevel`) and this
+     plan's `SeaLevel` are the same number, so rivers end at the coast. Choose it from the land fraction
+     on the uneroded macro maps (the coastline export, Task 6, or `MacroMapExport`). Erosion only lowers
+     ground, so the land fraction falls a little afterwards; that is a check, not a redo.
+  2. **M5c-1**, macro erosion, with `BaseLevel = SeaLevel`.
+  3. **M5c-2**, the gully term.
+  4. **`ocean-a`, then `ocean-b`.**
+  5. **M6.**
+  6. **`ocean-c`** (Q1).
+
+  The reasons, in order of weight:
+
+  - **C8's bound is derived once, against the final height function.** M5c changes two of its terms.
+    `Residual(d)`'s macro part assumes a coarser level differs from the top by the macro octaves it
+    leaves out; M5c derives the lower levels by filtering the eroded top level instead, so that term
+    has to be re-derived. And the gully term changes the slopes `Between(d)` bounds. A bound derived
+    before M5c would have to be derived again, and a bound that is wrong fails silently (C8).
+  - **Shared work.** M5c-2 adds `LatticeNoise.Gradient3DD`, the noise's analytic derivative. `Between(d)`
+    needs a derivative bound on the same noise, which this plan would otherwise measure and pad, so after
+    M5c-2 it can be derived instead.
+  - **One round of tuning.** M5c re-measures every scene's relief constants, skirt shares and working
+    sets. `ocean-a` adds Coast chunks, the overlap depth and wave-sized skirts. Built second, the sea
+    level, the land fraction and these figures are tuned once, on the eroded terrain.
+
+  Building `ocean-a` first remains possible if visible water matters sooner. The cost is re-deriving
+  C8's terms and re-running test 4 after M5c, and retuning the sea level.
 
 ---
 
