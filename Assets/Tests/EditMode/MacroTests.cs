@@ -247,7 +247,7 @@ namespace Sonoma.Tests
         // belt, a third twice the amplitude or more, and nearly a third plains under 0.6. The
         // small planet's figures are Earth's because its map is Earth's, scaled: the macro noise
         // is sampled in units of S0. The ring's surface differs, and so do its figures, and the
-        // narrow ring's, over a quarter the S0, differ again: fewer belts and more plains. Measured
+        // narrow ring's, over 0.15 of the S0, differ again: fewer belts and more plains. Measured
         // on every fourth texel of the top level, where the map has all its octaves, and pinned
         // to a percentage point, so a change to the map's noise or centre is a decision rather
         // than a drift.
@@ -259,7 +259,7 @@ namespace Sonoma.Tests
                 (scene: "EarthStress",       full: 11.3, belts: 35.1, plains: 30.1),
                 (scene: "SmallPlanetStress", full: 11.3, belts: 35.1, plains: 30.1),
                 (scene: "RingworldStress",   full: 16.0, belts: 41.7, plains: 23.7),
-                (scene: "NarrowRingStress",  full:  4.1, belts: 20.6, plains: 38.7),
+                (scene: "NarrowRingStress",  full:  3.8, belts: 17.8, plains: 45.9),
             };
             foreach (var (scene, full, belts, plains) in expected)
             {
