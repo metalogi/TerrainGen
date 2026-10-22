@@ -1273,8 +1273,13 @@ Pure where possible, as before.
   **Answered in part (2026-10-21):** `BaseLevel` is the scene's sea level, the same number as
   `Docs/Ocean_Plan.md`'s `SeaLevel`, so rivers end at the coast. It is chosen per scene before M5c-1
   starts, from the land fraction on the uneroded macro maps (the ocean plan's Q2). Erosion only lowers
-  ground, so the land fraction falls a little afterwards; check it, but do not redo the choice. The
-  values themselves, and whether the cylinders also drain at their rims, are still to be chosen.
+  ground, so the land fraction falls a little afterwards; check it, but do not redo the choice.
+
+  The values (2026-10-21) put 30% of each scene above water on its uneroded terrain: Earth +392 m, the
+  small planet +285 m, the ring +1,093 m, the narrow ring +608 m and the terrarium +68 m. The
+  measurement is in the ocean plan's Q2. Whether the cylinders also drain at their rims is still to be
+  chosen. If the continent map in `Docs/Continents_Outline.md` is built first, it sets the land fraction
+  directly and these values are superseded.
 - **D2 — G2 or not.** Built only if G1 in play reads too smooth.
 - **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
   wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two

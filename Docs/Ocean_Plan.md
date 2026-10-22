@@ -493,6 +493,34 @@ These need the user's decision, or a measurement, before the task that depends o
   roughly half of each world may be under water; this has not been measured. Is there a target land
   fraction (Earth-like 30%?), and is it reached by moving `SeaLevel` or by biasing the macro base height?
   The coastline export (Task 6) answers this with numbers.
+
+  **Answered (2026-10-21): 30% land everywhere, for now.** Measured on the uneroded terrain, 200,000
+  area-uniform points per scene, height at full detail through `TerrainHeightFunction.HeightAtPoint`:
+
+  | scene | land at sea level 0 | `SeaLevel` for 30% land |
+  |---|---|---|
+  | Earth | 32.4% | +392 m |
+  | small planet | 33.5% | +285 m |
+  | ring | 45.8% | +1,093 m |
+  | narrow ring | 49.1% | +608 m |
+  | terrarium | 41.6% | +68 m |
+
+  The sampling error is about ±0.1% of land. Erosion (M5c) only lowers ground, so after it each scene
+  comes out a little under 30%; check, do not retune. Two findings came with it:
+
+  - **The detail noise, not the macro layer, places the coastlines.** On Earth the height's standard
+    deviation is 6.0 km and the macro base height's 1.2 km, and the two correlate at 0.24 (0.31 on the
+    small planet, 0.39–0.43 on the rings, 0.56 in the terrarium). The coarsest detail octaves, 1,300 km
+    and longer on Earth, are tens of kilometres tall after the five-fold relief and draw the continents.
+    So climate, which reads the macro maps, does not know where the sea is (Q7 is larger than it
+    assumed).
+  - **Sea level 0 is not the mean.** Earth's mean height is −2.5 km and the small planet's −1.3 km: octave
+    0 is one root quad across, so too few of its cells fit on a planet to average out. Heights on Earth
+    run from −21 to +19 km, so its oceans are about 21 km deep at their deepest.
+
+  `Docs/Continents_Outline.md` proposes replacing the coarsest octaves with a continent map in the macro
+  layer. If that is built, land fraction becomes one of its parameters and these sea levels are
+  superseded.
 - **Q3 — Wave model.** Gerstner sums with world-space directions on the 2⁻ᴾ lattice (C7) are the
   proposal. Their poles are harmless on a sphere with several directions; a cylinder's up rotates about
   one axis, so directions along the axis never pole and directions across it pole twice per turn. The
