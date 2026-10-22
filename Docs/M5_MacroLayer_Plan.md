@@ -42,7 +42,7 @@ breaks one of those, which reading the parent plan does not show.
    sample jobs, on workers. If a design here would add main-thread work per frame, it is the wrong
    design.
 4. **Plain macro noise only.** The maps are filled from a pure generator. Erosion, rivers and tectonics
-   stay out of scope (see the end). But build the maps as if something non-local will write them
+   stay out of scope (see the end; erosion was later planned as M5c, in the amendments). But build the maps as if something non-local will write them
    later: that is the whole reason they are maps and not a function. C2 exists for that reason.
 5. **Measure before concluding.** When a figure here disagrees with the Editor, the Editor is right;
    record it in the amendments section.
@@ -913,14 +913,378 @@ left out a lower sun at each scene's start.
 7. **Rock on steep slopes.** `TerrainBiomes.mat`'s rock threshold was 63°, which no slope reaches.
    It is now 16° to 28°.
 
+### M5c, erosion: the plan (2026-10-20)
+
+M5a and M5b are merged and verified in play. The user then took up §5's optional erosion pass, which
+this document had put out of scope, and chose a hybrid. This amendment is its plan. It reopens M5: the
+milestone is done when M5c is.
+
+The hybrid has two halves:
+
+- **Macro erosion (M5c-1).** A stream-power pass over the macro maps' top level, once, at startup. It
+  erodes the *sum* of the base height and the detail octaves the maps can carry, not the base height
+  alone. It stores the correction in the base height channel, and the drainage area in a new channel.
+  This is the non-local half. It gives drainage basins, valleys that join, and a river map.
+- **A gully term (M5c-2).** A local term in the height function, at every depth, for the scales the
+  maps cannot hold. Its strength is shaped by the stored drainage. It stays a pure function of a point,
+  so it needs none of the macro half's machinery.
+
+The ground rules above still hold. `SampleScene` stays bit-identical, there is nothing new per frame,
+and the Editor is right when it disagrees with a figure here. Erosion runs only where an asset turns it
+on, so with it off every scene is M5b's to the bit.
+
+#### Why both halves: the maps are coarse on the planets
+
+Erosion only shapes features a few texels wide, and C1's four-texel rule makes the shortest wavelength
+a level holds four of its texels. At each scene's shipped `LevelCount`, the top level's texels are:
+
+| scene | top level, cells per quad | texel | shortest wavelength held | nodes at the top level |
+|---|---|---|---|---|
+| Earth | 256 | about 40 km | about 160 km | 393,218 |
+| small planet | 256 | about 9.8 km | about 39 km | 393,218 |
+| ring | 256 | about 4.9 km | about 20 km | 526,336 |
+| terrarium | 128 | about 60 m | about 240 m | 525,312 |
+
+Node counts are distinct surface points, with shared edges counted once. A cube sphere with `n` cells
+per face has `6n² + 2`. A cylinder of `C × R` quads has `Cn × (Rn + 1)`, since it closes round its
+circumference and is open at its rims.
+
+On Earth the mountain band is 5 to 100 km (the "mountain belts" entry above). So macro erosion there
+shapes only continental drainage and the broadest structure of the ranges. Everything a person sees
+from a kilometre up is below it, which is the gully term's job. The terrarium is the opposite case:
+its 60 m texels resolve real valleys, so it is where macro erosion is proved first. The ring sits
+between the two. Raising the planets' resolution is possible but costs memory and startup time. It is
+decision D3, not part of the plan.
+
+---
+
+#### E1 — Erode the sum, and fold the correction into the base height
+
+The detail noise is the larger part of the terrain: on Earth `HeightScale` is 20,000 m against 3,000 m
+of base height. Eroding the base height alone would carve channels into a layer that the detail noise
+then covers, uneroded. So, at each top-level node, the pass erodes
+
+```
+T = BaseHeight + HeightScale × Fbm(point, octaves 0 .. Oe, band gains from Biomes.Modulate)
+Oe = HeightParams.MaxOctave(top level) − 1
+```
+
+`MaxOctave(d)` puts depth d's finest octave at about two vertex spacings, so `Oe` is the finest
+octave at four or more top-level texels, C1's rule for the detail noise. `T` is exactly what
+`TerrainHeightFunction.Height` sums for those octaves at that point, band gains included. Build it
+by calling the same `LatticeNoise.Fbm` overload with `Oe + 1` octaves, not by writing a copy.
+
+The pass returns the eroded `T'`. It stores `D = T' − T` by adding it into channel x:
+`BaseHeight' = BaseHeight + D`. The height function then needs no change for M5c-1. Within
+octaves 0 to `Oe`, `BaseHeight' + detail` is `T'`, and the finer octaves sit on top as before.
+
+- **Climate keeps the uneroded base height.** The temperature lapse and `Biomes.Classify` read the
+  climate channels, which are generated before erosion. Re-deriving them from `T'` is possible but
+  changes M5b's biome map, so it is left out (it can follow under E7's moisture coupling).
+- **Clamp `T'` to the range of `T`.** Use the minimum and maximum over the whole surface. Detachment
+  only lowers ground, and diffusion averages it, so in exact arithmetic the clamp changes nothing. It
+  makes E5's height bound hold by construction.
+
+#### E2 — One graph over the whole surface, built from the links
+
+Water crosses root-quad edges, so the pass runs on one graph, not per quad.
+
+- **Nodes.** Every top-level texel from 0 to `n` on each axis, with shared edge and corner texels
+  merged to their owner by `MacroLayout.EdgeSource`. This is the same ownership rule C2 uses, so a
+  node's value goes back to every quad that stores it, and the existing `EdgeCopies` pass keeps the
+  edge rows identical.
+- **Neighbours.** Up to eight per node: the D8 offsets, resolved across an edge through
+  `SurfaceMath.QuadEdgeLink`, reversal included, then merged to the owner.
+  - A diagonal step across a cube corner, where three faces meet, has no node. Drop it.
+  - Two offsets that resolve to the same node count once.
+  - A cylinder's rims and a plane grid's outer edges have no neighbour beyond them. They are outlets
+    (E3).
+- **Lengths and areas from the surface, never the grid.** A cube sphere's texels vary 1.6:1 across a
+  face. So the length of each link is the chord between the two nodes' `SurfaceMath.SurfacePoint`s,
+  and each node's area is the area of its Voronoi cell: a quarter of the four surrounding cells, each
+  measured from its corners. Drainage area is then in square metres, comparable across a face and
+  across topologies.
+- **Built once, in Burst, as flat arrays:** `NativeArray<int>` neighbours (8 per node, −1 for none),
+  `NativeArray<float>` link lengths and `NativeArray<double>` areas. Also keep the managed reference
+  builder the tests read, as `MacroGenerator.Build` is for the maps.
+
+The graph is the riskiest new code, because the corner and reversal cases are where it would go wrong.
+`ErosionGraphTests` (see Tests below) pins it before any erosion runs on it.
+
+#### E3 — Stream power, implicit, with fixed outlets
+
+Use the implicit stream-power scheme of Braun and Willett (2013), with the slope exponent `n = 1` and no
+uplift. Each iteration:
+
+1. **Routing.** Each node's receiver is its steepest-descent neighbour by `(h − h_r) / length`. Ties go
+   to the lower node index, so routing is deterministic.
+2. **Pits.** Routing runs on a depression-filled copy of the surface, made by a priority flood from
+   the outlets (Barnes et al. 2014, with an epsilon gradient, ties broken by node index). Every node
+   then drains to an outlet, and a lake routes over its spill point. Erosion modifies the unfilled
+   surface, so lakes stay as hollows, for a water system to fill later.
+3. **Order and drainage area.** Build the stack: nodes ordered outlet-first, from the receiver tree.
+   Walking it in reverse, add each node's area to its receiver's. That gives the drainage area `A`.
+4. **Incision.** In stack order, downstream first,
+   `h_i ← (h_i + F h_r) / (1 + F)` with `F = K Δt A_i^m / length_ir`. With `n = 1` this is exact and
+   unconditionally stable, so a few tens of large steps reach the result.
+5. **Hillslope diffusion.** `κ Δt ∇²h` on the graph, as a few Jacobi sweeps. Each node reads only
+   last sweep's values, so the sweeps are parallel and deterministic.
+
+**Outlets** are the boundary condition that makes this work on a closed surface:
+
+- Every node at or below a `BaseLevel` (metres, per scene) is an outlet. Outlets are not eroded.
+- On a cylinder, the rim nodes are outlets too.
+- A cube sphere has no rim, so it needs a `BaseLevel` that leaves some ground below it. The macro base
+  height is zero-mean, so `BaseLevel` 0 makes roughly half the sphere outlet: the continents' rivers
+  run to the "sea", even though there is no water yet.
+
+**Determinism.** Steps 1 and 5 are per node and parallel. Steps 2 to 4 are sequential passes in one
+Burst `IJob`, in double, with every tie broken by index. Same seed, same maps. The managed reference
+must match the Burst build bit for bit, as `MacroBuildJob` does.
+
+**Parameters**, in a new `ErosionSettings` asset that `MacroLayerSettings` references. A null reference
+means no erosion.
+
+| field | meaning |
+|---|---|
+| `Iterations` | implicit steps (start at 30) |
+| `IncisionDepth` | metres a channel draining a whole quad's area is cut down over the run. The asset stores this rather than `K`, which has units of `1/(time × m^(1−2m))`, and `ErosionParams.Create` derives `K Δt` from it. |
+| `AreaExponent` | `m`, 0.4 to 0.5 |
+| `Diffusion` | hillslope `κ Δt` per step, as a fraction of a texel² |
+| `BaseLevel` | metres; outlets at or below it |
+
+#### E4 — A second array for drainage, and a pyramid derived downwards
+
+**A new channel.** Channel x carries the folded base height (E1), but the drainage area needs a home,
+and the `float4` texel is full. Add a second persistent array: `NativeArray<float2>`, with the same
+`MacroLayout` indexing and C2's edge rule, holding:
+
+- x: **wetness**, `log(A / A_node) / log(A_quad / A_node)`, saturated to 0..1. 0 is a ridge and 1 is a
+  river draining a quad's area.
+- y: **`D` itself**, the erosion correction. The gully term does not use it; it is kept for the map
+  export and the tests.
+
+It costs half the main array: 4.4 MB on Earth. `MacroSample` gains `Wetness`, a float whose default 0
+means "no erosion data" and must leave the gully term at its identity (C5's rule). `MacroSampler.Read`
+reads the second array only when erosion is on.
+
+**The levels below the top are derived, not regenerated.** Eroding only the top level would leave the
+planet seen from orbit uneroded. Level L is level L + 1 filtered by the binomial `[1 4 6 4 1] / 16` on
+each axis, then read at the coincident texels: L's `(i, j)` is L + 1's `(2i, 2j)`. This applies to `D`
+(added into channel x at each level) and to both drainage channels. The filter needs L + 1's border
+filled with real neighbours' values, not the generator continued, so before each level is filtered:
+
+- **Halo fill.** Fill each quad's border texels from the neighbour quad's interior through the same
+  link resolution the graph uses (E2). The diagonal block at a cube corner has no neighbour. Fill it
+  by repeating the corner node's value. Seams do not depend on this choice: C2's agreement is exact
+  on the edge line, which is where shared vertices lie, and a border texel only shapes the read just
+  inside one quad.
+- **Edge copies.** Run `EdgeCopies` after each level, so both quads store the owner's bits on every
+  shared edge.
+
+The binomial filter is not C1's hard band limit. It passes a quarter of the amplitude at the coarser
+level's Nyquist and about three quarters at four texels. Overshoot is still bounded by
+`MacroSampler.MaxOvershoot`, whatever the content, and the tests below measure the ringing instead of
+assuming none. If it shows, use a wider filter (`[1 6 15 20 15 6 1] / 64`).
+
+**Startup cost.** The pass runs at startup, after `MacroBuildJob` and before anything generates. At
+about half a million nodes, 30 iterations of sequential Burst passes is estimated at a few hundred
+milliseconds. That is an estimate, to be measured. `TerrainRoot` logs it beside the build time. If it
+runs past about a second, caching the maps to disk keyed by a hash of the settings, which this
+document left out of scope, becomes worth doing (decision D4).
+
+#### E5 — The height bound and the relief allowance
+
+**`MaxAbsHeight` stops being purely analytic.** E1's clamp keeps `T'` within the range of `T`, but the
+stored channel x is `T' − detail(0..Oe)`, which can exceed the uneroded base height by up to the detail
+bound. The tight bound is the one measured on the built maps:
+
+```
+baseTerm = MacroSampler.MaxOvershoot × max over stored texels |BaseHeight'|
+```
+
+So `TerrainHeightFunction.MaxAbsHeight` gains an overload taking the built `MacroMaps`. `MacroMaps`
+records the maximum during the build, and `TerrainRoot` calls the overload; it already builds the maps
+before it computes the envelope. The analytic form stays for scenes without erosion, so M5b's
+envelopes stay to the bit, and so do `LodVertical`'s anchors. With erosion on the envelope grows, so
+it moves the flattened world's anchor too. The tests re-measure the terrarium's working set, which is
+the scene most sensitive to the anchor (a fifth of its radius already).
+
+**The relief allowance.** Channels steepen the macro layer. `C_m` = 7 was measured on smooth
+generated maps, and on eroded ones it is a new number per scene. Measure `C_m` on the real built maps
+of each scene: 20,000 random nodes per depth, C10's method, pinned half again over the roughest. Then
+re-run `MacroTests.CombinedMargin`. Where a scene fails, the levers are its `IncisionDepth`, its
+`MorphStartFraction` or its `BaseHeightScale`. That is a user decision, as `SplitFactor` was.
+
+**Skirts.** Each chunk's skirt is sized from its own measured relief (the `SkirtDepth` entry in
+`CLAUDE.md`), so it follows automatically. But the transient-gap shares (0.48 to 0.76 of a chunk's
+relief) were measured on M5b's terrain and need re-measuring with `StressSceneTests.TransientEdges`.
+
+#### E6 — The gully term: local, pure, and steered only by world-space quantities
+
+The finer octaves, everything below `Oe`, are untouched by macro erosion. On the planets that is the
+whole visible landscape. The gully term reshapes them inside `LatticeNoise.Fbm`, as the band gains do.
+It is two mechanisms, built in this order:
+
+1. **Slope damping (G1).** Each octave's amplitude is divided by `1 + E |g|²`, where `g` is the
+   accumulated slope of the octaves before it, in metres per metre. Steep ground loses fine detail and
+   ridges and flats keep it, which reads as weathered slopes and sharp crests. This needs the noise's
+   analytic gradient: a `Gradient3DD` returning the value and its `double3` derivative, from the
+   quintic fade's derivative. Project the derivative onto the tangent plane by subtracting its
+   component along the surface normal `normalize(p − centre)` for a sphere (the analogue for a
+   cylinder, `+Y` for a plane).
+2. **Steered gullies (G2).** Above a slope threshold, add a stripe pattern of a set wavelength running
+   *down* the accumulated gradient `g`, its amplitude growing with slope. This follows Rune Skovbo
+   Johansen's erosion filter (2023) and its phacelle noise (2025): cells of cosine stripes aligned per
+   cell to the local gradient and blended. Several octaves of it nest into branching patterns. Build it
+   only if G1 alone reads as too smooth: the user judges G1 in play first (decision D2).
+
+**Coupling to the macro half.** Wetness from E4 scales `E` up on valley floors, so floors carry
+deposit-smooth ground and their sides keep their detail. It also scales G2's amplitude down there,
+since a valley floor is not gullied. At wetness 0, the default, the coupling is the identity.
+
+**What the term must not read: the macro layer's derivatives.** It is tempting to steer gullies by the
+gradient of the eroded macro surface. But a bicubic read's derivative *across* a root-quad edge comes
+from each quad's own border texels, so the two quads disagree. The gully pattern would then differ
+across the edge and the terrain would crack, far beyond the cube edge's 1.3 nm. The term reads only:
+
+- macro **values**, which agree to the bit on every edge (C2);
+- the detail noise's own **gradient**, which is a function of the 3D point and so agrees as positions
+  do.
+
+A test holds the macro's influence to its values alone (see Tests below).
+
+**The invariants it keeps:**
+
+- **Strict prefix.** Octave k's damping depends only on octaves below k, so a band-limited sum is
+  still a prefix of a finer one, and a fully morphed child is still its parent. Extend
+  `HeightFunctionTests`' prefix test and run `GeomorphTests.ChildAtFullMorphEqualsParent` with gullies
+  on.
+- **Identity when off.** With `E` 0 and no G2, `TerrainHeightFunction.Height` takes the existing path
+  (the same switch the band gains use), so `SampleScene` and every scene with gullies off are M5b's
+  bits.
+- **The bound.** The damping factor is at most 1, so it never raises `MaxAbsHeight`. G2 adds at most
+  its amplitude per octave; add that term.
+
+**Its cost.** The gradient costs about twice a plain octave. It runs in the sample jobs, on workers,
+so frame time is not at stake, but chunk throughput is: compare chunks per second during a descent
+before and after. Slope damping lowers relief, and gullies raise it at fine scales, so each scene's C
+is re-measured (E5's method) and its pinned value, `CloseUpRoughnessMeetsItsTarget` and the skirt
+shares updated.
+
+**Parameters** live in `TerrainSettings`, since the term is part of the height function:
+
+| field | meaning |
+|---|---|
+| `GullyDamping` | `E`; 0 off |
+| `GullyStartWavelength` | metres; damping applies to octaves at or below it (read off by exponent, like the band edges) |
+| `GullyAmplitude`, `GullyWavelength`, `GullySlope` | G2; amplitude 0 off |
+| `WetFloorDamping`, `WetGullyFade` | the wetness coupling, both 0 off |
+
+#### E7 — Optional: wetter valleys
+
+In `Biomes.Modulate`, add `WetnessMoisture × wetness` to the moisture before classification, so river
+valleys read greener. Off by default. It changes splat weights only, and the coarse job computes
+wetness at the parent's level, so the morphed splats still match (C6).
+
+---
+
+#### Tasks
+
+**M5c-1 — `m5c-macro-erosion`**
+
+1. `ErosionSettings` and `ErosionParams` (with `Create`, deriving `K Δt` from `IncisionDepth`).
+   Reference it from `MacroLayerSettings`. A null reference disables erosion and changes nothing.
+2. `ErosionGraph`: nodes, neighbours, lengths and areas (E2), as a managed builder and a Burst job.
+3. `ErosionJob`: the flood, routing, stack, area, incision and diffusion (E3), with a managed reference.
+4. The second array, wetness and `D` (E4); `MacroSample.Wetness`; and the read in `MacroSampler.Read`.
+5. The derived pyramid: halo fill, the binomial filter, the edge copies per level (E4).
+6. `MacroMaps.Build` runs it all and records the maximum `|BaseHeight'|`. Add the `MaxAbsHeight`
+   overload, and log the erosion time from `TerrainRoot`.
+7. `MacroMapExport` writes `<scene>_erosion.png` (`D`, diverging colours) and `<scene>_wetness.png`.
+8. Turn erosion on in `TerrariumStress` first, then the ring, then the planets, tuning each with the
+   export before play.
+
+**M5c-2 — `m5c-gullies`**
+
+1. `LatticeNoise.Gradient3DD`, with a test of its derivative against central differences of
+   `Gradient3D`.
+2. The tangent projection per topology, and slope damping in a new `Fbm` overload (G1).
+3. The `TerrainSettings` fields; the identity path in `Height`; the wetness coupling.
+4. G2, if decision D2 asks for it.
+5. Re-measure C, the skirt shares and the working sets per scene; update the pinned figures.
+
+M5c-2 can land before M5c-1, with wetness at its default 0. The order here puts the non-local proof
+first because that was §5's purpose for the optional pass.
+
+#### Tests
+
+Pure where possible, as before.
+
+- **Graph.** The node count against `6n² + 2`, `Cn(Rn + 1)` and `(Cn + 1)(Rn + 1)`. Neighbour
+  symmetry (a in N(b) if and only if b in N(a)). No node its own neighbour. Every reversed link and
+  every cube corner exercised. Lengths within the face's 1.6:1 spread of the nominal spacing.
+- **Routing.** After the flood, every node reaches an outlet along strictly decreasing filled height,
+  and the receivers form a forest.
+- **Drainage, analytically.** On a tilted plane grid with one outlet rim, each node's area equals the
+  area upslope of it. On a cone, area grows with the distance from the apex squared.
+- **Incision.** With diffusion off, `D ≤ 0` everywhere, and the incision grows with `A`.
+- **Determinism.** Two builds give the same bits. The Burst build equals the managed one (Editor).
+- **Range and bound.** `T'` lies within the range of `T`. The measured `MaxAbsHeight` bounds
+  `HeightAtPoint` over random points on every eroded scene, overshoot included.
+- **Seams.** `MacroEdgesAgreeAcrossEveryLink` on eroded maps, both arrays. Gullies across every
+  root-quad link agree to the cube edge's existing bound. Mutation check: steering by the macro
+  derivative breaks it.
+- **The macro's influence through values only.** Change a border texel off the edge line; the edge
+  heights must not change.
+- **Pyramid.** Each derived level's interior texels against the filtered level above; the edge rows
+  identical across links; the ringing (energy at wavelengths under four texels) measured and bounded.
+- **Identity.** With erosion off, every scene's maps are M5b's to the bit. With gullies off, `Height`
+  is the M4 and M5b bits (`HeightIsBitIdenticalWithoutAMacroLayer` and its M5b counterparts).
+- **Geomorph.** `ChildAtFullMorphEqualsParent` over eroded maps with gullies on.
+- **Relief and budgets.** Each scene's re-measured C and `C_m` pinned; `CombinedMargin` passes; the
+  replica's working sets within budget; the skirt shares re-measured.
+
+#### Verification
+
+- **Agent-side, without the Editor:** the pure tests, including the graph, routing and drainage tests
+  over managed builds.
+- **Human-side, in the Editor:**
+  - all tests green;
+  - the erosion time in the log, and the cache decision taken on it (D4);
+  - the map export reviewed per scene: does wetness look like rivers, and does `D` cut valleys rather
+    than speckle;
+  - fly-throughs: the terrarium's valleys from 500 m, the ring's from 5 km, and the planets'
+    continental drainage from orbit and gullies from 1 km;
+  - no relief warning, and peak working sets under budget, on leaving play in each scene.
+
+#### Decisions for the user, before or during the build
+
+- **D1 — outlets per scene.** `BaseLevel` on the planets (0 drains about half the sphere). For the
+  ring and the terrarium: rims only, or rims plus a base level.
+- **D2 — G2 or not.** Built only if G1 in play reads too smooth.
+- **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
+  wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two
+  more levels (10 km texels) take it to 137 MB and 6.3 M nodes, with startup in seconds. A separate,
+  finer erosion-only grid that stores only `D` and wetness is cheaper (68 MB at 10 km on Earth) but
+  needs its own addressing. Either is worth deciding only after the terrarium and ring show what
+  erosion buys.
+- **D4 — cache the maps to disk.** Depends on the measured erosion time.
+
+#### Out of scope for M5c
+
+- Uplift and tectonics: the pass erodes the noise's terrain, it does not grow mountains.
+- Sediment deposition beyond diffusion (Yuan et al. 2019 add a deposition term to the same implicit
+  scheme, and it would slot into step 4 later).
+- Rivers as features (vector channels, water surfaces). Wetness is the map they would be drawn from.
+- Thermal erosion (talus): diffusion covers its smoothing role at these texel sizes.
+
 ## Out of scope for M5
 
-- **Erosion, rivers, tectonics.** §5 makes erosion optional for M5, and it stays out. A non-local pass
-  over a cube map needs neighbourhoods that cross faces, through the links, with corners of valence
-  three. C2 makes the edges agree *after* such a pass, but running one is a design problem of its own.
-  It gets its own plan, once M5's maps exist to run it on.
-- **Baking the maps to assets.** Only worth it when generation gets expensive, which is to say with
-  erosion.
+- **Tectonics, and rivers as features.** Erosion is now M5c (above). Tectonics and drawn rivers stay
+  out.
+- **Baking the maps to assets.** Only worth it when generation gets expensive, which erosion may
+  make it (M5c, D4).
 - **Water and sea level.** A separate system by design (`CLAUDE.md`, Important Design Decisions).
 - **Textures per biome, and more than four biomes.** M7, with the triplanar precision limit (M4 C4).
 - **Flatten, sharpen and terrace curves.** C7.
