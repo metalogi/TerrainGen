@@ -7,7 +7,7 @@ using static Sonoma.Tests.StressSceneTests;
 
 namespace Sonoma.Tests
 {
-    // StressSceneTests' constants are hand copies of the three stress scenes' assets and
+    // StressSceneTests' constants are hand copies of the four stress scenes' assets and
     // TerrainRoots, which is what lets it run out of Editor. This holds the copies to the files,
     // as EarthSettingsAssetTests does for EarthStress, so retuning a scene without re-deriving its
     // tests fails here rather than nowhere.
