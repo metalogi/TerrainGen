@@ -27,7 +27,7 @@ namespace Sonoma.Tests
         [Test]
         public void DetailReliefFactor()
         {
-            foreach (var m in ContinentTests.ContinentScenes())
+            foreach (var m in ContinentTests.MeasuredScenes())
             {
                 var rough = MacroTests.RoughParams(m.Scene);
                 float3 at = MeasuredAt(m.Scene);
@@ -59,7 +59,7 @@ namespace Sonoma.Tests
         [Test]
         public void MacroReliefFactor()
         {
-            foreach (var m in ContinentTests.ContinentScenes())
+            foreach (var m in ContinentTests.MeasuredScenes())
             {
                 var built = MacroTests.ContinentBuild(m);
                 var roots = SurfaceMath.BuildRoots(m.Surface);
@@ -92,7 +92,7 @@ namespace Sonoma.Tests
         [Test]
         public void SkirtShares()
         {
-            foreach (var m in ContinentTests.ContinentScenes())
+            foreach (var m in ContinentTests.MeasuredScenes())
             {
                 var w  = new StressSceneTests.SceneHeights(m.Scene, m.Surface, MacroTests.RoughParams(m.Scene)) { ReliefStride = 1 };
                 var worst = new double[ChunkMeshLayout.SkirtDepthGap + 1];
@@ -125,7 +125,7 @@ namespace Sonoma.Tests
         [Test]
         public void CalibrateLandFraction()
         {
-            foreach (var m in ContinentTests.ContinentScenes())
+            foreach (var m in ContinentTests.MeasuredScenes())
             {
                 var    rough = MacroTests.RoughParams(m.Scene);
                 double lo = 0.2, hi = 0.5, best = m.Continents.Value.LandFraction;
@@ -161,7 +161,7 @@ namespace Sonoma.Tests
         [Test]
         public void WorkingSets()
         {
-            foreach (var m in ContinentTests.ContinentScenes())
+            foreach (var m in ContinentTests.MeasuredScenes())
             {
                 if (m.Scene == "EarthStress")
                 {

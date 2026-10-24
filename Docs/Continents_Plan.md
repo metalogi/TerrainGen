@@ -667,6 +667,59 @@ editing the tasks, so the plan still reads as what was decided up front.
    `EdgeDisagreements` became `internal` so the derived channel is held to the same C2 check as
    generated maps.
 
+### Tasks 2–8, `continents-a` (2026-10-24)
+
+1. **A design review before building changed seven things.**
+   - **`MaxAbsHeight` keeps its old association.** It adds `ContinentBound × MaxOvershoot` as a separate term. K7's `(ContinentBound + BaseHeightScale × Σ) × MaxOvershoot` would have reassociated the product and moved the terrarium's envelope by an ULP.
+   - **A cutoff of 0 never reaches `BandEnd`.** `OctaveWavelength0 / 0` is infinite, which `FloorLog2` refuses. `CoarseGain` is 0 whenever nothing is dropped.
+   - **K9's validation gains six checks:**
+     - `DecayMin > 0`;
+     - `DecayMax ≤ 1`, since above 1 a step can beat the elevation it came from and the BFS never settles;
+     - `ElevationFloor ≥ 0`;
+     - `InteriorRise` in [0, 2], since above 2 the land multiplier goes negative;
+     - no negative heights;
+     - `CoastWidth` in (0, 2), since a profile two spacings wide never reaches the plateau under the 2D cap.
+   - **One configuration.** `ContinentParams.Create(s, mp, in MacroConfig)` reads `MacroConfig.Continents` through the validator `MacroParams.Create` also calls. Every build checks that the bound it was given is the field's.
+   - **Areas come from one table**, built in managed code from quad 0, since root quads are congruent. No land-threshold input comes from Burst's trigonometry. Seeds come from `Random.CreateFromIndex`, whose state is never 0; a zero state hangs the sphere's rejection loop in a player.
+   - **`Demand`'s macro term is `C_m × (ContinentBound + BaseHeightScale) / S0`.** Pricing it by `BaseHeightScale` alone would have cut it by 70% when the fBm fell to 900 m, while the coasts added 6 km. Without continents the bits are unchanged.
+   - **`LazyTexels` needs the continent channel.** It refuses a macro layer with continents without one, so no test can read the fBm alone and stay green.
+2. **Saturation is wider than K3 expected, and the check is now exhaustive.**
+   - Best-candidate placement with eight fixed candidates leaves the farthest texel 1.20 micro spacings from its nearest micro seed on both Earth and the ring (unwarped, inside the quads). K3 expected about 0.7. That is still under the √2 limit, with less margin.
+   - With the class distances capped as squares, the plateau check is exact. Stage B writes each texel's own-class `d²` where the other class is capped, and throws past `ContinentParams.PlateauLimit2`. The worst warped point is 1.13 D on Earth and 1.20 D on the ring.
+   - Placement guarantees no 0.5 D minimum either. The closest pairs on the small test maps are 0.41–0.56 D, pinned as measured.
+3. **The saturation check covers the texels inside the quads only.**
+   - Past a cylinder's open rims, the border texels lie off the surface and far from every seed: 1.52 D on the small test ring.
+   - A border value reaches a drawn texel only through the filter's outer taps, and the halo replaces it afterwards.
+   - The coverage radius still spans the border, so the blend's `Σw > 0` holds everywhere Stage B evaluates it.
+4. **Land is chosen by rank,** scores descending with ties to the lower index, rather than `score ≥ threshold`. The threshold rule would also take every later cell that ties the last one.
+5. **One scan job and one field job.** Each calls the per-texel function the managed reference loops over (`ContinentMap.ScanTexel`, `ContinentField.AtTexel`). The reductions stay managed, in texel order. `ContinentWitnessJob` lets the Editor's equality tests prove that Burst actually ran.
+6. **Earth, with continents.**
+   - **Timings, managed under .NET 8, as an upper bound:** Stage A 368 ms, B 717 ms, C 172 ms.
+   - **`LandFraction` 0.322.** It reaches 30.0% final land on 50,000 points and 29.7% on an independent 100,000. Agreement is 95.8–96.1%, flooding 9.6–10.3%, islands 1.2%, and the medians are +2,330 and −5,752 m. The prototype had 95.6% and +2.3 / −5.6 km.
+   - **C does not move with the cutoff.** On 20,000 nodes per depth the roughest is 411 with it and 410 without, so 674 stands.
+   - **C_m is 53.7 at the roughest, pinned at 81.** The combined demand is 0.2699 against an allowance of 0.6146.
+   - **The envelope falls from 84.4 to 36.6 km** (K7 estimated 37).
+     - The worst working set moves back to the face edge: 8,222 at (76/512, 0), with the corner at 8,046.
+     - The fresh corner count is 7,002, down from 7,062.
+   - **The worst skirt share is 0.605** (0.628 before), so `SkirtFraction` 1 stands.
+7. **The ring, with continents.**
+   - **Timings, managed:** Stage A 229 ms, B 678 ms, C 55 ms.
+   - **`LandFraction` 0.351, not the expected 0.31.** It reaches 30.0% final land on 50,000 and 100,000 points.
+   - **Agreement is 93.7%, under the prototype's 97.9%.** Flooding is 16.4% against its 5.4%, and the medians are +1,780 and −4,221 m.
+     - **Part of the gap is climate.** The prototype took its band gains from M5b's climate, and with continents the ring's land is 9 °C colder. A lapse rate of 0 recovers 1.3 points: 94.8%.
+     - **The rest is open.** Stage C's filter (seven texels to a micro cell) and the different map are the suspects. It clears the 90% floor.
+   - **C is 113.4 with or without the cutoff,** so 171 stands. **C_m is 48.7, pinned at 73.**
+   - **The envelope falls from 50 to 32.2 km.** The worst working set is 4,980 at (21/512, 245/512).
+   - **The worst skirt share is 0.774** (0.760 before), so `SkirtFraction` 1.2 stands.
+8. **D4: the lapse rate stays at 6.5 °C/km** (user's decision, on Earth's evidence).
+   - **On Earth the colder-interiors premise did not hold.** Land averages 3.9 °C with continents against −0.7 °C for M5b's land, taken as the 30% above its sea level. Tundra takes 41% of the biome weights against 54%. Most likely the continents sit at lower latitudes than M5b's land happened to, which outweighs their height; not measured.
+   - **On the ring it did hold.** A cylinder has no latitude, so land averages 7.7 °C against 17.0 °C, and tundra rises from 1% to 21%. `ContinentTests.ClimateOverLand` prints both.
+9. **The export builds its height parameters as `TerrainRoot` does,** bands, roughness and cutoff included. Its detail image had ignored the roughness spectrum since C10.
+10. **Tooling and tests.**
+    - The measuring code is committed as `[Explicit]` tests: `ReliefMeasurements` (C, C_m, skirt shares, the land-fraction bisection, working sets), `ContinentTests.ContinentsSurviveTheDetailNoiseAtFullSample` and `ClimateOverLand`. `SONOMA_SCENES` (comma-separated) limits them to the named scenes.
+    - There are 168 EditMode tests, 125 of them pure, plus the seven explicit tools. All 125 pure tests pass outside the Editor.
+    - Not yet run in the Editor: the four new Burst-against-managed checks, the geomorph invariant with continents and a cutoff, the asset holds, and the export.
+
 ---
 
 ## Out of scope

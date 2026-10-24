@@ -161,11 +161,20 @@ namespace Sonoma.Tests
                              Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
                              RuggednessCentre = 0.2f },
+            // Continents (D1 crisp): land 1,500 m and ocean 4,500 m, a 250 km cutoff dropping detail
+            // octaves 0-2, and the macro fBm at 0.3 of M5b's 1,500 m. C_m was 48.7 at its roughest
+            // (depth 10) in units of (4,500 + 450) / S0, and 73 is half again over it. LandFraction
+            // 0.351 puts the final terrain at 30%: 29.99% on 50,000 points and 29.97% on another
+            // 100,000, with 93.7% agreement, 16.4% of the map's land flooded, and medians of +1,780
+            // and -4,221 m (ReliefMeasurements, 2026-10-24). The prototype's 97.9% took its band
+            // gains from M5b's warmer climate; a lapse rate of 0 recovers only 1.3 points of it.
             new SceneMacro { Scene = "RingworldStress", Settings = StressSceneTests.Ringworld.Asset,
                              Asset = "Assets/Settings/RingworldMacro.asset", Surface = StressSceneTests.Ringworld.Surface, MaxDepth = StressSceneTests.Ringworld.MaxDepth,
-                             Levels = 4, BaseHeightScale = 1500f, EquatorTemperature = 18f,
+                             Levels = 4, BaseHeightScale = 450f, EquatorTemperature = 18f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f },
+                             RuggednessCentre = 0.2f, ReliefFactor = 73.0,
+                             ContinentAsset = "Assets/Settings/RingworldContinents.asset",
+                             Continents = SceneContinentConfig(landFraction: 0.351f, land: 1500f, ocean: 4500f, cutoff: 250000.0) },
             new SceneMacro { Scene = "NarrowRingStress", Settings = StressSceneTests.NarrowRing.Asset,
                              Asset = "Assets/Settings/NarrowRingMacro.asset", Surface = StressSceneTests.NarrowRing.Surface, MaxDepth = StressSceneTests.NarrowRing.MaxDepth,
                              Levels = 3, BaseHeightScale = 1500f, EquatorTemperature = 18f,
