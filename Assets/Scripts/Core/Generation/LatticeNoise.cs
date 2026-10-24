@@ -171,6 +171,22 @@ namespace Sonoma.Core.Generation
         public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed,
                                  float3 bandGain, int lowBandEnd, int midBandEnd,
                                  float finePersistence, int crossoverOctave)
+            => Fbm(p, octaveCount, persistence, lacunarity, seed, bandGain, lowBandEnd, midBandEnd,
+                   finePersistence, crossoverOctave, 0, 0f);
+
+        // The same, with the continental cutoff (HeightParams.WithContinentalCutoff): octaves 0 ..
+        // firstOctave-1 scaled by 1 + coarseGain on top of their band gain. A gain of -1 drops them,
+        // and then the octave is skipped -- no lattice evaluation, only the amplitude and the
+        // coordinate advanced -- which on Earth saves four of 24 octaves at every vertex.
+        //
+        // The same octaves at every count, so the sum is still a strict prefix of itself. With
+        // firstOctave 0 no octave takes the branch, and the sum is the one above to the bit; with
+        // coarseGain 0 the extra factor is exactly 1.0, multiplied after the band gain, which is
+        // also the sum above to the bit.
+        public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed,
+                                 float3 bandGain, int lowBandEnd, int midBandEnd,
+                                 float finePersistence, int crossoverOctave,
+                                 int firstOctave, float coarseGain)
         {
             double lac = lacunarity;
             double3 q  = p;
@@ -180,7 +196,10 @@ namespace Sonoma.Core.Generation
             for (int k = 0; k < octaveCount; k++)
             {
                 float gain = k < lowBandEnd ? bandGain.x : k < midBandEnd ? bandGain.y : bandGain.z;
-                sum += amp * (1.0 + gain) * Gradient3D(q, seed + (uint)k);
+                if (k >= firstOctave)
+                    sum += amp * (1.0 + gain) * Gradient3D(q, seed + (uint)k);
+                else if (coarseGain != -1f)
+                    sum += amp * (1.0 + gain) * (1.0 + coarseGain) * Gradient3D(q, seed + (uint)k);
                 amp *= k + 1 < crossoverOctave ? persistence : finePersistence;
                 q   *= lac;
             }

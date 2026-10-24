@@ -34,14 +34,16 @@ namespace Sonoma.Core.Generation
             // in double so the cell index stays exact at planetary distances.
             double3 n = surfacePos / p.OctaveWavelength0;
 
-            // The general sum -- band gains and a two-slope spectrum -- is the original's bits
-            // with zero gains and FinePersistence equal to Persistence, but the original stays
-            // the path for them, so a terrain without biomes or roughness runs the code M4 shipped.
-            double fbm = math.all(macro.BandGain == 0f) && p.FinePersistence == p.Persistence
+            // The general sum -- band gains, a two-slope spectrum and the continental cutoff -- is
+            // the original's bits with zero gains, FinePersistence equal to Persistence and no
+            // cutoff, but the original stays the path for them, so a terrain without biomes,
+            // roughness or continents runs the code M4 shipped.
+            double fbm = math.all(macro.BandGain == 0f) && p.FinePersistence == p.Persistence && p.FirstOctave == 0
                 ? LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed)
                 : LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
                                    macro.BandGain, p.LowBandEnd, p.MidBandEnd,
-                                   p.FinePersistence, p.CrossoverOctave);
+                                   p.FinePersistence, p.CrossoverOctave,
+                                   p.FirstOctave, p.CoarseGain);
 
             // Signed noise, so the base surface is the mean and the terrain sits around it.
             // The prototype summed amp * (snoise * 0.5 + 0.5), which biases every sample
@@ -102,9 +104,13 @@ namespace Sonoma.Core.Generation
             double detail = 0.0;
             for (int k = 0; k < p.OctaveCount; k++)
             {
-                // The band as LatticeNoise.Fbm applies it, and the fall-off as it does too.
+                // The band as LatticeNoise.Fbm applies it, and the fall-off as it does too. The
+                // continental band at its own amplitude, which is none when it is dropped.
                 float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
-                detail += p.OctaveAmplitude(k) * math.abs(gain);
+                if (k >= p.FirstOctave)
+                    detail += p.OctaveAmplitude(k) * math.abs(gain);
+                else
+                    detail += p.OctaveAmplitude(k) * math.abs(gain) * math.abs(1.0 + p.CoarseGain);
             }
 
             double baseHeight = 0.0;

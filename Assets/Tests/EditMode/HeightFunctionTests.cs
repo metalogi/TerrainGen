@@ -449,6 +449,13 @@ namespace Sonoma.Tests
                     var same = p.WithRoughness(p.Persistence, p.OctaveWavelength0 / 64.0);
                     Assert.AreEqual(math.asuint(m4), math.asuint(TerrainHeightFunction.Height(point, oct, default, same)),
                         $"{name}: FinePersistence equal to Persistence changed the height");
+
+                    // And a continental cutoff of 0 is no cutoff, at any amplitude (K4).
+                    var uncut = p.WithContinentalCutoff(0.0, 0f);
+                    Assert.AreEqual(0, uncut.FirstOctave, $"{name}: a cutoff of 0 dropped octaves");
+                    Assert.AreEqual(0f, uncut.CoarseGain, $"{name}: a cutoff of 0 left a gain");
+                    Assert.AreEqual(math.asuint(m4), math.asuint(TerrainHeightFunction.Height(point, oct, default, uncut)),
+                        $"{name}: a continental cutoff of 0 changed the height");
                 }
             }
         }
@@ -504,5 +511,88 @@ namespace Sonoma.Tests
             var plainParams = EarthScaleTests.Params(EarthScaleTests.OctaveCount);
             Assert.AreEqual(plainParams.Persistence, plainParams.FinePersistence, "Create leaves one slope");
         }
+
+        // K4: the continental cutoff drops every detail octave at least the cutoff long, counted
+        // by exponent like the band edges, at every depth. Each dropped octave adds exactly
+        // nothing and each kept one exactly its uncut term, so the sum is still a strict prefix of
+        // itself and the geomorph target is still the parent; kept at amplitude 1 the band is the
+        // uncut sum to the bit; and the height bound loses exactly the dropped terms.
+        [Test]
+        public void CutoffDropsTheCoarseOctaves()
+        {
+            var rough = EarthScaleTests.RoughParams.WithBands(150000.0, 5000.0);
+
+            // By exponent. Earth's octave 0 is S0 across, so octaves 0-3 are at least 1,000 km.
+            var earth = rough.WithContinentalCutoff(1000000.0, 0f);
+            Assert.AreEqual(4, earth.FirstOctave, "Earth at 1,000 km");
+            Assert.AreEqual(-1f, earth.CoarseGain, "an amplitude of 0 is a gain of -1");
+            Assert.AreEqual(3, StressSceneTests.Ringworld.RoughParams.WithContinentalCutoff(250000.0, 0f).FirstOctave,
+                "the ring at 250 km");
+            var exact = rough.WithContinentalCutoff(rough.OctaveWavelength0 / 8.0, 0f);
+            Assert.AreEqual(4, exact.FirstOctave, "octave 3's wavelength exactly drops octave 3");
+            Assert.AreEqual(0, rough.WithContinentalCutoff(4.0 * rough.OctaveWavelength0, 0f).FirstOctave,
+                "a cutoff longer than octave 0 drops nothing");
+            Assert.AreEqual(0f, rough.WithContinentalCutoff(4.0 * rough.OctaveWavelength0, 0f).CoarseGain,
+                "a cutoff that drops nothing leaves no gain");
+
+            var kept = rough.WithContinentalCutoff(1000000.0, 1f);
+            var half = rough.WithContinentalCutoff(1000000.0, 0.5f);
+            var rng  = new Unity.Mathematics.Random(0xC07u);
+            for (int s = 0; s < 100; s++)
+            {
+                double3 x    = rng.NextDouble3(-500.0, 500.0);
+                float3  gain = rng.NextFloat3(-0.5f, 2f);
+                for (int n = 1; n <= EarthScaleTests.OctaveCount; n++)
+                {
+                    double uncut     = Sum(rough, x, n, gain), uncutLess = Sum(rough, x, n - 1, gain);
+                    double cut       = Sum(earth, x, n, gain), cutLess   = Sum(earth, x, n - 1, gain);
+                    double term      = cut - cutLess;
+                    if (n - 1 < earth.FirstOctave)
+                        Assert.AreEqual(0.0, cut, $"octave {n - 1} at {x}: a dropped octave added something");
+                    else
+                        Assert.AreEqual(uncut - uncutLess, term, 1e-12 * math.max(1.0, math.abs(term)),
+                            $"octave {n - 1} at {x}: a kept octave is not its uncut term");
+
+                    Assert.AreEqual(math.asulong(uncut), math.asulong(Sum(kept, x, n, gain)),
+                        $"{n} octaves at {x}: the continental band at amplitude 1 is not the uncut sum");
+                    if (n - 1 < half.FirstOctave)
+                        Assert.AreEqual(0.5 * uncut, Sum(half, x, n, gain), 1e-12 * math.max(1.0, math.abs(uncut)),
+                            $"{n} octaves at {x}: the continental band at amplitude 0.5");
+                }
+            }
+
+            // The height function takes the cut: at a depth whose band limit is all continental
+            // band, the detail is exactly zero and only the macro layer is left.
+            var macro = new MacroSample { BaseHeight = 1234.5 };
+            for (int d = 0; d < 20; d++)
+            {
+                double3 point = rng.NextDouble3(-1.0, 1.0) * EarthScaleTests.Radius;
+                float h = TerrainHeightFunction.Height(point, earth.MaxOctave(d), macro, earth);
+                if (earth.MaxOctave(d) < earth.FirstOctave)
+                    Assert.AreEqual(1234.5f, h, $"depth {d}: detail left below the cutoff");
+                Assert.AreEqual((float)(earth.HeightScale * Sum(earth, point / earth.OctaveWavelength0, earth.MaxOctave(d) + 1, 0f) + macro.BaseHeight),
+                                h, $"depth {d}: Height is not the cut sum");
+            }
+
+            // The bound loses exactly the dropped terms.
+            double dropped = 0.0;
+            for (int k = 0; k < earth.FirstOctave; k++) dropped += earth.OctaveAmplitude(k);
+            Assert.AreEqual(TerrainHeightFunction.MaxAbsHeight(rough, MacroParams.Disabled) - rough.HeightScale * dropped,
+                            TerrainHeightFunction.MaxAbsHeight(earth, MacroParams.Disabled), 1e-6,
+                            "MaxAbsHeight with the cutoff");
+            Assert.AreEqual(math.asulong(TerrainHeightFunction.MaxAbsHeight(rough, MacroParams.Disabled)),
+                            math.asulong(TerrainHeightFunction.MaxAbsHeight(kept, MacroParams.Disabled)),
+                            "MaxAbsHeight with the continental band kept at amplitude 1");
+
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => rough.WithContinentalCutoff(-1.0, 0f), "a negative cutoff");
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => rough.WithContinentalCutoff(double.NaN, 0f), "a NaN cutoff");
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => rough.WithContinentalCutoff(double.PositiveInfinity, 0f), "an infinite cutoff");
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => rough.WithContinentalCutoff(1000000.0, -0.5f), "a negative amplitude");
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => rough.WithContinentalCutoff(1000000.0, float.NaN), "a NaN amplitude");
+        }
+
+        static double Sum(in HeightParams p, double3 x, int n, float3 gain)
+            => LatticeNoise.Fbm(x, n, p.Persistence, p.Lacunarity, p.Seed, gain, p.LowBandEnd, p.MidBandEnd,
+                                p.FinePersistence, p.CrossoverOctave, p.FirstOctave, p.CoarseGain);
     }
 }
