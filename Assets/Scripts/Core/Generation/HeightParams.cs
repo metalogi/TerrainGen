@@ -71,8 +71,41 @@ namespace Sonoma.Core.Generation
             return p;
         }
 
+        // The continental cutoff (Docs/Continents_Plan.md, K4): octaves 0 .. FirstOctave-1 are the
+        // continental band, which a continent map in the macro layer carries instead, and their
+        // amplitude is 1 + CoarseGain, relative to one like the band gains (C5). CoarseGain -1
+        // drops them, and LatticeNoise.Fbm then skips them rather than multiplying by zero. Create
+        // leaves both at 0, which is no cutoff at all.
+        public int    FirstOctave;
+        public float  CoarseGain;
+
+        // The cutoff as a wavelength in metres, like the band edges: every octave at least that
+        // long is in the continental band, counted by exponent, so an octave exactly at the cutoff
+        // is dropped however the division rounds. A cutoff of 0 is none, and leaves the gain at 0
+        // too, so the height function keeps its original path.
+        //
+        // The same octaves go at every depth, so a coarse evaluation is still a strict prefix of a
+        // finer one and the geomorph target is still the parent. MaxOctave is unchanged: where it
+        // falls below FirstOctave the detail is exactly zero and the macro layer carries everything.
+        public HeightParams WithContinentalCutoff(double cutoff, float coarseAmplitude)
+        {
+            if (!(cutoff >= 0.0) || double.IsInfinity(cutoff))
+                throw new ArgumentOutOfRangeException(nameof(cutoff),
+                    "HeightParams: the continental cutoff must be a finite wavelength, or 0 for none.");
+            if (!(coarseAmplitude >= 0.0f) || float.IsInfinity(coarseAmplitude))
+                throw new ArgumentOutOfRangeException(nameof(coarseAmplitude),
+                    "HeightParams: the continental band's amplitude must be finite and non-negative.");
+
+            var p = this;
+            // Not BandEnd(0): OctaveWavelength0 / 0 is infinite, which FloorLog2 refuses.
+            p.FirstOctave = cutoff > 0.0 ? BandEnd(cutoff) : 0;
+            p.CoarseGain  = p.FirstOctave > 0 ? coarseAmplitude - 1f : 0f;
+            return p;
+        }
+
         // The amplitude of octave k relative to octave 0, as the sum applies it. For the tests
-        // and the roughness figures; the sum itself multiplies as it goes.
+        // and the roughness figures; the sum itself multiplies as it goes. The fall-off only:
+        // neither the band gains nor the continental band's gain are in it.
         public double OctaveAmplitude(int k)
         {
             double amp = 1.0;
