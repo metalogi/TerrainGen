@@ -106,9 +106,10 @@ namespace Sonoma.Core.Generation
         [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> Continent;
         [WriteOnly] public NativeArray<double> Plateau;
 
-        // Each texel's s, in scan order, when KeepCoast; otherwise one element, never written.
+        // Each texel's s, in scan order, when KeepCoast; otherwise one element, never written. At
+        // the job's own index only, so the safety system's parallel-for check stays on for it.
         public bool KeepCoast;
-        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> Coast;
+        [WriteOnly] public NativeArray<float> Coast;
 
         public void Execute(int k)
         {
