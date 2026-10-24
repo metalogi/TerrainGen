@@ -272,11 +272,11 @@ namespace Sonoma.Core.Quadtree
         // carry either, so that band is drawn by nothing.
         void WarnContinents(in MacroParams p, in ContinentParams cp, in ContinentConfig k)
         {
-            double texel = _params.S0 / p.Layout.Cells(p.Layout.LevelCount - 1);
-            if (cp.MicroSpacing < 4.0 * texel)
+            double texel = ContinentParams.TopTexelSpacing(_params.S0, p.Layout);
+            if (cp.MicroCellTexels(_params.S0, p.Layout) < 4.0)
                 Debug.LogWarning(
                     $"[TerrainRoot] Continents '{Settings.Macro.Continents.name}': a micro cell is " +
-                    $"{cp.MicroSpacing / texel:F1} top-level macro texels across, under the four the pyramid's band " +
+                    $"{cp.MicroCellTexels(_params.S0, p.Layout):F1} top-level macro texels across, under the four the pyramid's band " +
                     "limit needs, so the coastline aliases. Raise LevelCount or lower MicroCells.");
             if (k.DetailCutoff > 0.0 && k.DetailCutoff < 4.0 * texel)
                 Debug.LogWarning(

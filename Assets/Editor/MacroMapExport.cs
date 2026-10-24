@@ -95,7 +95,9 @@ static class MacroMapExport
         float4[]     texels;
         double       buildMs;
         ContinentMap map;
-        using (var maps = MacroMaps.Build(s, roots, mp, cp))
+        // Keeping the top level's nearest micro seeds and coast distances, which the continent
+        // images draw, rather than running Stages A and B again here.
+        using (var maps = MacroMaps.Build(s, roots, mp, cp, keepTopTexels: true))
         {
             texels  = maps.Texels.ToArray();
             buildMs = maps.BuildMilliseconds;
@@ -144,7 +146,7 @@ static class MacroMapExport
         double heightMax = 1e-6;
         foreach (double v in px[2]) if (!double.IsNaN(v)) heightMax = math.max(heightMax, math.abs(v));
         // Nominal texel spacing: a quad's edge is its diagonal S0 over root 2.
-        double spacing = hp.S0 / math.SQRT2_DBL / n;
+        double spacing = ContinentParams.TopTexelSpacing(hp.S0, mp.Layout);
         double exaggeration = Exaggeration(px[2], w, h, tile, spacing);
 
         string scene  = SceneManager.GetActiveScene().name;
@@ -190,11 +192,11 @@ static class MacroMapExport
         WriteBiomes(s, roots, mp, t.Macro, texels, level, tile, w, h, Path.Combine(folder, $"{scene}_biomes.png"));
         if (map != null)
         {
-            WriteContinents(s, roots, cp, map, tile, w, h, folder, scene);
+            WriteContinents(s, roots, mp.Layout, map, tile, w, h, cp.MicroSpacing, folder, scene);
             ContinentStats st = map.Stats;
             Debug.Log($"[MacroMapExport] {scene} continents: {st.MacroCells} macro and {st.MicroCells:N0} micro cells, " +
                       $"{st.LandCells:N0} land, {st.LandFraction:P1} of the map by area; micro spacing " +
-                      $"{cp.MicroSpacing / 1000.0:F1} km, {cp.MicroSpacing * n / (hp.S0 / math.SQRT2_DBL):F1} texels; " +
+                      $"{cp.MicroSpacing / 1000.0:F1} km, {cp.MicroCellTexels(hp.S0, mp.Layout):F1} texels; " +
                       $"saturation {st.SaturationRadius:F2} ({st.WarpedSaturation:F2} warped) micro spacings; detail " +
                       $"octaves from {hp.FirstOctave}.");
         }
@@ -283,12 +285,11 @@ static class MacroMapExport
 
     // <scene>_continents.png and <scene>_coast.png, at every texel of the top level: the micro cell
     // each texel's point falls in, unwarped, and the field's signed distance there, warped, as the
-    // build computed them.
-    static void WriteContinents(in SurfaceDef s, RootQuad[] roots, in ContinentParams cp, ContinentMap map,
-                                int tile, int w, int h, string folder, string scene)
+    // build computed them and kept (ContinentMap.TopMicro and TopCoast).
+    static void WriteContinents(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, ContinentMap map,
+                                int tile, int w, int h, double microSpacing, string folder, string scene)
     {
-        int n      = tile - 1;
-        var tables = new ArrayContinentTables(map);
+        int n = tile - 1, width = layout.Width(layout.LevelCount - 1);
         var micro  = new int[w * h];
         var signed = new double[w * h];
         Array.Fill(micro, -1);
@@ -296,22 +297,19 @@ static class MacroMapExport
 
         for (int q = 0; q < roots.Length; q++)
         {
-            EditorUtility.DisplayProgressBar("Export Macro Maps", $"Continents, root quad {q + 1} of {roots.Length}",
-                                             (q + 1f) / roots.Length);
             Place(s, q, out int tx, out int ty);
             for (int j = 0; j <= n; j++)
             for (int i = 0; i <= n; i++)
             {
-                double3 p  = SurfaceMath.SurfacePoint(s, roots[q], i / (double)n, j / (double)n);
-                int     at = (ty * tile + j) * w + tx * tile + i;
-                micro[at]  = ContinentMap.NearestMicro(tables, p, out _);
-                signed[at] = ContinentField.Sample(p, tables, cp).S;
+                int at = (ty * tile + j) * w + tx * tile + i, k = ContinentMap.ScanIndex(q, i, j, width);
+                micro[at]  = map.TopMicro[k];
+                signed[at] = map.TopCoast[k];
             }
         }
 
         var cells = new Color32[w * h];
         var coast = new Color32[w * h];
-        double cap = 2.0 * cp.MicroSpacing;
+        double cap = 2.0 * microSpacing;
         for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++)
         {
@@ -330,13 +328,10 @@ static class MacroMapExport
 
             // Edges against the right and upper neighbours within the tile.
             bool microEdge = false, macroEdge = false, coastLine = false;
-            foreach (int nb in new[] { (x + 1) % tile != 0 ? at + 1 : -1, (y + 1) % tile != 0 ? at + w : -1 })
-            {
-                if (nb < 0 || nb >= micro.Length || micro[nb] < 0) continue;
-                if (micro[nb] != m) microEdge = true;
-                if (map.MicroParent[micro[nb]] != parent) macroEdge = true;
-                if ((signed[nb] >= 0.0) != (signed[at] >= 0.0)) coastLine = true;
-            }
+            if ((x + 1) % tile != 0)
+                Edges(map, micro, signed, at, at + 1, ref microEdge, ref macroEdge, ref coastLine);
+            if ((y + 1) % tile != 0 && at + w < micro.Length)
+                Edges(map, micro, signed, at, at + w, ref microEdge, ref macroEdge, ref coastLine);
             if (microEdge) rgb *= 0.8f;
             if (macroEdge) rgb = 0f;
             rgb = math.clamp(rgb, 0f, 255f);
@@ -363,6 +358,17 @@ static class MacroMapExport
                 UnityEngine.Object.DestroyImmediate(tex);
             }
         }
+    }
+
+    // Which edges pixel `at` shares with its neighbour `nb`: a micro cell's, a macro cell's (its
+    // parent's), and the coast's.
+    static void Edges(ContinentMap map, int[] micro, double[] signed, int at, int nb,
+                      ref bool microEdge, ref bool macroEdge, ref bool coastLine)
+    {
+        if (micro[nb] < 0) return;
+        if (micro[nb] != micro[at]) microEdge = true;
+        if (map.MicroParent[micro[nb]] != map.MicroParent[micro[at]]) macroEdge = true;
+        if ((signed[nb] >= 0.0) != (signed[at] >= 0.0)) coastLine = true;
     }
 
     // ── Layout ───────────────────────────────────────────────────────────────

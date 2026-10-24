@@ -391,7 +391,25 @@ namespace Sonoma.Tests
                 Assert.AreEqual(Biomes.MaxBiomes, p.BiomeCount, $"{m.Scene}: the shared biome table");
                 // C7: the largest effective amplitude stays at or under 3.
                 Assert.LessOrEqual(p.MaxAmplitude, 3f, $"{m.Scene}: largest band amplitude");
+
+                // K10's two startup warnings, as assertions, measured as TerrainRoot measures them:
+                // a micro cell at least four top-level texels across, and a cutoff no shorter than
+                // four texels, so a retune trips a test and not only a log line.
+                if (!m.Continents.HasValue) continue;
+                var    cp    = ContinentParams.Create(m.Surface, p, m.Config);
+                double s0    = RoughParams(m.Scene).S0;
+                double texel = ContinentParams.TopTexelSpacing(s0, p.Layout);
+                TestContext.WriteLine($"{m.Scene}: micro cells {cp.MicroCellTexels(s0, p.Layout):F1} texels across, " +
+                                      $"cutoff {m.Continents.Value.DetailCutoff / texel:F1} texels");
+                Assert.GreaterOrEqual(cp.MicroCellTexels(s0, p.Layout), 4.0, $"{m.Scene}: micro cells under four texels across");
+                Assert.GreaterOrEqual(m.Continents.Value.DetailCutoff, 4.0 * texel, $"{m.Scene}: cutoff under four texels");
             }
+
+            // The spacing is a texel's edge, a quad's diagonal S0 over root 2: Earth's 10,404 km
+            // diagonal over 256 cells is a 28.7 km texel, and the 319 km micro cell 11.1 of them.
+            var earth = For("EarthStress");
+            Assert.AreEqual(RoughParams("EarthStress").S0 / math.SQRT2_DBL / 256.0,
+                            ContinentParams.TopTexelSpacing(RoughParams("EarthStress").S0, earth.Params.Layout), 1e-6);
         }
 
         // The mountain belts (M5b): ruggedness scales the mountain band from 0.3 to 3.3, and the
