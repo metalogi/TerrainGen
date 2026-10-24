@@ -723,7 +723,24 @@ editing the tasks, so the plan still reads as what was decided up front.
 11. **Tooling and tests.**
     - The measuring code is committed as `[Explicit]` tests: `ReliefMeasurements` (C, C_m, skirt shares, the land-fraction bisection, working sets), `ContinentTests.ContinentsSurviveTheDetailNoiseAtFullSample` and `ClimateOverLand`. `SONOMA_SCENES` (comma-separated) limits them to the named scenes, and they run only with `SONOMA_MEASURE=1`.
     - There are 168 EditMode tests, 125 of them pure, plus the seven explicit tools. All 125 pure tests pass outside the Editor.
-    - Not yet run in the Editor: the four new Burst-against-managed checks, the geomorph invariant with continents and a cutoff, the asset holds, and the export.
+12. **In the Editor (2026-10-24), after item 10's fix,** every check under "Verification" passed. The user reports:
+    - all 168 tests green, the measuring tools skipped as intended;
+    - the macro map export on both scenes looking right;
+    - the play-throughs looking right, with no warnings;
+    - no relief or budget warning on leaving play mode.
+
+    The startup log, with Burst in the Editor:
+
+    | | Earth | Ring |
+    |---|---|---|
+    | Stage A / B / C | 221 / 148 / 28 ms | 225 / 207 / 35 ms |
+    | The whole macro build | 585 ms (235–256 ms without continents) | 705 ms |
+    | Land share of the map; saturation (warped) | 32.2%; 1.20 (1.13) | 35.1%; 1.20 (1.20) |
+    | Height envelope | 36.6 km | 32.2 km |
+    | Peak working set (budget) | 6,994 (9,400) | 4,716 (5,600) |
+
+    - **Ground rule 3's target is not met in the Editor.** It asks for under 200 ms on Earth in a build; Stages A–C take 397 ms here. No build has been measured. Stage A is mostly managed code: placement, `TopPoints` and the reductions after the scan. It is the place to start if a build is over too.
+    - **One rebase on the ring took 16.9 ms** over 4,700 chunks, where rebases elsewhere took 1–5 ms (Earth's slowest this session was 3.6 ms). Continents do not touch the rebase, so a one-off hitch is the likely cause; not investigated.
 
 ---
 
