@@ -628,24 +628,42 @@ editing the tasks, so the plan still reads as what was decided up front.
    Earth's four levels.
 2. **The halo is exact only where the quads continue into each other.** Measured at 8 and 32 cells, the
    distance from a border texel's continued point to its source is:
-   - inside a cylinder or a plane grid: 0;
+   - inside a cylinder or a plane grid: 0, corner blocks included (after the review, below);
    - across a cube edge: 0 at an edge's midpoint, at most 0.567 texels per texel of depth over the
      middle half, and exactly 1.0 at the ends, one texel from the cube corner. There the two faces'
-     grid lines are different great circles.
+     grid lines are different great circles. The cube's corner blocks come within 0.70–0.86.
 
    K5 expected this ("needs only to be continuous, not exact"), and the test pins both regimes. Ignoring
    a link's reversal lands 70–83% of the cube's reversed-link side texels more than two texels per
    texel away, up to 25: the mutation the test keeps.
-3. **The edge copies are load-bearing on every topology, not just the cube.** Without them below the top,
-   the derived edges disagree on all five test surfaces (60 to 672 samples). Even where both quads meet
-   in the same orientation, their extension texels come from different halos.
-4. **The filter leaves 25.7% of a derived level's energy under four texels per wavelength** on white
+3. **The filter leaves 25.7% of a derived level's energy under four texels per wavelength** on white
    noise, against white noise's own 50.4%. That is close to the 24% the binomial's `cos⁴` response
    predicts. K5's fallback, the 7-tap filter, waits for ringing to show in a real channel.
-5. **Tests:** five pure ones in `MacroPyramidTests`, and `MacroMapsTests.PyramidJobMatchesTheManagedPyramid`
-   in the Editor. That makes 146 EditMode tests, 108 of them pure; all 108 pass outside the Editor.
-   `MacroTests.Surfaces`, `Real`, `Sampler` and `EdgeDisagreements` became `internal` so the derived
-   channel is held to the same C2 check as generated maps.
+4. **The review of PR #15 found seven things, all fixed:**
+   - **The halo and the edge copies do not commute.** The copies read the owners' extension texels,
+     which the halo fills. On a cube the halo gives the two quads' extension texels different values,
+     so copies run before it are overwritten: 48 copied texels end unequal. K5's "one gather in any
+     order" was right for the halo alone, not for the pair. No read catches the wrong order, because
+     derived levels are read only on texels, where extension texels weigh nothing, so the mutation test
+     checks the stored texels.
+   - **Corner blocks walk to the diagonal quad.** K5's clamp rule read the side neighbour's texel, off
+     by `depth` along the edge, where four quads meet; crossing both edges lands on the overlapping
+     texel. With it, the copies change nothing inside a cylinder or plane grid. They are load-bearing
+     on the cube alone: without them its derived edges disagree in 176 samples, the others in none.
+     Before the corner fix the others disagreed too (60–672), which this amendment first recorded as
+     the copies being load-bearing everywhere.
+   - **`MacroPyramidTop`** makes the caller's top border explicit: `FilterAndFill`, `Fill` or `Keep`.
+     K5's sequence is `FilterAndFill`; M5c's erosion correction will want `Fill`.
+   - **Both `Run` overloads validate** the channel and the plan against the layout (`MacroPyramid.Validate`).
+     The plan now carries its layout.
+   - The texel loops step from a per-level origin instead of calling `MacroLayout.Index`. The all-levels
+     `EdgeCopies` concatenates the per-level lists. `HaloSources` walks the border ring only. The plan's
+     lists are built straight into pre-sized arrays.
+5. **Tests:** seven pure ones in `MacroPyramidTests`, and `PyramidJobMatchesTheManagedPyramid` and
+   `PyramidJobRefusesAMismatchedChannelOrPlan` in `MacroMapsTests`. That makes 149 EditMode tests, 110
+   of them pure; all 110 pass outside the Editor. `MacroTests.Surfaces`, `Real`, `Sampler` and
+   `EdgeDisagreements` became `internal` so the derived channel is held to the same C2 check as
+   generated maps.
 
 ---
 

@@ -229,43 +229,47 @@ namespace Sonoma.Core.Generation
         }
 
         // Every (destination, source) pair of flat indices the edge rule copies, over every
-        // quad and level. Applied once after generation, in any order (see above); MacroMaps and
-        // the tests' managed builder apply the same list.
+        // quad and level: each level's pairs (below) one after another. Applied once after
+        // generation, in any order (see above); MacroMaps and the tests' managed builder apply the
+        // same list.
         public int2[] EdgeCopies(in SurfaceDef s)
         {
-            var copies = new System.Collections.Generic.List<int2>();
-            for (int q = 0; q < QuadCount; q++)
+            var levels = new int2[LevelCount][];
+            int total  = 0;
             for (int l = 0; l < LevelCount; l++)
             {
-                int n = Cells(l);
-                // South and North rows in full, extensions and corners included; West and East
-                // rows without the corners, which the first two already visited.
-                for (int a = -1; a <= n + 1; a++)
-                {
-                    AddCopy(s, copies, q, l, a, 0);
-                    AddCopy(s, copies, q, l, a, n);
-                    if (a == 0 || a == n) continue;
-                    AddCopy(s, copies, q, l, 0, a);
-                    AddCopy(s, copies, q, l, n, a);
-                }
+                levels[l] = EdgeCopies(s, l);
+                total    += levels[l].Length;
             }
-            return copies.ToArray();
+            var all = new int2[total];
+            int at  = 0;
+            foreach (int2[] level in levels)
+            {
+                Array.Copy(level, 0, all, at, level.Length);
+                at += level.Length;
+            }
+            return all;
         }
 
-        // The same pairs for one level only, in the order MacroPyramid applies them: a derived
-        // level gets its copies after its interior and its halo are written.
+        // The pairs of one level. MacroPyramid applies a derived level's copies after its
+        // interior and its halo are written, because the owners' extension texels the copies
+        // read are border texels the halo fills.
         public int2[] EdgeCopies(in SurfaceDef s, int level)
         {
             var copies = new System.Collections.Generic.List<int2>();
             int n = Cells(level);
             for (int q = 0; q < QuadCount; q++)
-            for (int a = -1; a <= n + 1; a++)
             {
-                AddCopy(s, copies, q, level, a, 0);
-                AddCopy(s, copies, q, level, a, n);
-                if (a == 0 || a == n) continue;
-                AddCopy(s, copies, q, level, 0, a);
-                AddCopy(s, copies, q, level, n, a);
+                // South and North rows in full, extensions and corners included; West and East
+                // rows without the corners, which the first two already visited.
+                for (int a = -1; a <= n + 1; a++)
+                {
+                    AddCopy(s, copies, q, level, a, 0);
+                    AddCopy(s, copies, q, level, a, n);
+                    if (a == 0 || a == n) continue;
+                    AddCopy(s, copies, q, level, 0, a);
+                    AddCopy(s, copies, q, level, n, a);
+                }
             }
             return copies.ToArray();
         }
@@ -287,16 +291,22 @@ namespace Sonoma.Core.Generation
         //
         //   * A side texel, `depth` texels past one edge and `along` it, takes the neighbour's texel
         //     at `along` on the linked edge (reversed if the link is) and `depth` texels in from it.
-        //   * A corner block, past two edges at once, has no neighbour on a cube, where three faces
-        //     meet; it takes what the side texel beside it, on its South or North side, takes.
+        //   * A corner block, past two edges at once, is reached by crossing both. Where four quads
+        //     meet -- a plane grid's or a cylinder's interior corner -- the second crossing lands in
+        //     the diagonal quad, on the texel that overlaps exactly. On a cube three faces meet and
+        //     there is no diagonal quad; the walk lands on a side neighbour, near the corner.
         //   * Past an edge with no link (a cylinder's rim, a plane grid's outer edge) there is
-        //     nothing, and the border repeats this quad's own edge texel.
+        //     nothing, and the border repeats the nearest edge texel: this quad's own, or, for a
+        //     corner block beside a linked edge, the neighbour's across it.
         //
         // The source is then resolved through EdgeSource to the texel its owner stores, so every
         // source lies in [0, n] of some quad and is a texel neither the halo nor the edge copies
-        // write. The fill is one gather, in any order, before or after the copies. Exactness does
-        // not matter here the way it does on the edge line: C2 makes reads exact on the edge,
-        // where shared vertices lie, and a border texel only shapes reads just inside one quad.
+        // write: the halo can be gathered at any point after a level's interior is written. The
+        // edge copies cannot. Their sources include the owners' extension texels, one past each
+        // end of an edge row, and those are border texels the halo fills, so a level's copies must
+        // follow its halo (MacroPyramid.FinishLevel). Exactness does not matter here the way it
+        // does on the edge line: C2 makes reads exact on the edge, where shared vertices lie, and
+        // a border texel only shapes reads just inside one quad.
 
         // The texel this border texel is filled from: false, with the source set to (quad, i, j),
         // for a texel inside [0, n] on both axes, which is not a border texel.
@@ -309,30 +319,63 @@ namespace Sonoma.Core.Generation
             bool outJ = j < 0 || j > n;
             if (!outI && !outJ) return false;
 
-            // A corner block: the side texel on its South or North side.
-            if (outI && outJ) i = math.clamp(i, 0, n);
-
-            Edge edge;
-            int  along, depth;
-            if (outJ) { edge = j < 0 ? Edge.South : Edge.North; along = i; depth = j < 0 ? -j : j - n; }
-            else      { edge = i < 0 ? Edge.West  : Edge.East;  along = j; depth = i < 0 ? -i : i - n; }
-
-            int q = quad, si, sj;
-            if (SurfaceMath.QuadEdgeLink(s, quad, edge, out EdgeLink link))
+            int q = quad, si = i, sj = j;
+            bool found;
+            if (outI && outJ)
             {
-                OnEdge(link.Edge, link.Reversed ? n - along : along, n, out int ei, out int ej);
-                Inward(link.Edge, out int di, out int dj);
-                q  = link.Face;
-                si = math.clamp(ei + depth * di, 0, n);
-                sj = math.clamp(ej + depth * dj, 0, n);
+                // Both crossings, South or North first, then the other way round.
+                found = Walk(s, n, quad, i, j, crossJFirst: true,  out q, out si, out sj)
+                     || Walk(s, n, quad, i, j, crossJFirst: false, out q, out si, out sj);
+                if (!found)
+                {
+                    // Beside a rim: across whichever edge has a link, then the rim's repeat.
+                    q = quad; si = i; sj = j;
+                    if (!Cross(s, n, ref q, ref si, ref sj, crossJ: true))
+                    {
+                        q = quad; si = i; sj = j;
+                        Cross(s, n, ref q, ref si, ref sj, crossJ: false);
+                    }
+                }
             }
             else
-            {
-                si = math.clamp(i, 0, n);
-                sj = math.clamp(j, 0, n);
-            }
+                Cross(s, n, ref q, ref si, ref sj, crossJ: outJ);
 
+            si = math.clamp(si, 0, n);
+            sj = math.clamp(sj, 0, n);
             EdgeSource(s, q, level, si, sj, out srcQuad, out srcI, out srcJ);
+            return true;
+        }
+
+        // Both crossings of a corner block, landing inside [0, n] of the quad reached.
+        static bool Walk(in SurfaceDef s, int n, int quad, int i, int j, bool crossJFirst,
+                         out int q, out int si, out int sj)
+        {
+            q = quad; si = i; sj = j;
+            if (!Cross(s, n, ref q, ref si, ref sj, crossJ: crossJFirst)) return false;
+            bool stillOutJ = sj < 0 || sj > n;
+            bool stillOutI = si < 0 || si > n;
+            if (stillOutI == stillOutJ) return false;   // landed inside already, or past two edges
+            if (!Cross(s, n, ref q, ref si, ref sj, crossJ: stillOutJ)) return false;
+            return si >= 0 && si <= n && sj >= 0 && sj <= n;
+        }
+
+        // Carries a texel past one of q's edges into the quad across it: the South or North edge
+        // when crossJ, the West or East otherwise. The texel may still be outside the new quad
+        // along that edge, when it was past two. False, leaving it unchanged, past an edge with no
+        // link.
+        static bool Cross(in SurfaceDef s, int n, ref int q, ref int i, ref int j, bool crossJ)
+        {
+            Edge edge;
+            int  along, depth;
+            if (crossJ) { edge = j < 0 ? Edge.South : Edge.North; along = i; depth = j < 0 ? -j : j - n; }
+            else        { edge = i < 0 ? Edge.West  : Edge.East;  along = j; depth = i < 0 ? -i : i - n; }
+            if (depth <= 0 || !SurfaceMath.QuadEdgeLink(s, q, edge, out EdgeLink link)) return false;
+
+            OnEdge(link.Edge, link.Reversed ? n - along : along, n, out int ei, out int ej);
+            Inward(link.Edge, out int di, out int dj);
+            q = link.Face;
+            i = ei + depth * di;
+            j = ej + depth * dj;
             return true;
         }
 
@@ -349,7 +392,7 @@ namespace Sonoma.Core.Generation
         }
 
         // Every (destination, source) pair of flat indices the halo rule fills at one level,
-        // every border texel of every quad once.
+        // every border texel of every quad once, walking the border ring only.
         public int2[] HaloSources(in SurfaceDef s, int level)
         {
             int n    = Cells(level);
@@ -358,9 +401,15 @@ namespace Sonoma.Core.Generation
             int k    = 0;
             for (int q = 0; q < QuadCount; q++)
             for (int j = -Border; j <= n + Border; j++)
-            for (int i = -Border; i <= n + Border; i++)
-                if (HaloSource(s, q, level, i, j, out int sq, out int si, out int sj))
+            {
+                bool rowOut = j < 0 || j > n;
+                for (int i = -Border; i <= n + Border; i++)
+                {
+                    if (!rowOut && i == 0) i = n + 1;   // skip the row's span inside the quad
+                    HaloSource(s, q, level, i, j, out int sq, out int si, out int sj);
                     halo[k++] = new int2(Index(q, level, i, j), Index(sq, level, si, sj));
+                }
+            }
             return halo;
         }
     }
