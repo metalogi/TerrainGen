@@ -20,6 +20,8 @@ namespace Sonoma.Core.Generation
 
     // Fills every texel of every level of every quad from MacroGenerator. One texel per index,
     // independent of every other, so it is a plain parallel-for; the edge copies run after it.
+    // Continent is the derived continent channel, one value per texel, or a single element when
+    // there are no continents, which is then never read.
     [BurstCompile(CompileSynchronously = true)]
     public struct MacroBuildJob : IJobParallelFor
     {
@@ -27,12 +29,14 @@ namespace Sonoma.Core.Generation
         public MacroParams Params;
 
         [ReadOnly]  public NativeArray<RootQuad> Roots;
+        [ReadOnly]  public NativeArray<float>    Continent;
         [WriteOnly] public NativeArray<float4>   Texels;
 
         public void Execute(int index)
         {
             Params.Layout.Decode(index, out int q, out int level, out int i, out int j);
-            Texels[index] = MacroGenerator.Texel(Surface, Roots[q], Params, level, i, j);
+            float continent = Params.HasContinents ? Continent[index] : 0f;
+            Texels[index] = MacroGenerator.Texel(Surface, Roots[q], Params, level, i, j, continent);
         }
     }
 
@@ -54,39 +58,83 @@ namespace Sonoma.Core.Generation
         public double              BuildMilliseconds { get; }
         public long                Bytes             => (long)_texels.Length * 16;
 
-        MacroMaps(NativeArray<float4> texels, in MacroParams p, double buildMilliseconds)
+        // The continent map the base height was built from, with its stats, or null without
+        // continents. Managed and small: a few thousand seeds and a bucket grid.
+        public ContinentMap        Continents        { get; }
+
+        MacroMaps(NativeArray<float4> texels, in MacroParams p, double buildMilliseconds, ContinentMap continents)
         {
             _texels           = texels;
             Params            = p;
             BuildMilliseconds = buildMilliseconds;
+            Continents        = continents;
         }
 
         public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p)
+            => Build(s, roots, p, ContinentParams.None);
+
+        // With continents, K1's sequence (Docs/Continents_Plan.md): the continent map with its
+        // texel scan in Burst (Stage A), the field at the top level (B), the pyramid filtered down
+        // (C), then the generator reading the channel, then the edge copies. The continent channel
+        // is temporary, freed before this returns.
+        public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp)
         {
+            MacroGenerator.CheckContinents(p, cp);
+
             var clock  = Stopwatch.StartNew();
             var texels = new NativeArray<float4>(p.Layout.TexelCount, Allocator.Persistent,
                                                  NativeArrayOptions.UninitializedMemory);
+            ContinentMap map = null;
             // Everything that can throw is inside the try, so a failed build frees the pyramid
             // rather than leaking 8-12 MB of persistent memory that nothing owns: TerrainRoot.Start
             // aborts with no MacroMaps to dispose, and the leak would be reported at the next
             // domain reload with nothing naming the macro build.
             try
             {
-                var rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
+                var continent = default(NativeArray<float>);
+                var rootArray = default(NativeArray<RootQuad>);
                 try
                 {
-                    new MacroBuildJob { Surface = s, Params = p, Roots = rootArray, Texels = texels }
+                    int2[] copies;
+                    if (cp.Enabled)
+                    {
+                        map = ContinentJobs.BuildMap(s, roots, p.Layout, cp);
+
+                        // Cleared: Stage B writes the top level and the pyramid every level below,
+                        // and a texel either missed would differ between this and the managed build.
+                        var stage = Stopwatch.StartNew();
+                        continent = new NativeArray<float>(p.Layout.TexelCount, Allocator.TempJob);
+                        map.Stats.WarpedSaturation   = math.sqrt(ContinentJobs.FillTop(continent, s, roots, p.Layout, cp, map));
+                        map.Stats.StageBMilliseconds = stage.Elapsed.TotalMilliseconds;
+
+                        stage.Restart();
+                        var plan = MacroPyramidPlan.Create(s, p.Layout);
+                        MacroPyramidJob.Run(continent, p.Layout, plan, MacroPyramidTop.FilterAndFill);
+                        map.Stats.StageCMilliseconds = stage.Elapsed.TotalMilliseconds;
+
+                        // The same list as EdgeCopies(s), already built.
+                        copies = plan.Copies;
+                    }
+                    else
+                    {
+                        continent = new NativeArray<float>(1, Allocator.TempJob);
+                        copies    = p.Layout.EdgeCopies(s);
+                    }
+
+                    rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
+                    new MacroBuildJob { Surface = s, Params = p, Roots = rootArray, Continent = continent, Texels = texels }
                         .Schedule(texels.Length, 256).Complete();
+
+                    // Shared edges: every copy reads a texel nothing copies into, so one pass in any
+                    // order is enough (MacroLayout.EdgeSource). A few thousand texels; main thread.
+                    foreach (int2 c in copies)
+                        texels[c.x] = texels[c.y];
                 }
                 finally
                 {
-                    rootArray.Dispose();
+                    if (continent.IsCreated) continent.Dispose();
+                    if (rootArray.IsCreated) rootArray.Dispose();
                 }
-
-                // Shared edges: every copy reads a texel nothing copies into, so one pass in any
-                // order is enough (MacroLayout.EdgeSource). A few thousand texels; main thread.
-                foreach (int2 c in p.Layout.EdgeCopies(s))
-                    texels[c.x] = texels[c.y];
             }
             catch
             {
@@ -94,14 +142,14 @@ namespace Sonoma.Core.Generation
                 throw;
             }
 
-            return new MacroMaps(texels, p, clock.Elapsed.TotalMilliseconds);
+            return new MacroMaps(texels, p, clock.Elapsed.TotalMilliseconds, map);
         }
 
         // No macro layer: Enabled false, and a one-texel array so the jobs still have a
         // constructed NativeArray to carry -- an unconstructed one fails the safety check when
         // the job is scheduled, before the job ever gets to test the flag.
         public static MacroMaps Disabled()
-            => new MacroMaps(new NativeArray<float4>(1, Allocator.Persistent), MacroParams.Disabled, 0.0);
+            => new MacroMaps(new NativeArray<float4>(1, Allocator.Persistent), MacroParams.Disabled, 0.0, null);
 
         // A main-thread read, for tools. Generation reads the same maps through the same
         // arithmetic inside the sample jobs.

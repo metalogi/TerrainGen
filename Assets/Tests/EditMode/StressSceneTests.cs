@@ -479,10 +479,19 @@ namespace Sonoma.Tests
             readonly SurfaceDef  _s;
             readonly RootQuad[]  _roots;
             readonly MacroParams _p;
+            readonly float[]     _continent;
             readonly System.Collections.Generic.Dictionary<int, float4> _made =
                 new System.Collections.Generic.Dictionary<int, float4>();
 
-            public LazyTexels(in SurfaceDef s, RootQuad[] roots, in MacroParams p) { _s = s; _roots = roots; _p = p; }
+            // A macro layer with continents needs its continent channel (MacroGenerator.ContinentChannel):
+            // without it every texel would be the fBm alone, and a test reading them would measure
+            // the old terrain and stay green.
+            public LazyTexels(in SurfaceDef s, RootQuad[] roots, in MacroParams p, float[] continent = null)
+            {
+                if (p.HasContinents && (continent == null || continent.Length != p.Layout.TexelCount))
+                    throw new System.ArgumentException("LazyTexels: a macro layer with continents needs its continent channel.");
+                _s = s; _roots = roots; _p = p; _continent = continent;
+            }
 
             // What MacroGenerator.Build stores there: the texel, or the one it is a copy of.
             public float4 Texel(int index)
@@ -490,7 +499,8 @@ namespace Sonoma.Tests
                 if (_made.TryGetValue(index, out float4 t)) return t;
                 _p.Layout.Decode(index, out int q, out int l, out int i, out int j);
                 _p.Layout.EdgeSource(_s, q, l, i, j, out int sq, out int si, out int sj);
-                t = MacroGenerator.Texel(_s, _roots[sq], _p, l, si, sj);
+                float continent = _continent != null ? _continent[_p.Layout.Index(sq, l, si, sj)] : 0f;
+                t = MacroGenerator.Texel(_s, _roots[sq], _p, l, si, sj, continent);
                 _made.Add(index, t);
                 return t;
             }

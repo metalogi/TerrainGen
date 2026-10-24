@@ -117,6 +117,12 @@ namespace Sonoma.Core.Quadtree
             // Close-up roughness, when configured; without it one persistence runs throughout.
             if (Settings.RoughnessCrossover > 0.0)
                 _params = _params.WithRoughness(Settings.FinePersistence, Settings.RoughnessCrossover);
+            // The continental cutoff, with a continent map: the detail octaves it carries instead
+            // are dropped (Docs/Continents_Plan.md, K4). Before LodMath and the scheduler, which
+            // copy the parameters.
+            ContinentSettings continents = Settings.Macro != null ? Settings.Macro.Continents : null;
+            if (continents != null)
+                _params = _params.WithContinentalCutoff(continents.DetailCutoff, continents.CoarseOctaveAmplitude);
             _lod    = LodMath.Create(Surface, Settings, _params);
             FillBiomeColors();
 
@@ -229,7 +235,9 @@ namespace Sonoma.Core.Quadtree
         {
             if (Settings.Macro == null) return MacroMaps.Disabled();
 
-            var p = MacroParams.Create(Surface, _params, Settings.Macro.ToConfig());
+            MacroConfig config = Settings.Macro.ToConfig();
+            var p  = MacroParams.Create(Surface, _params, config);
+            var cp = ContinentParams.Create(Surface, p, config);
             int unread = p.UnreadLevels(Settings.MaxDepth);
             if (unread > 0)
                 Debug.LogWarning(
@@ -239,12 +247,43 @@ namespace Sonoma.Core.Quadtree
                     $"time of the one below. Lower LevelCount to {Settings.MaxDepth + 1}. See " +
                     "MacroParams.UnreadLevels.");
 
-            var maps = MacroMaps.Build(Surface, Roots, p);
+            if (cp.Enabled) WarnContinents(p, cp, config.Continents.Value);
+
+            var maps = MacroMaps.Build(Surface, Roots, p, cp);
             Debug.Log($"[TerrainRoot] Macro layer '{Settings.Macro.name}': {p.Layout.LevelCount} levels, " +
                       $"{p.Layout.TexelCount:N0} texels ({maps.Bytes / (1024.0 * 1024.0):F1} MB), " +
                       $"octaves up to {p.MaxOctave(p.Layout.LevelCount - 1)}, built in " +
                       $"{maps.BuildMilliseconds:F1} ms.");
+            if (maps.Continents != null)
+            {
+                ContinentStats st = maps.Continents.Stats;
+                Debug.Log($"[TerrainRoot] Continents '{Settings.Macro.Continents.name}': {st.MacroCells} macro and " +
+                          $"{st.MicroCells:N0} micro cells, {st.LandCells:N0} land, {st.LandFraction:P1} of the map by area; " +
+                          $"coverage {st.CoverageRadius / 1000.0:F0} km, saturation {st.SaturationRadius:F2} micro spacings " +
+                          $"({st.WarpedSaturation:F2} warped); detail octaves from {_params.FirstOctave}; stages A " +
+                          $"{st.StageAMilliseconds:F1} ms, B {st.StageBMilliseconds:F1} ms, C {st.StageCMilliseconds:F1} ms.");
+            }
             return maps;
+        }
+
+        // K10: the two configurations that build and draw a continent map nothing can carry. A
+        // micro cell under four top-level texels across is aliased by the pyramid's band limit; a
+        // detail cutoff under four top-level texels drops octaves the macro layer's top level cannot
+        // carry either, so that band is drawn by nothing.
+        void WarnContinents(in MacroParams p, in ContinentParams cp, in ContinentConfig k)
+        {
+            double texel = _params.S0 / p.Layout.Cells(p.Layout.LevelCount - 1);
+            if (cp.MicroSpacing < 4.0 * texel)
+                Debug.LogWarning(
+                    $"[TerrainRoot] Continents '{Settings.Macro.Continents.name}': a micro cell is " +
+                    $"{cp.MicroSpacing / texel:F1} top-level macro texels across, under the four the pyramid's band " +
+                    "limit needs, so the coastline aliases. Raise LevelCount or lower MicroCells.");
+            if (k.DetailCutoff > 0.0 && k.DetailCutoff < 4.0 * texel)
+                Debug.LogWarning(
+                    $"[TerrainRoot] Continents '{Settings.Macro.Continents.name}': the detail cutoff, " +
+                    $"{k.DetailCutoff / 1000.0:F1} km, is under four top-level macro texels ({4.0 * texel / 1000.0:F1} km), " +
+                    "so the octaves between are drawn by neither the detail noise nor the macro layer. Raise " +
+                    "DetailCutoff or LevelCount.");
         }
 
         // The surface this component's topology fields describe. Public for the Editor's macro

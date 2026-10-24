@@ -74,6 +74,50 @@ namespace Sonoma.Tests
             }
         }
 
+        // The whole build with continents -- Stages A to C, then the generator reading the
+        // channel, then the copies -- in Burst against MacroGenerator.Build in managed code, to the
+        // bit, on ContinentMapTests' sphere, ring and plane.
+        [Test]
+        public void MacroJobMatchesTheManagedBuilderWithContinents()
+        {
+            if (!Unity.Burst.BurstCompiler.Options.EnableBurstCompilation)
+                Assert.Ignore("Burst compilation is disabled in this Editor; the comparison would prove nothing.");
+
+            foreach (var c in ContinentMapTests.Cases())
+            {
+                float4[] managed = MacroGenerator.Build(c.Surface, c.Roots, c.Macro, c.Continents, out ContinentMap map);
+                using var maps   = MacroMaps.Build(c.Surface, c.Roots, c.Macro, c.Continents);
+                Assert.IsTrue(ContinentJobs.WitnessCompiled(map, c.Surface, c.Roots[0], c.Continents),
+                    "ContinentWitnessJob ran as managed code, so the continent jobs are not Burst-compiled");
+                Assert.IsNotNull(maps.Continents, $"{c.Name}: the maps lost their continent map");
+                Assert.AreEqual(map.Stats.WarpedSaturation, maps.Continents.Stats.WarpedSaturation, $"{c.Name}: warped saturation");
+
+                int differ = 0;
+                for (int t = 0; t < managed.Length; t++)
+                    if (math.any(math.asuint(managed[t]) != math.asuint(maps.Texels[t]))) differ++;
+                Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed");
+            }
+        }
+
+        // A build that fails in a continent stage throws its own error and leaves nothing behind
+        // that stops the next build: every temporary is freed in a finally. Stage B fails here, a warp
+        // of nearly two micro spacings throwing points far off the surface, past Stage A's
+        // unwarped check.
+        [Test]
+        public void FailedContinentStageThrowsCleanly()
+        {
+            var good = ContinentMapTests.Cases()[0];
+            var k    = good.Config.Continents.Value; k.WarpAmplitude = 1.9f;
+            var bad  = ContinentMapTests.Make("sphere, warped off the surface", good.Surface, k);
+
+            Assert.Throws<InvalidOperationException>(() => MacroMaps.Build(bad.Surface, bad.Roots, bad.Macro, bad.Continents),
+                "Stage B passed a warp that leaves the plateau");
+            Assert.Throws<ArgumentException>(() => MacroMaps.Build(good.Surface, good.Roots, good.Macro, ContinentParams.None),
+                "a macro layer with continents built without them");
+            using var maps = MacroMaps.Build(good.Surface, good.Roots, good.Macro, good.Continents);
+            Assert.IsNotNull(maps.Continents, "the next build after a failure");
+        }
+
         // Stage A with its texel scan in Burst gives the managed map's tables to the bit: the scan
         // decides the adjacency, the micro areas and so the land threshold, so one nearest seed
         // decided differently would move the coastline. The witness first, since a scan that fell

@@ -112,6 +112,33 @@ namespace Sonoma.Tests
             Assert.Greater(splats.Count, Resolution, "the biome weights barely vary across the chunk");
 
             CheckChildAtFullMorphEqualsParent(macro, "a four-level macro layer with biomes");
+
+            // And with continents and their detail cutoff (Docs/Continents_Plan.md, Task 5): the
+            // continent height is in every level both jobs read, and both drop the same octaves. The
+            // cutoff, 1,024 m, drops octaves 0-2, which the parent's band limit, octave 4, includes,
+            // so the coarse job's sum really is cut; micro cells of 512 m are eight texels across.
+            var withBands = _params;
+            _params = _params.WithContinentalCutoff(1024.0, 0f);
+            Assert.AreEqual(3, _params.FirstOctave, "the cutoff");
+            Assert.LessOrEqual(_params.FirstOctave, _params.MaxOctave(Depth), "the parent keeps no cut octave");
+            config.Continents = new ContinentConfig
+            {
+                Seed = 5u, MacroCells = 6, MicroCells = 64, ContinentCount = 2,
+                DecayMin = 0.5f, DecayMax = 0.75f, ElevationFloor = 0.1f, ScoreNoise = 0.25f, LandFraction = 0.4f,
+                WarpAmplitude = 0.5f, WarpWavelength = 2f, CoastWidth = 1f,
+                LandHeight = 300f, OceanDepth = 500f, InteriorRise = 0.8f,
+            };
+            var p = MacroParams.Create(_surface, _params, config);
+            using var continents = MacroMaps.Build(_surface, _roots, p, ContinentParams.Create(_surface, p, config));
+
+            var cut = Build(new NodeId(0, Depth, 1, 2), continents);
+            int changed = 0;
+            for (int k = 0; k < Resolution * Resolution; k++)
+                if (math.abs(cut.Verts[k].TopoElevation.w - hilly.Verts[k].TopoElevation.w) > 1f) changed++;
+            Assert.Greater(changed, Resolution * Resolution / 2, "the continents barely change the heights");
+
+            CheckChildAtFullMorphEqualsParent(continents, "a macro layer with continents and a detail cutoff");
+            _params = withBands;
         }
 
         void CheckChildAtFullMorphEqualsParent(MacroMaps macro, string label)
