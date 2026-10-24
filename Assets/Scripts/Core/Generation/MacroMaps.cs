@@ -76,8 +76,11 @@ namespace Sonoma.Core.Generation
         // With continents, K1's sequence (Docs/Continents_Plan.md): the continent map with its
         // texel scan in Burst (Stage A), the field at the top level (B), the pyramid filtered down
         // (C), then the generator reading the channel, then the edge copies. The continent channel
-        // is temporary, freed before this returns.
-        public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp)
+        // is temporary, freed before this returns. keepTopTexels keeps, on the continent map, each
+        // top-level texel's nearest micro seed and coast distance, for tools that draw them
+        // (ContinentMap.TopMicro and TopCoast).
+        public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp,
+                                      bool keepTopTexels = false)
         {
             MacroGenerator.CheckContinents(p, cp);
 
@@ -98,13 +101,13 @@ namespace Sonoma.Core.Generation
                     int2[] copies;
                     if (cp.Enabled)
                     {
-                        map = ContinentJobs.BuildMap(s, roots, p.Layout, cp);
+                        map = ContinentJobs.BuildMap(s, roots, p.Layout, cp, keepTopTexels);
 
                         // Cleared: Stage B writes the top level and the pyramid every level below,
                         // and a texel either missed would differ between this and the managed build.
                         var stage = Stopwatch.StartNew();
                         continent = new NativeArray<float>(p.Layout.TexelCount, Allocator.TempJob);
-                        map.Stats.WarpedSaturation   = math.sqrt(ContinentJobs.FillTop(continent, s, roots, p.Layout, cp, map));
+                        map.Stats.WarpedSaturation   = math.sqrt(ContinentJobs.FillTop(continent, s, roots, p.Layout, cp, map, keepTopTexels));
                         map.Stats.StageBMilliseconds = stage.Elapsed.TotalMilliseconds;
 
                         stage.Restart();

@@ -49,7 +49,7 @@ namespace Sonoma.Tests
             int mapLand = 0, agree = 0, flooded = 0, islands = 0;
             for (int k = 0; k < points; k++)
             {
-                double3 p = AreaUniform(s, roots, ref rng);
+                double3 p = ContinentMap.AreaUniformPoint(s, roots, ref rng);
                 double  h = TerrainHeightFunction.HeightAtPoint(s, p, maxDepth, hp, mp, texels);
                 bool mapL = ContinentField.Sample(p, tables, cp).S > 0.0;
                 bool finL = h > 0.0;
@@ -72,20 +72,6 @@ namespace Sonoma.Tests
             };
         }
 
-        // Uniform over the surface's area: rejection in the cube on a sphere, a uniform quad and
-        // (u, v) on a cylinder or plane grid.
-        internal static double3 AreaUniform(in SurfaceDef s, RootQuad[] roots, ref Unity.Mathematics.Random rng)
-        {
-            if (s.Type == SurfaceType.CubeSphere)
-                while (true)
-                {
-                    double3 v  = rng.NextDouble3(-1.0, 1.0);
-                    double  l2 = math.dot(v, v);
-                    if (l2 > 1e-6 && l2 <= 1.0) return v * (s.Radius / math.sqrt(l2));
-                }
-            var q = roots[rng.NextInt(roots.Length)];
-            return SurfaceMath.SurfacePoint(s, q, rng.NextDouble(), rng.NextDouble());
-        }
 
         static double Median(List<double> values)
         {
@@ -173,7 +159,7 @@ namespace Sonoma.Tests
             var w      = new float4[Points];
             for (int k = 0; k < Points; k++)
             {
-                double3 p = AreaUniform(m.Surface, roots, ref rng);
+                double3 p = ContinentMap.AreaUniformPoint(m.Surface, roots, ref rng);
                 h[k] = TerrainHeightFunction.HeightAtPoint(m.Surface, p, m.MaxDepth, hp, mp, texels);
                 SurfaceMath.Locate(m.Surface, p, out int q, out double u, out double v);
                 var sample = MacroSampler.Read(texels, mp, q, top, u, v);

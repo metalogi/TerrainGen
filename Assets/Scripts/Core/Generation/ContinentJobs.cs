@@ -106,12 +106,17 @@ namespace Sonoma.Core.Generation
         [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> Continent;
         [WriteOnly] public NativeArray<double> Plateau;
 
+        // Each texel's s, in scan order, when KeepCoast; otherwise one element, never written.
+        public bool KeepCoast;
+        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> Coast;
+
         public void Execute(int k)
         {
             ContinentMap.ScanCoords(k, Width, out int q, out int i, out int j);
             ContinentSample o = ContinentField.AtTexel(Surface, Roots[q], Cells, i, j, Tables, Params);
             Continent[q * QuadStride + TopOffset + (j + MacroLayout.Border) * Width + i + MacroLayout.Border] = (float)o.Height;
             Plateau[k] = ContinentField.PlateauRatio(o, Cells, i, j, Params);
+            if (KeepCoast) Coast[k] = (float)o.S;
         }
     }
 
@@ -150,8 +155,10 @@ namespace Sonoma.Core.Generation
     public static class ContinentJobs
     {
         // Stage A with the texel scan in Burst: placement, the scan job, then the reductions,
-        // BFS and threshold over its output.
-        public static ContinentMap BuildMap(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, in ContinentParams cp)
+        // BFS and threshold over its output. keepTopTexels keeps each texel's nearest micro seed
+        // (ContinentMap.TopMicro).
+        public static ContinentMap BuildMap(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, in ContinentParams cp,
+                                            bool keepTopTexels = false)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var map   = ContinentMap.Place(s, roots, cp);
@@ -172,6 +179,11 @@ namespace Sonoma.Core.Generation
                 }.Schedule(scan.Length, 256).Complete();
 
                 map.Finish(s, roots, layout, cp, new NativeContinentScan(scan));
+                if (keepTopTexels)
+                {
+                    map.TopMicro = new int[scan.Length];
+                    for (int k = 0; k < scan.Length; k++) map.TopMicro[k] = scan[k].Micro;
+                }
             }
             finally
             {
@@ -187,8 +199,9 @@ namespace Sonoma.Core.Generation
         // Stage B: the field job over the top level of channel, which must hold one value per
         // texel of the layout. Throws, through ContinentField.CheckPlateau, if a warped point inside
         // a region is too far from its own class for the plateau; returns the worst ratio.
+        // keepTopTexels keeps each texel's signed coast distance (ContinentMap.TopCoast).
         public static double FillTop(NativeArray<float> channel, in SurfaceDef s, RootQuad[] roots, in MacroLayout layout,
-                                     in ContinentParams cp, ContinentMap map)
+                                     in ContinentParams cp, ContinentMap map, bool keepTopTexels = false)
         {
             if (!channel.IsCreated || channel.Length != layout.TexelCount)
                 throw new ArgumentException("ContinentJobs: the channel must have one value per texel of the layout.", nameof(channel));
@@ -197,24 +210,29 @@ namespace Sonoma.Core.Generation
             var tables    = NativeContinentTables.From(map, Allocator.TempJob);
             var rootArray = default(NativeArray<RootQuad>);
             var plateau   = default(NativeArray<double>);
+            var coast     = default(NativeArray<float>);
             double worst  = 0.0;
             try
             {
                 rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
                 plateau   = new NativeArray<double>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                coast     = new NativeArray<float>(keepTopTexels ? count : 1, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
                 new ContinentFieldJob
                 {
                     Surface = s, Params = cp, Tables = tables, Cells = layout.Cells(top), Width = w,
                     QuadStride = layout.QuadStride, TopOffset = layout.LevelOffset(top),
                     Roots = rootArray, Continent = channel, Plateau = plateau,
+                    KeepCoast = keepTopTexels, Coast = coast,
                 }.Schedule(count, 256).Complete();
                 for (int k = 0; k < count; k++) worst = math.max(worst, plateau[k]);
+                if (keepTopTexels) map.TopCoast = coast.ToArray();
             }
             finally
             {
                 tables.Dispose();
                 if (rootArray.IsCreated) rootArray.Dispose();
                 if (plateau.IsCreated)   plateau.Dispose();
+                if (coast.IsCreated)     coast.Dispose();
             }
             ContinentField.CheckPlateau(worst, cp);
             return worst;

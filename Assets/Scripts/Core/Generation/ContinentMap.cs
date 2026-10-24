@@ -79,6 +79,13 @@ namespace Sonoma.Core.Generation
         ContinentTexel Get(int k);
     }
 
+    // What a ring search does with one bucket's seeds: fold their squared distances to p into the
+    // best so far, ties to the lower index (ContinentMap.RingSearch).
+    public interface IBucketWalk
+    {
+        void Visit(int cell, double3 p, ref double best2, ref int best);
+    }
+
     // What the build reports (Docs/Continents_Plan.md, K10).
     public struct ContinentStats
     {
@@ -121,6 +128,13 @@ namespace Sonoma.Core.Generation
         public double    BlendRadius2;       // E's kernel radius squared: (1.5 x CoverageRadius)^2
         public ContinentStats Stats;
 
+        // Kept from the build, in ScanIndex order over the top level's stored texels, only when
+        // MacroMaps.Build is asked to keep them (for the macro map export); null otherwise. Each
+        // texel's nearest micro seed, unwarped, from Stage A's scan, and its signed coast distance
+        // s, warped, from Stage B: the export draws both without running either stage again.
+        public int[]     TopMicro;
+        public float[]   TopCoast;
+
         Unity.Mathematics.Random _random;    // continues from the placement into the BFS
 
         // ── The whole of Stage A, managed ────────────────────────────────────
@@ -159,8 +173,9 @@ namespace Sonoma.Core.Generation
 
         // A point uniform over the surface's area: rejection in the cube on a sphere (sqrt only),
         // a uniform quad and (u, v) on a cylinder or plane grid, whose quads are congruent and whose
-        // parameterisations are linear in area.
-        static double3 RandomPoint(in SurfaceDef s, RootQuad[] roots, ref Unity.Mathematics.Random r)
+        // parameterisations are linear in area. Public for the tests' probes, which must sample the
+        // distribution the seeds are placed by.
+        public static double3 AreaUniformPoint(in SurfaceDef s, RootQuad[] roots, ref Unity.Mathematics.Random r)
         {
             if (s.Type == SurfaceType.CubeSphere)
             {
@@ -195,10 +210,14 @@ namespace Sonoma.Core.Generation
                 double  bestD2 = -1.0;
                 for (int c = 0; c < Candidates; c++)
                 {
-                    double3 x  = RandomPoint(s, roots, ref r);
-                    double  d2 = k == 0 ? double.MaxValue
-                               : !useGrid || k <= BruteForceUpTo ? NearestPlaced(seeds, k, x)
-                               : NearestLinked(grid, head, next, seeds, x);
+                    double3 x  = AreaUniformPoint(s, roots, ref r);
+                    double  d2 = double.MaxValue;
+                    if (k > 0 && (!useGrid || k <= BruteForceUpTo)) d2 = NearestPlaced(seeds, k, x);
+                    else if (k > 0)
+                    {
+                        var linked = new LinkedBuckets { Head = head, Next = next, Seeds = seeds };
+                        RingSearch(grid, ref linked, x, out d2);
+                    }
                     if (d2 > bestD2) { bestD2 = d2; best = x; }
                 }
                 seeds[k] = best;
@@ -231,29 +250,64 @@ namespace Sonoma.Core.Generation
             return best;
         }
 
-        // The nearest placed seed through the linked buckets, ring by ring outwards until the rings
-        // searched cover the best distance found.
-        static double NearestLinked(in ContinentGrid g, int[] head, int[] next, double3[] seeds, double3 x)
+        // The placement's buckets, linked lists built as the seeds are placed.
+        struct LinkedBuckets : IBucketWalk
         {
-            int3   c    = g.CellOf(x);
-            int    rMax = RingLimit(g, c);
-            double best = double.MaxValue;
+            public int[]     Head, Next;
+            public double3[] Seeds;
+
+            public void Visit(int cell, double3 p, ref double best2, ref int best)
+            {
+                for (int i = Head[cell]; i >= 0; i = Next[i])
+                {
+                    double e = math.lengthsq(p - Seeds[i]);
+                    if (e < best2 || (e == best2 && i < best)) { best2 = e; best = i; }
+                }
+            }
+        }
+
+        // The tables' CSR buckets, for the queries every stage makes.
+        struct TableBuckets<T> : IBucketWalk where T : struct, IContinentTables
+        {
+            public T Tables;
+
+            public void Visit(int cell, double3 p, ref double best2, ref int best)
+            {
+                for (int k = Tables.CellStart(cell), end = Tables.CellStart(cell + 1); k < end; k++)
+                {
+                    int    i = Tables.Item(k);
+                    double e = math.lengthsq(p - Tables.MicroSeed(i));
+                    if (e < best2 || (e == best2 && i < best)) { best2 = e; best = i; }
+                }
+            }
+        }
+
+        // The nearest seed to p, ring by ring outwards from p's bucket until the rings searched
+        // cover the best distance found: a seed in a bucket r rings out is at least r buckets'
+        // width from p. Buckets outside the grid hold no seed and are skipped; past the last ring
+        // every bucket has been searched. -1, at double.MaxValue, for a grid with no seed. The one
+        // walk both kinds of bucket share, so a fix to it, or to when it stops, lands once.
+        static int RingSearch<W>(in ContinentGrid g, ref W walk, double3 p, out double best2) where W : struct, IBucketWalk
+        {
+            int3 c    = g.CellOf(p);
+            int  rMax = RingLimit(g, c);
+            int  best = -1;
+            best2 = double.MaxValue;
             for (int r = 0; r <= rMax; r++)
             {
                 for (int dz = -r; dz <= r; dz++)
                 for (int dy = -r; dy <= r; dy++)
                 {
+                    // Inside the ring's faces only its two ends along x are on the ring.
                     int step = r == 0 || math.abs(dz) == r || math.abs(dy) == r ? 1 : 2 * r;
                     for (int dx = -r; dx <= r; dx += step)
                     {
                         int3 b = c + new int3(dx, dy, dz);
-                        if (!g.Contains(b)) continue;
-                        for (int i = head[g.Flat(b)]; i >= 0; i = next[i])
-                            best = math.min(best, math.lengthsq(x - seeds[i]));
+                        if (g.Contains(b)) walk.Visit(g.Flat(b), p, ref best2, ref best);
                     }
                 }
                 double reach = r * g.Cell;
-                if (best <= reach * reach) break;
+                if (best >= 0 && best2 <= reach * reach) break;
             }
             return best;
         }
@@ -277,38 +331,11 @@ namespace Sonoma.Core.Generation
             return best;
         }
 
-        // The nearest micro seed through the CSR buckets, ring by ring outwards until the rings
-        // searched cover the best distance. Ties to the lower index.
+        // The nearest micro seed through the CSR buckets (RingSearch). Ties to the lower index.
         public static int NearestMicro<T>(T t, double3 p, out double d2) where T : struct, IContinentTables
         {
-            var  g    = t.Grid;
-            int3 c    = g.CellOf(p);
-            int  rMax = RingLimit(g, c);
-            int  best = -1;
-            d2 = double.MaxValue;
-            for (int r = 0; r <= rMax; r++)
-            {
-                for (int dz = -r; dz <= r; dz++)
-                for (int dy = -r; dy <= r; dy++)
-                {
-                    int step = r == 0 || math.abs(dz) == r || math.abs(dy) == r ? 1 : 2 * r;
-                    for (int dx = -r; dx <= r; dx += step)
-                    {
-                        int3 b = c + new int3(dx, dy, dz);
-                        if (!g.Contains(b)) continue;
-                        int f = g.Flat(b);
-                        for (int k = t.CellStart(f), end = t.CellStart(f + 1); k < end; k++)
-                        {
-                            int    i = t.Item(k);
-                            double e = math.lengthsq(p - t.MicroSeed(i));
-                            if (e < d2 || (e == d2 && i < best)) { d2 = e; best = i; }
-                        }
-                    }
-                }
-                double reach = r * g.Cell;
-                if (best >= 0 && d2 <= reach * reach) break;
-            }
-            return best;
+            var buckets = new TableBuckets<T> { Tables = t };
+            return RingSearch(t.Grid, ref buckets, p, out d2);
         }
 
         // The squared distances from p to the nearest land seed and the nearest ocean seed, over

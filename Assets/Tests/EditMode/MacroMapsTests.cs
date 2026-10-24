@@ -96,6 +96,23 @@ namespace Sonoma.Tests
                 for (int t = 0; t < managed.Length; t++)
                     if (math.any(math.asuint(managed[t]) != math.asuint(maps.Texels[t]))) differ++;
                 Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed");
+
+                // What a build asked to keep its top texels keeps, for the export: the managed
+                // scan's nearest micro seeds and the managed field's s, texel for texel.
+                using var kept = MacroMaps.Build(c.Surface, c.Roots, c.Macro, c.Continents, keepTopTexels: true);
+                ContinentTexel[] scan = map.Scan(c.Surface, c.Roots, c.Layout);
+                int top = c.Layout.LevelCount - 1, n = c.Layout.Cells(top), w = c.Layout.Width(top);
+                var tables = new ArrayContinentTables(map);
+                Assert.AreEqual(scan.Length, kept.Continents.TopMicro.Length, $"{c.Name}: kept micro seeds");
+                Assert.AreEqual(scan.Length, kept.Continents.TopCoast.Length, $"{c.Name}: kept coast distances");
+                for (int k = 0; k < scan.Length; k++)
+                {
+                    ContinentMap.ScanCoords(k, w, out int q, out int i, out int j);
+                    Assert.AreEqual(scan[k].Micro, kept.Continents.TopMicro[k], $"{c.Name}: kept micro seed at ({q}, {i}, {j})");
+                    Assert.AreEqual((float)ContinentField.AtTexel(c.Surface, c.Roots[q], n, i, j, tables, c.Continents).S,
+                                    kept.Continents.TopCoast[k], $"{c.Name}: kept coast distance at ({q}, {i}, {j})");
+                }
+                Assert.IsNull(maps.Continents.TopMicro, $"{c.Name}: a build not asked to keep its texels kept them");
             }
         }
 

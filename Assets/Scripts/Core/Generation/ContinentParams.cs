@@ -168,6 +168,17 @@ namespace Sonoma.Core.Generation
             };
         }
 
+        // A top-level macro texel's edge: the root's nominal size S0 is its diagonal
+        // (SurfaceMath.NodeWorldSize), so an edge is S0 / sqrt 2, over the top level's cells. The
+        // one spacing the startup warnings (K10), the tests that assert them and the macro map
+        // export count micro cells and the cutoff in.
+        public static double TopTexelSpacing(double s0, in MacroLayout layout)
+            => s0 / math.SQRT2_DBL / layout.Cells(layout.LevelCount - 1);
+
+        // How many top-level texels a micro cell is across: at least four, or the pyramid's band
+        // limit aliases the coastline (K10).
+        public double MicroCellTexels(double s0, in MacroLayout layout) => MicroSpacing / TopTexelSpacing(s0, layout);
+
         // The base surface's area, analytically: the micro spacing is defined from it.
         public static double SurfaceArea(in SurfaceDef s) => s.Type switch
         {
