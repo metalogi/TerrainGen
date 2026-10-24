@@ -20,34 +20,70 @@ namespace Sonoma.Core.Generation
         int2 Get(int k);
     }
 
+    // What MacroPyramid does with the top level before it derives the levels below.
+    public enum MacroPyramidTop
+    {
+        // Filter the top level's [0, n] once, reading the caller's border, then replace the border
+        // with the neighbours' filtered texels: an unfiltered border beside a filtered interior
+        // would put a step in every read near an edge. The continent height (Docs/Continents_Plan.md,
+        // K5), whose border Stage B computes at the continued points.
+        FilterAndFill,
+
+        // No filter; fill the border from the neighbours. For a channel the caller wrote only in
+        // [0, n], such as M5c's erosion correction, computed on the surface graph.
+        Fill,
+
+        // No filter, and the caller's border kept: for a border the caller computed itself and
+        // trusts, such as a function continued past the edge, which across a cube edge is closer
+        // to the truth than the halo. Only the edge copies are applied.
+        Keep,
+    }
+
     // Every fill MacroPyramid applies on one surface and layout, built once: the halo pairs and
     // the edge copies of every level, each level's run contiguous, and Ranges[level] the
     // (halo, copy) start of that level's run. Ranges has LevelCount + 1 entries, so a level's
     // run ends where the next one starts.
     public sealed class MacroPyramidPlan
     {
-        public readonly int2[] Halo;
-        public readonly int2[] Copies;
-        public readonly int2[] Ranges;
+        public readonly MacroLayout Layout;
+        public readonly int2[]      Halo;
+        public readonly int2[]      Copies;
+        public readonly int2[]      Ranges;
 
-        MacroPyramidPlan(int2[] halo, int2[] copies, int2[] ranges)
+        MacroPyramidPlan(in MacroLayout layout, int2[] halo, int2[] copies, int2[] ranges)
         {
-            Halo = halo; Copies = copies; Ranges = ranges;
+            Layout = layout; Halo = halo; Copies = copies; Ranges = ranges;
         }
 
         public static MacroPyramidPlan Create(in SurfaceDef s, in MacroLayout layout)
         {
-            var halo   = new System.Collections.Generic.List<int2>();
-            var copies = new System.Collections.Generic.List<int2>();
+            if (s.QuadCount != layout.QuadCount)
+                throw new ArgumentException("MacroPyramidPlan: the layout was made for a surface with a different number of root quads.",
+                                            nameof(layout));
+
+            var halo   = new int2[layout.LevelCount][];
+            var copies = new int2[layout.LevelCount][];
             var ranges = new int2[layout.LevelCount + 1];
             for (int l = 0; l < layout.LevelCount; l++)
             {
-                ranges[l] = new int2(halo.Count, copies.Count);
-                halo.AddRange(layout.HaloSources(s, l));
-                copies.AddRange(layout.EdgeCopies(s, l));
+                halo[l]       = layout.HaloSources(s, l);
+                copies[l]     = layout.EdgeCopies(s, l);
+                ranges[l + 1] = ranges[l] + new int2(halo[l].Length, copies[l].Length);
             }
-            ranges[layout.LevelCount] = new int2(halo.Count, copies.Count);
-            return new MacroPyramidPlan(halo.ToArray(), copies.ToArray(), ranges);
+            return new MacroPyramidPlan(layout, Concat(halo, ranges[layout.LevelCount].x),
+                                        Concat(copies, ranges[layout.LevelCount].y), ranges);
+        }
+
+        static int2[] Concat(int2[][] parts, int total)
+        {
+            var all = new int2[total];
+            int at  = 0;
+            foreach (int2[] p in parts)
+            {
+                Array.Copy(p, 0, all, at, p.Length);
+                at += p.Length;
+            }
+            return all;
         }
     }
 
@@ -56,12 +92,17 @@ namespace Sonoma.Core.Generation
     // function can fill level by level: the continent height (Docs/Continents_Plan.md, K5), and
     // M5c's erosion correction and wetness (Docs/M5_MacroLayer_Plan.md, E4).
     //
-    // The sequence, with the top level already filled border and all:
+    // The sequence, with the top level already filled (MacroPyramidTop says how its border is
+    // treated):
     //
-    //   1. Optionally filter the top level's [0, n] once, through a scratch copy.
-    //   2. Finish it: the halo, then the edge copies.
-    //   3. For each level below, from the top down: decimate the level above into it -- its
+    //   1. The top level: filtered once if asked, then finished.
+    //   2. For each level below, from the top down: decimate the level above into it -- its
     //      (i, j) is the level above filtered at (2i, 2j) -- then finish it.
+    //
+    // Finishing a level is its halo, then its edge copies, in that order: the copies read the
+    // owners' extension texels, which are border texels the halo fills (MacroLayout.HaloSource).
+    // After it the shared edge rows are the owner's bits on both quads, as C2 requires of every
+    // macro channel.
     //
     // The filter is the separable binomial [1 4 6 4 1] / 16, a 5 x 5 stencil that reaches two
     // texels past the edge, inside the three-texel border. It passes about a quarter of the
@@ -71,10 +112,6 @@ namespace Sonoma.Core.Generation
     // positive and rounding is monotone, the output never leaves the input's range, which keeps
     // an analytic height bound valid over a derived channel.
     //
-    // The halo and the edge copies are gathers whose sources are texels neither writes
-    // (MacroLayout.HaloSource), so after each level the shared edge rows are the owner's bits on
-    // both quads, as C2 requires of every macro channel.
-    //
     // Pure and UnityEngine-free. MacroPyramidJob runs the same functions in Burst, so the two
     // builds do the same arithmetic in the same order; MacroMapsTests holds them to the bit.
     public static class MacroPyramid
@@ -83,18 +120,16 @@ namespace Sonoma.Core.Generation
         // array, which Burst cannot read from a job.
         static double Weight(int offset) => offset switch
         {
-            0          => 6.0,
-            1 or -1    => 4.0,
-            _          => 1.0,
+            0       => 6.0,
+            1 or -1 => 4.0,
+            _       => 1.0,
         };
 
-        // The 5 x 5 binomial at (i, j) of this level, rows first, then the column. i and j must
-        // be within [-1, n + 1] so the stencil stays inside the stored border.
-        public static float FilterAt<T>(ref T ch, in MacroLayout layout, int quad, int level, int i, int j)
-            where T : struct, IMacroScalars
+        // The 5 x 5 binomial centred on flat index at, in a level whose rows are w texels wide:
+        // rows first, then the column. The centre must be at least two texels inside the stored
+        // border on both axes.
+        static float Filter<T>(ref T ch, int at, int w) where T : struct, IMacroScalars
         {
-            int    w   = layout.Width(level);
-            int    at  = layout.Index(quad, level, i, j);
             double sum = 0.0;
             for (int b = -2; b <= 2; b++)
             {
@@ -106,27 +141,41 @@ namespace Sonoma.Core.Generation
             return (float)(sum / 256.0);
         }
 
+        // The flat index of texel (0, 0) of this quad and level, and the level's row width. The
+        // texel loops step from it by one along a row and by the width down a column, rather than
+        // calling MacroLayout.Index, whose level offset is a loop over the levels below.
+        static int Origin(in MacroLayout layout, int levelOffset, int quad, int w)
+            => quad * layout.QuadStride + levelOffset + MacroLayout.Border * (w + 1);
+
         // [0, n] of this level, filtered from src into dst.
         public static void FilterLevel<T>(ref T src, ref T dst, in MacroLayout layout, int level)
             where T : struct, IMacroScalars
         {
-            int n = layout.Cells(level);
+            int n = layout.Cells(level), w = layout.Width(level), offset = layout.LevelOffset(level);
             for (int q = 0; q < layout.QuadCount; q++)
-            for (int j = 0; j <= n; j++)
-            for (int i = 0; i <= n; i++)
-                dst.Set(layout.Index(q, level, i, j), FilterAt(ref src, layout, q, level, i, j));
+            {
+                int origin = Origin(layout, offset, q, w);
+                for (int j = 0; j <= n; j++)
+                {
+                    int row = origin + j * w;
+                    for (int i = 0; i <= n; i++) dst.Set(row + i, Filter(ref src, row + i, w));
+                }
+            }
         }
 
         // [0, n] of this level, copied from src into dst.
         public static void CopyLevel<T>(ref T src, ref T dst, in MacroLayout layout, int level)
             where T : struct, IMacroScalars
         {
-            int n = layout.Cells(level);
+            int n = layout.Cells(level), w = layout.Width(level), offset = layout.LevelOffset(level);
             for (int q = 0; q < layout.QuadCount; q++)
-            for (int j = 0; j <= n; j++)
             {
-                int at = layout.Index(q, level, 0, j);
-                for (int i = 0; i <= n; i++) dst.Set(at + i, src.Get(at + i));
+                int origin = Origin(layout, offset, q, w);
+                for (int j = 0; j <= n; j++)
+                {
+                    int row = origin + j * w;
+                    for (int i = 0; i <= n; i++) dst.Set(row + i, src.Get(row + i));
+                }
             }
         }
 
@@ -135,11 +184,18 @@ namespace Sonoma.Core.Generation
         public static void Decimate<T>(ref T ch, in MacroLayout layout, int level)
             where T : struct, IMacroScalars
         {
-            int n = layout.Cells(level);
+            int n  = layout.Cells(level);
+            int w  = layout.Width(level),     offset  = layout.LevelOffset(level);
+            int wa = layout.Width(level + 1), offsetA = layout.LevelOffset(level + 1);
             for (int q = 0; q < layout.QuadCount; q++)
-            for (int j = 0; j <= n; j++)
-            for (int i = 0; i <= n; i++)
-                ch.Set(layout.Index(q, level, i, j), FilterAt(ref ch, layout, q, level + 1, 2 * i, 2 * j));
+            {
+                int origin = Origin(layout, offset, q, w), originA = Origin(layout, offsetA, q, wa);
+                for (int j = 0; j <= n; j++)
+                {
+                    int row = origin + j * w, rowA = originA + 2 * j * wa;
+                    for (int i = 0; i <= n; i++) ch.Set(row + i, Filter(ref ch, rowA + 2 * i, wa));
+                }
+            }
         }
 
         // ch[dst] = ch[src] for pairs start .. end - 1.
@@ -154,49 +210,69 @@ namespace Sonoma.Core.Generation
             }
         }
 
-        // A level's border from its neighbours, then its shared edge rows from their owners.
-        public static void FinishLevel<T, P>(ref T ch, P halo, P copies, P ranges, int level)
+        // A level's border from its neighbours, unless it is kept, then its shared edge rows from
+        // their owners. The copies come second: they read owners' extension texels, which the
+        // halo fills.
+        public static void FinishLevel<T, P>(ref T ch, P halo, P copies, P ranges, int level, bool fillHalo)
             where T : struct, IMacroScalars
             where P : struct, IMacroPairs
         {
             int2 from = ranges.Get(level), to = ranges.Get(level + 1);
-            Gather(ref ch, halo,   from.x, to.x);
+            if (fillHalo) Gather(ref ch, halo, from.x, to.x);
             Gather(ref ch, copies, from.y, to.y);
         }
 
-        // The whole sequence. ch holds the top level, border included; scratch is any channel
-        // of the same layout, used only when filterTop is set.
+        // The whole sequence. ch holds the top level; scratch is any channel of the same layout,
+        // used only by FilterAndFill.
         public static void Run<T, P>(ref T ch, ref T scratch, in MacroLayout layout,
-                                     P halo, P copies, P ranges, bool filterTop)
+                                     P halo, P copies, P ranges, MacroPyramidTop topMode)
             where T : struct, IMacroScalars
             where P : struct, IMacroPairs
         {
             int top = layout.LevelCount - 1;
-            if (filterTop)
+            if (topMode == MacroPyramidTop.FilterAndFill)
             {
                 FilterLevel(ref ch, ref scratch, layout, top);
                 CopyLevel(ref scratch, ref ch, layout, top);
             }
-            FinishLevel(ref ch, halo, copies, ranges, top);
+            FinishLevel(ref ch, halo, copies, ranges, top, fillHalo: topMode != MacroPyramidTop.Keep);
 
             for (int level = top - 1; level >= 0; level--)
             {
                 Decimate(ref ch, layout, level);
-                FinishLevel(ref ch, halo, copies, ranges, level);
+                FinishLevel(ref ch, halo, copies, ranges, level, fillHalo: true);
             }
+        }
+
+        // What both overloads of Run check before touching an array: a mismatch would index out of
+        // range, which is an exception in the Editor and a read or write outside the array in a
+        // build. The plan must be for this layout, and the channel one value per texel of it.
+        public static void Validate(int channelLength, in MacroLayout layout, MacroPyramidPlan plan)
+        {
+            if (plan == null)
+                throw new ArgumentNullException(nameof(plan));
+            MacroLayout pl = plan.Layout;
+            if (pl.Cells0 != layout.Cells0 || pl.LevelCount != layout.LevelCount || pl.QuadCount != layout.QuadCount)
+                throw new ArgumentException("MacroPyramid: the plan was made for a different layout.", nameof(plan));
+            if (plan.Ranges == null || plan.Ranges.Length != layout.LevelCount + 1 ||
+                plan.Halo == null || plan.Copies == null ||
+                plan.Ranges[layout.LevelCount].x != plan.Halo.Length ||
+                plan.Ranges[layout.LevelCount].y != plan.Copies.Length)
+                throw new ArgumentException("MacroPyramid: the plan's level ranges do not match its lists.", nameof(plan));
+            if (channelLength != layout.TexelCount)
+                throw new ArgumentException("MacroPyramid: the channel must have one value per texel of the layout.");
         }
 
         // The managed reference: the same sequence over a managed array, as MacroGenerator.Build
         // is the reference for MacroBuildJob.
-        public static void Run(float[] channel, in MacroLayout layout, MacroPyramidPlan plan, bool filterTop)
+        public static void Run(float[] channel, in MacroLayout layout, MacroPyramidPlan plan, MacroPyramidTop topMode)
         {
-            if (channel == null || channel.Length != layout.TexelCount)
-                throw new ArgumentException("MacroPyramid: the channel must have one value per texel of the layout.",
-                                            nameof(channel));
+            if (channel == null) throw new ArgumentNullException(nameof(channel));
+            Validate(channel.Length, layout, plan);
             var ch      = new ArrayScalars(channel);
-            var scratch = new ArrayScalars(filterTop ? new float[channel.Length] : channel);
+            var scratch = new ArrayScalars(topMode == MacroPyramidTop.FilterAndFill ? new float[channel.Length] : channel);
             Run(ref ch, ref scratch, layout, new ArrayPairs(plan.Halo), new ArrayPairs(plan.Copies),
-                new ArrayPairs(plan.Ranges), filterTop);
+                new ArrayPairs(plan.Ranges), topMode);
         }
 
         public readonly struct ArrayScalars : IMacroScalars

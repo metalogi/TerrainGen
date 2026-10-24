@@ -74,9 +74,9 @@ namespace Sonoma.Tests
             }
         }
 
-        // MacroPyramidJob derives the same levels as the managed MacroPyramid.Run, to the bit, with
-        // and without the top level's filter. It calls the same static functions, so a difference
-        // here means Burst reordered or fused the filter's arithmetic.
+        // MacroPyramidJob derives the same levels as the managed MacroPyramid.Run, to the bit, in
+        // every top-level mode. It calls the same static functions, so a difference here means
+        // Burst reordered or fused the filter's arithmetic.
         [Test]
         public void PyramidJobMatchesTheManagedPyramid()
         {
@@ -90,15 +90,15 @@ namespace Sonoma.Tests
             {
                 var layout = new MacroLayout(cells0, levels, s.QuadCount);
                 var plan   = MacroPyramidPlan.Create(s, layout);
-                foreach (bool filterTop in new[] { true, false })
+                foreach (var mode in new[] { MacroPyramidTop.FilterAndFill, MacroPyramidTop.Fill, MacroPyramidTop.Keep })
                 {
                     var managed = new float[layout.TexelCount];
                     var rng     = new Unity.Mathematics.Random(0x51ED27u);
                     for (int t = 0; t < managed.Length; t++) managed[t] = rng.NextFloat(-1000f, 1000f);
 
                     using var native = new NativeArray<float>(managed, Allocator.TempJob);
-                    MacroPyramid.Run(managed, layout, plan, filterTop);
-                    MacroPyramidJob.Run(native, layout, plan, filterTop);
+                    MacroPyramid.Run(managed, layout, plan, mode);
+                    MacroPyramidJob.Run(native, layout, plan, mode);
 
                     int  differ = 0;
                     uint worst  = 0;
@@ -109,10 +109,30 @@ namespace Sonoma.Tests
                         worst = math.max(worst, UlpDistance(managed[t], native[t]));
                     }
                     Assert.AreEqual(0, differ,
-                        $"{s.Type}, filterTop {filterTop}: {differ} of {managed.Length} texels differ between " +
+                        $"{s.Type}, {mode}: {differ} of {managed.Length} texels differ between " +
                         $"Burst and managed, by up to {worst} ULP");
                 }
             }
+        }
+
+        // The job's overload refuses a channel or a plan that does not fit the layout before it
+        // schedules anything: in a build the job would otherwise read and write outside the array.
+        [Test]
+        public void PyramidJobRefusesAMismatchedChannelOrPlan()
+        {
+            var s      = SurfaceDef.CubeSphere(6371000.0);
+            var layout = new MacroLayout(8, 3, s.QuadCount);
+            var plan   = MacroPyramidPlan.Create(s, layout);
+            var other  = MacroPyramidPlan.Create(s, new MacroLayout(8, 2, s.QuadCount));
+
+            using (var shortChannel = new NativeArray<float>(layout.TexelCount - 1, Allocator.TempJob))
+                Assert.Throws<ArgumentException>(() => MacroPyramidJob.Run(shortChannel, layout, plan, MacroPyramidTop.Fill));
+            using (var channel = new NativeArray<float>(layout.TexelCount, Allocator.TempJob))
+            {
+                Assert.Throws<ArgumentException>(() => MacroPyramidJob.Run(channel, layout, other, MacroPyramidTop.Fill));
+                Assert.DoesNotThrow(() => MacroPyramidJob.Run(channel, layout, plan, MacroPyramidTop.Fill));
+            }
+            Assert.Throws<ArgumentException>(() => MacroPyramidJob.Run(default, layout, plan, MacroPyramidTop.Fill));
         }
 
         // TerrainRoot disposes the maps after the scheduler, whose Dispose completes the jobs that
