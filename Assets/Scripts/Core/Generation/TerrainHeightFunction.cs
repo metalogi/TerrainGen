@@ -124,6 +124,13 @@ namespace Sonoma.Core.Generation
                     a          *= macro.Persistence;
                 }
                 baseHeight *= math.abs(macro.BaseHeightScale) * MacroSampler.MaxOvershoot;
+
+                // The continent height in the same channel, at its profile's largest magnitude: the
+                // pyramid's filter never leaves the field's range, so the read overshoots it at most
+                // as it does any texel. Added separately rather than folded into the product above,
+                // so a macro layer without continents keeps its bound to the bit.
+                if (macro.HasContinents)
+                    baseHeight += macro.ContinentBound * MacroSampler.MaxOvershoot;
             }
 
             return math.abs(p.HeightScale) * detail + baseHeight;

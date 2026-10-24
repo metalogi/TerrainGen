@@ -272,7 +272,8 @@ namespace Sonoma.Tests
                 for (int j = 0; j < n; j += 4)
                 for (int i = 0; i < n; i += 4)
                 {
-                    float r         = MacroGenerator.Texel(m.Surface, roots[q], p, level, i, j).w;
+                    // Ruggedness never reads the base height, so the continent value is immaterial.
+                    float r         = MacroGenerator.Texel(m.Surface, roots[q], p, level, i, j, 0f).w;
                     float amplitude = 1f + math.lerp(p.RuggednessGainMin, p.RuggednessGainMax, r);
                     count++;
                     if (r >= 1f)           inFull++;
@@ -298,10 +299,14 @@ namespace Sonoma.Tests
         // that would still look plausible both fail here: reading level 0 instead of MaxDepth's,
         // and passing MacroSample.Zero. Either one misplaces the fly camera's ground by up to the
         // base height.
+        //
+        // With continents too, and their detail cutoff: the continent height is in the base-height
+        // channel the read returns, and the cut octaves are the same in both.
         [Test]
         public void HeightAtReadsWhatTheChunksRead()
         {
             foreach (var s in new[] { SurfaceDef.CubeSphere(6371000.0), SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4) })
+            foreach (bool continents in new[] { false, true })
             {
                 var roots = SurfaceMath.BuildRoots(s);
                 var hp    = Params(s).WithBands(s.Radius * 0.05, s.Radius * 0.0005);
@@ -309,8 +314,14 @@ namespace Sonoma.Tests
                 c.Biomes = BiomeConfigs; c.BiomeSharpness = BiomeSharpness;
                 c.TemperatureScale = TemperatureScale; c.MoistureScale = MoistureScale;
                 c.RuggednessGainMin = -0.5f; c.RuggednessGainMax = 1.5f;
+                if (continents)
+                {
+                    c.Continents = SmallContinents(s);
+                    hp = hp.WithContinentalCutoff(s.Radius * 0.5, 0f);
+                    Assert.Greater(hp.FirstOctave, 0, "the cutoff drops nothing");
+                }
                 var p     = MacroParams.Create(s, hp, c);
-                var maps  = new ArrayTexels(MacroGenerator.Build(s, roots, p));
+                var maps  = new ArrayTexels(MacroGenerator.Build(s, roots, p, ContinentParams.Create(s, p, c), out _));
                 var rng   = new Unity.Mathematics.Random(77u);
                 const int MaxDepth = 12, Samples = 2000;
                 int top   = p.Layout.MacroLevel(MaxDepth);
@@ -541,18 +552,82 @@ namespace Sonoma.Tests
             }
         }
 
-        // The same agreement on maps the real generator filled, Earth's sphere and the terrarium.
+        // The same agreement on maps the real generator filled, Earth's sphere and the terrarium,
+        // and with continents on both: the continent channel is derived by the pyramid, whose
+        // copies give every shared edge row its owner's bits at every level before the generator
+        // adds it.
         [Test]
         public void GeneratedMacroEdgesAgreeAcrossEveryLink()
         {
             foreach (var s in new[] { SurfaceDef.CubeSphere(6371000.0), SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4) })
+            foreach (bool continents in new[] { false, true })
             {
-                var p    = MacroParams.Create(s, Params(s), Config());
-                var maps = MacroGenerator.Build(s, SurfaceMath.BuildRoots(s), p);
+                var c = Config();
+                if (continents) c.Continents = SmallContinents(s);
+                var p    = MacroParams.Create(s, Params(s), c);
+                var maps = MacroGenerator.Build(s, SurfaceMath.BuildRoots(s), p, ContinentParams.Create(s, p, c), out _);
 
                 int bad = EdgeDisagreements(s, p.Layout, maps, Real, out _, out int samples);
-                Assert.AreEqual(0, bad, $"{s.Type}: {bad} of {samples} edge samples disagree");
+                Assert.AreEqual(0, bad, $"{s.Type}{(continents ? " with continents" : "")}: {bad} of {samples} edge samples disagree");
             }
+        }
+
+        // Continents sized for this file's small layouts: about five top-level texels to a micro
+        // cell on Earth's sphere and seven in the terrarium.
+        internal static ContinentConfig SmallContinents(in SurfaceDef s)
+            => s.Type == SurfaceType.CubeSphere ? ContinentMapTests.SmallConfig(8, 60, 2)
+                                                : ContinentMapTests.SmallConfig(12, 300, 3);
+
+        // Ground rule 1 of the continents: with none, MacroGenerator.Texel is M5b's to the bit on
+        // every stress scene's configuration, whatever continent value it is handed. Against a frozen
+        // copy of M5b's Texel, as HeightIsBitIdenticalWithoutAMacroLayer freezes M4's height.
+        [Test]
+        public void MacroMapsMatchM5bWithoutContinents()
+        {
+            var rng = new Unity.Mathematics.Random(0x5B5Bu);
+            foreach (var m in StressMacros)
+            {
+                var c = m.Config; c.Continents = null;
+                var p = MacroParams.Create(m.Surface, HeightParams.Create(m.Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), c);
+                Assert.IsFalse(p.HasContinents, m.Scene);
+                var roots = SurfaceMath.BuildRoots(m.Surface);
+                for (int k = 0; k < 3000; k++)
+                {
+                    int t = rng.NextInt(0, p.Layout.TexelCount);
+                    p.Layout.Decode(t, out int q, out int l, out int i, out int j);
+                    float4 now = MacroGenerator.Texel(m.Surface, roots[q], p, l, i, j, rng.NextFloat(-9000f, 9000f));
+                    float4 m5b = M5bTexel(m.Surface, roots[q], p, l, i, j);
+                    Assert.IsTrue(math.all(math.asuint(now) == math.asuint(m5b)), $"{m.Scene}: texel {t} is {now}, M5b {m5b}");
+                }
+            }
+        }
+
+        // MacroGenerator.Texel exactly as M5b shipped it. Not to be tidied or kept in step with the
+        // real one: being frozen is the point.
+        static float4 M5bTexel(in SurfaceDef s, in RootQuad q, in MacroParams p, int level, int i, int j)
+        {
+            double  n  = p.Layout.Cells(level);
+            double3 pt = SurfaceMath.SurfacePoint(s, q, i / n, j / n);
+            double3 x  = pt / p.Wavelength0;
+
+            int  octaves = math.max(0, p.MaxOctave(level) + 1);
+            uint seed    = p.Seed + 0x6D2B79F5u;
+
+            double baseHeight = p.BaseHeightScale * LatticeNoise.Fbm(x, octaves, p.Persistence, 2f, seed);
+
+            double temperature = p.EquatorTemperature
+                               + p.TemperatureNoise * LatticeNoise.Fbm(x, octaves, p.Persistence, 2f, seed + 0x00010000u)
+                               - p.LapseRate * math.max(baseHeight, 0.0);
+            if (p.HasLatitude)
+            {
+                double sinLatitude = pt.y / math.length(pt);
+                temperature += (p.PoleTemperature - p.EquatorTemperature) * sinLatitude * sinLatitude;
+            }
+
+            double moisture   = math.saturate(0.5 + p.MoistureNoise   * LatticeNoise.Fbm(x, octaves, p.Persistence, 2f, seed + 2u * 0x00010000u));
+            double ruggedness = math.saturate(p.RuggednessCentre + p.RuggednessNoise * LatticeNoise.Fbm(x, octaves, p.Persistence, 2f, seed + 3u * 0x00010000u));
+
+            return new float4((float)baseHeight, (float)temperature, (float)moisture, (float)ruggedness);
         }
 
         // Every texel on a shared edge row is a copy of a texel nothing copies into, so the copies
