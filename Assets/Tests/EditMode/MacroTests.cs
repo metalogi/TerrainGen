@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Mathematics;
 using Sonoma.Core.Generation;
@@ -89,17 +90,32 @@ namespace Sonoma.Tests
             public double     LowBandEdge, MidBandEdge;
             public float      RuggednessMin, RuggednessMax;   // amplitudes, as the asset holds them
             public float      RuggednessCentre;               // as the asset holds it
+            public float      SceneLapseRate = LapseRate;     // degrees C per km, as the asset holds it
+
+            // The continent map (Docs/Continents_Plan.md): the ContinentSettings asset and its copy,
+            // or none. MacroMapsTests holds the copy to the asset.
+            public string           ContinentAsset;
+            public ContinentConfig? Continents;
+            // The final terrain's land share the map's LandFraction is calibrated to (K3).
+            public double           LandTarget = 0.30;
+
+            // The macro layer's relief factor, C_m: the base height's half-relief across a node over
+            // (node size x (ContinentBound + BaseHeightScale) / S0). MacroReliefFactor for a scene
+            // without continents; with them it carries the coasts' slope and is measured per scene
+            // (ReliefMeasurements).
+            public double     ReliefFactor = MacroReliefFactor;
 
             public MacroConfig Config => new MacroConfig
             {
                 LevelCount = Levels, Wavelength0 = MacroWavelength0, Persistence = MacroPersistence,
                 BaseHeightScale = BaseHeightScale, EquatorTemperature = EquatorTemperature,
-                PoleTemperature = PoleTemperature, LapseRate = LapseRate, TemperatureNoise = TemperatureNoise,
+                PoleTemperature = PoleTemperature, LapseRate = SceneLapseRate, TemperatureNoise = TemperatureNoise,
                 MoistureNoise = MoistureNoise, RuggednessNoise = RuggednessNoise,
                 RuggednessShift = RuggednessCentre - 0.5f, Seed = MacroSeed,
                 Biomes = BiomeConfigs, BiomeSharpness = BiomeSharpness,
                 TemperatureScale = TemperatureScale, MoistureScale = MoistureScale,
                 RuggednessGainMin = RuggednessMin - 1f, RuggednessGainMax = RuggednessMax - 1f,
+                Continents = Continents,
             };
 
             public MacroParams Params =>
@@ -194,17 +210,128 @@ namespace Sonoma.Tests
         // and in the most amplified biome. Measured before biomes, the terrarium's combined worst
         // was 4.63 in units of HeightScale / S0 against the sum's 16. The flattened world scales
         // both, since it scales the whole height.
+        //
+        // The macro term prices the base height at its largest amplitude, the fBm's scale plus the
+        // continents' bound (0 without continents, which leaves the term's bits as they were): with
+        // continents most of the base height's relief is the coasts', which BaseHeightScale alone
+        // would leave out.
         internal static double Demand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0,
                                       double verticalScale = 1.0)
-            => DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0, verticalScale)
-             + verticalScale * MacroReliefFactor * For(scene).BaseHeightScale / s0;
+        {
+            var m = For(scene);
+            return DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0, verticalScale)
+                 + verticalScale * m.ReliefFactor * (m.Params.ContinentBound + m.BaseHeightScale) / s0;
+        }
+
+        // A stress scene's height parameters, as TerrainRoot.Start builds them from its spectrum:
+        // its bands, and with continents the detail cutoff. The one route for every test that
+        // measures a scene's terrain: a copy that missed the cutoff would measure the old terrain
+        // and stay green (SceneParametersCarryTheCutoff).
+        internal static HeightParams SceneParams(string scene, in HeightParams rough) => SceneParams(For(scene), rough);
+
+        internal static HeightParams SceneParams(SceneMacro m, in HeightParams rough)
+        {
+            var p = rough.WithBands(m.LowBandEdge, m.MidBandEdge);
+            if (m.Continents.HasValue)
+                p = p.WithContinentalCutoff(m.Continents.Value.DetailCutoff, m.Continents.Value.CoarseOctaveAmplitude);
+            return p;
+        }
+
+        // A stress scene's spectrum, before SceneParams: Earth's from EarthScaleTests, the others'
+        // from StressSceneTests.
+        internal static HeightParams RoughParams(string scene)
+        {
+            if (scene == "EarthStress") return EarthScaleTests.RoughParams;
+            var sc = Array.Find(StressSceneTests.All, x => x.Name == scene);
+            Assert.IsNotNull(sc, $"{scene} has no entry in StressSceneTests.All");
+            return sc.RoughParams;
+        }
 
         // A stress scene's height bound, as TerrainRoot and GenerationScheduler take it: its
-        // spectrum with its bands, and its macro layer.
+        // spectrum with its bands and cutoff, and its macro layer.
         internal static double MaxAbsHeight(string scene, in HeightParams rough)
         {
             var m = For(scene);
-            return TerrainHeightFunction.MaxAbsHeight(rough.WithBands(m.LowBandEdge, m.MidBandEdge), m.Params);
+            return TerrainHeightFunction.MaxAbsHeight(SceneParams(m, rough), m.Params);
+        }
+
+        // A scene's continents, built once per domain in managed code -- about a second a scene
+        // under .NET 8 and several under the Editor's Mono -- and shared by every test that reads
+        // its terrain: the map, its parameters, and the continent channel LazyTexels adds to the
+        // base height.
+        internal sealed class SceneContinents
+        {
+            public MacroParams     Macro;
+            public ContinentParams Params;
+            public ContinentMap    Map;
+            public float[]         Channel;
+        }
+
+        static readonly Dictionary<string, SceneContinents> _sceneContinents = new Dictionary<string, SceneContinents>();
+
+        internal static SceneContinents ContinentBuild(SceneMacro m)
+        {
+            Assert.IsTrue(m.Continents.HasValue, $"{m.Scene} has no continents");
+            lock (_sceneContinents)
+            {
+                if (_sceneContinents.TryGetValue(m.Scene, out var built)) return built;
+                var mp = m.Params;
+                var cp = ContinentParams.Create(m.Surface, mp, m.Config);
+                built = new SceneContinents { Macro = mp, Params = cp };
+                built.Channel = MacroGenerator.ContinentChannel(m.Surface, SurfaceMath.BuildRoots(m.Surface), mp, cp, out built.Map);
+                _sceneContinents.Add(m.Scene, built);
+                return built;
+            }
+        }
+
+        // A continent scene for the plumbing, in no scene file: a sphere of Earth's radius at two
+        // levels, 400 micro cells of seven top-level texels, and detail far below the continents',
+        // so the final terrain keeps the map's coastline nearly everywhere.
+        internal static readonly SceneMacro SyntheticContinents = new SceneMacro
+        {
+            Scene = "SyntheticContinents", Surface = SurfaceDef.CubeSphere(6371000.0), MaxDepth = 6,
+            Levels = 2, BaseHeightScale = 300f, EquatorTemperature = 30f,
+            LowBandEdge = 1500000.0, MidBandEdge = 100000.0, RuggednessMin = 1f, RuggednessMax = 1f,
+            RuggednessCentre = 0.5f,
+            Continents = new ContinentConfig
+            {
+                Seed = 9u, MacroCells = 10, MicroCells = 400, ContinentCount = 3,
+                DecayMin = 0.5f, DecayMax = 0.75f, ElevationFloor = 0.1f, ScoreNoise = 0.25f, LandFraction = 0.3f,
+                WarpAmplitude = 0.5f, WarpWavelength = 2f, CoastWidth = 1f,
+                LandHeight = 2000f, OceanDepth = 6000f, InteriorRise = 0.8f, DetailCutoff = 1000000.0,
+            },
+        };
+
+        internal static HeightParams SyntheticRough =>
+            HeightParams.Create(SyntheticContinents.Surface, 33, 0.0, 12, 200f, 0.5f, 2f, 42u);
+
+        // Every test that measures a stress scene's terrain builds its parameters through
+        // SceneParams, and its texels with the continent channel: a scene with continents has its
+        // cutoff in the bound and in SceneHeights, and one without has neither. And SceneParams
+        // itself applies the cutoff, checked on a continent scene that no scene file runs, so the
+        // check holds before any stress scene has continents.
+        [Test]
+        public void SceneParametersCarryTheCutoff()
+        {
+            var synthetic = SceneParams(SyntheticContinents, SyntheticRough);
+            Assert.Greater(synthetic.FirstOctave, 0, "SceneParams drops no octave on a continent scene");
+            Assert.AreEqual(SyntheticRough.WithBands(SyntheticContinents.LowBandEdge, SyntheticContinents.MidBandEdge)
+                                          .WithContinentalCutoff(1000000.0, 0f).FirstOctave, synthetic.FirstOctave);
+
+            foreach (var m in StressMacros)
+            {
+                var  rough = RoughParams(m.Scene);
+                var  hp    = SceneParams(m.Scene, rough);
+                bool cut   = m.Continents.HasValue;
+                Assert.AreEqual(cut, hp.FirstOctave > 0, $"{m.Scene}: the cutoff");
+                Assert.AreEqual(cut, m.Params.HasContinents, $"{m.Scene}: the macro parameters' continents");
+                Assert.AreEqual(TerrainHeightFunction.MaxAbsHeight(hp, m.Params), MaxAbsHeight(m.Scene, rough),
+                    $"{m.Scene}: MaxAbsHeight is not built from SceneParams");
+                if (!cut) continue;
+                var w = new StressSceneTests.SceneHeights(m.Scene, m.Surface, rough);
+                Assert.AreEqual(hp.FirstOctave, w.Height.FirstOctave, $"{m.Scene}: SceneHeights' cutoff");
+                Assert.IsTrue(w.Macro.HasContinents, $"{m.Scene}: SceneHeights' continents");
+            }
         }
 
         // The flattened world a stress scene's LOD measures in, as TerrainRoot builds it: its
