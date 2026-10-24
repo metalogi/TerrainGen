@@ -88,7 +88,7 @@ namespace Sonoma.Tests
             {
                 ContinentMap managed = ContinentMapTests.Build(c);
                 ContinentMap burst   = ContinentJobs.BuildMap(c.Surface, c.Roots, c.Layout, c.Continents);
-                Assert.IsTrue(ContinentJobs.WitnessCompiled(managed, c.Surface, c.Roots[0]),
+                Assert.IsTrue(ContinentJobs.WitnessCompiled(managed, c.Surface, c.Roots[0], c.Continents),
                     "ContinentWitnessJob ran as managed code, so the continent jobs are not Burst-compiled");
 
                 CollectionAssert.AreEqual(managed.MicroArea,      burst.MicroArea,      $"{c.Name}: micro areas");
@@ -100,6 +100,33 @@ namespace Sonoma.Tests
                 Assert.AreEqual(managed.BlendRadius2,           burst.BlendRadius2,           $"{c.Name}: blend radius");
                 Assert.AreEqual(managed.Stats.SaturationRadius, burst.Stats.SaturationRadius, $"{c.Name}: saturation");
                 Assert.AreEqual(managed.Stats.LandFraction,     burst.Stats.LandFraction,     $"{c.Name}: land fraction");
+            }
+        }
+
+        // Stage B in Burst writes the managed field's top level to the bit, borders included, and
+        // finds the same worst plateau distance; and touches no other level.
+        [Test]
+        public void ContinentFieldJobMatchesTheManagedField()
+        {
+            if (!Unity.Burst.BurstCompiler.Options.EnableBurstCompilation)
+                Assert.Ignore("Burst compilation is disabled in this Editor; the comparison would prove nothing.");
+
+            foreach (var c in ContinentMapTests.Cases())
+            {
+                ContinentMap map = ContinentMapTests.Build(c);
+                Assert.IsTrue(ContinentJobs.WitnessCompiled(map, c.Surface, c.Roots[0], c.Continents),
+                    "ContinentWitnessJob ran as managed code, so the continent jobs are not Burst-compiled");
+
+                var    managed      = new float[c.Layout.TexelCount];
+                double managedWorst = ContinentField.FillTop(managed, c.Surface, c.Roots, c.Layout, c.Continents, map);
+                using var burst     = new NativeArray<float>(c.Layout.TexelCount, Allocator.TempJob);
+                double burstWorst   = ContinentJobs.FillTop(burst, c.Surface, c.Roots, c.Layout, c.Continents, map);
+
+                Assert.AreEqual(managedWorst, burstWorst, $"{c.Name}: the worst plateau distance");
+                int differ = 0;
+                for (int t = 0; t < managed.Length; t++)
+                    if (math.asuint(managed[t]) != math.asuint(burst[t])) differ++;
+                Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed");
             }
         }
 

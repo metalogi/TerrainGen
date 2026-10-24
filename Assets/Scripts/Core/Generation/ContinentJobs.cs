@@ -90,6 +90,31 @@ namespace Sonoma.Core.Generation
         }
     }
 
+    // Stage B (ContinentField) over every stored texel of the top level, written to its place in
+    // MacroLayout's index space; and each texel's PlateauRatio, in scan order, for the check.
+    [BurstCompile(CompileSynchronously = true)]
+    public struct ContinentFieldJob : IJobParallelFor
+    {
+        public SurfaceDef            Surface;
+        public ContinentParams       Params;
+        public NativeContinentTables Tables;
+        public int                   Cells, Width, QuadStride, TopOffset;
+
+        [ReadOnly] public NativeArray<RootQuad> Roots;
+
+        // Each index writes one texel of the top level, a different one from its own index.
+        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> Continent;
+        [WriteOnly] public NativeArray<double> Plateau;
+
+        public void Execute(int k)
+        {
+            ContinentMap.ScanCoords(k, Width, out int q, out int i, out int j);
+            ContinentSample o = ContinentField.AtTexel(Surface, Roots[q], Cells, i, j, Tables, Params);
+            Continent[q * QuadStride + TopOffset + (j + MacroLayout.Border) * Width + i + MacroLayout.Border] = (float)o.Height;
+            Plateau[k] = ContinentField.PlateauRatio(o, Cells, i, j, Params);
+        }
+    }
+
     // As BurstWitnessJob, for the continent code: Compiled[0] is 1 exactly when Burst compiled
     // this job, and it calls the leaf code the continent jobs call, so an un-Burstable construct
     // anywhere in it is a compile error here rather than a silent managed fallback. The equality
@@ -99,6 +124,7 @@ namespace Sonoma.Core.Generation
     {
         public SurfaceDef            Surface;
         public RootQuad              Root;
+        public ContinentParams       Params;
         public NativeContinentTables Tables;
 
         [WriteOnly] public NativeArray<int>    Compiled;
@@ -110,8 +136,9 @@ namespace Sonoma.Core.Generation
             ClearIfManaged(ref burst);
             Compiled[0] = burst ? 1 : 0;
 
-            ContinentTexel t = ContinentMap.ScanTexel(Surface, Root, 8, 3, 4, Tables);
-            Sample[0] = t.MacroD2 + t.MicroD2;
+            ContinentTexel  t = ContinentMap.ScanTexel(Surface, Root, 8, 3, 4, Tables);
+            ContinentSample o = ContinentField.AtTexel(Surface, Root, 8, 3, 4, Tables, Params);
+            Sample[0] = t.MacroD2 + t.MicroD2 + o.Height;
         }
 
         [BurstDiscard]
@@ -157,9 +184,45 @@ namespace Sonoma.Core.Generation
             return map;
         }
 
+        // Stage B: the field job over the top level of channel, which must hold one value per
+        // texel of the layout. Throws, through ContinentField.CheckPlateau, if a warped point inside
+        // a region is too far from its own class for the plateau; returns the worst ratio.
+        public static double FillTop(NativeArray<float> channel, in SurfaceDef s, RootQuad[] roots, in MacroLayout layout,
+                                     in ContinentParams cp, ContinentMap map)
+        {
+            if (!channel.IsCreated || channel.Length != layout.TexelCount)
+                throw new ArgumentException("ContinentJobs: the channel must have one value per texel of the layout.", nameof(channel));
+
+            int top = layout.LevelCount - 1, w = layout.Width(top), count = layout.QuadCount * w * w;
+            var tables    = NativeContinentTables.From(map, Allocator.TempJob);
+            var rootArray = default(NativeArray<RootQuad>);
+            var plateau   = default(NativeArray<double>);
+            double worst  = 0.0;
+            try
+            {
+                rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
+                plateau   = new NativeArray<double>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                new ContinentFieldJob
+                {
+                    Surface = s, Params = cp, Tables = tables, Cells = layout.Cells(top), Width = w,
+                    QuadStride = layout.QuadStride, TopOffset = layout.LevelOffset(top),
+                    Roots = rootArray, Continent = channel, Plateau = plateau,
+                }.Schedule(count, 256).Complete();
+                for (int k = 0; k < count; k++) worst = math.max(worst, plateau[k]);
+            }
+            finally
+            {
+                tables.Dispose();
+                if (rootArray.IsCreated) rootArray.Dispose();
+                if (plateau.IsCreated)   plateau.Dispose();
+            }
+            ContinentField.CheckPlateau(worst, cp);
+            return worst;
+        }
+
         // Whether ContinentWitnessJob ran Burst-compiled: the continent jobs' equality tests mean
         // nothing if it did not.
-        public static bool WitnessCompiled(ContinentMap map, in SurfaceDef s, in RootQuad root)
+        public static bool WitnessCompiled(ContinentMap map, in SurfaceDef s, in RootQuad root, in ContinentParams cp)
         {
             var tables   = NativeContinentTables.From(map, Allocator.TempJob);
             var compiled = new NativeArray<int>(1, Allocator.TempJob);
@@ -168,7 +231,7 @@ namespace Sonoma.Core.Generation
             {
                 new ContinentWitnessJob
                 {
-                    Surface = s, Root = root, Tables = tables, Compiled = compiled, Sample = sample,
+                    Surface = s, Root = root, Params = cp, Tables = tables, Compiled = compiled, Sample = sample,
                 }.Schedule().Complete();
                 return compiled[0] == 1 && !double.IsNaN(sample[0]);
             }
