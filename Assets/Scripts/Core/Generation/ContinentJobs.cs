@@ -72,35 +72,30 @@ namespace Sonoma.Core.Generation
     }
 
     // Stage A's texel scan (ContinentMap.ScanTexel) over every stored texel of the top level, in
-    // ContinentMap.ScanIndex order. Independent per texel, so a plain parallel-for.
+    // ContinentMap.ScanIndex order, at the points ContinentMap.TopPoints computed in managed code.
+    // Independent per texel, so a plain parallel-for.
     [BurstCompile(CompileSynchronously = true)]
     public struct ContinentTexelScanJob : IJobParallelFor
     {
-        public SurfaceDef            Surface;
-        public int                   Cells, Width;
         public NativeContinentTables Tables;
 
-        [ReadOnly]  public NativeArray<RootQuad>       Roots;
+        [ReadOnly]  public NativeArray<double3>        Points;
         [WriteOnly] public NativeArray<ContinentTexel> Out;
 
-        public void Execute(int k)
-        {
-            ContinentMap.ScanCoords(k, Width, out int q, out int i, out int j);
-            Out[k] = ContinentMap.ScanTexel(Surface, Roots[q], Cells, i, j, Tables);
-        }
+        public void Execute(int k) => Out[k] = ContinentMap.ScanTexel(Points[k], Tables);
     }
 
-    // Stage B (ContinentField) over every stored texel of the top level, written to its place in
-    // MacroLayout's index space; and each texel's PlateauRatio, in scan order, for the check.
+    // Stage B (ContinentField) over every stored texel of the top level, at the same points,
+    // written to its place in MacroLayout's index space; and each texel's PlateauRatio, in scan
+    // order, for the check.
     [BurstCompile(CompileSynchronously = true)]
     public struct ContinentFieldJob : IJobParallelFor
     {
-        public SurfaceDef            Surface;
         public ContinentParams       Params;
         public NativeContinentTables Tables;
         public int                   Cells, Width, QuadStride, TopOffset;
 
-        [ReadOnly] public NativeArray<RootQuad> Roots;
+        [ReadOnly] public NativeArray<double3> Points;
 
         // Each index writes one texel of the top level, a different one from its own index.
         [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> Continent;
@@ -114,7 +109,7 @@ namespace Sonoma.Core.Generation
         public void Execute(int k)
         {
             ContinentMap.ScanCoords(k, Width, out int q, out int i, out int j);
-            ContinentSample o = ContinentField.AtTexel(Surface, Roots[q], Cells, i, j, Tables, Params);
+            ContinentSample o = ContinentField.Sample(Points[k], Tables, Params);
             Continent[q * QuadStride + TopOffset + (j + MacroLayout.Border) * Width + i + MacroLayout.Border] = (float)o.Height;
             Plateau[k] = ContinentField.PlateauRatio(o, Cells, i, j, Params);
             if (KeepCoast) Coast[k] = (float)o.S;
@@ -128,8 +123,7 @@ namespace Sonoma.Core.Generation
     [BurstCompile(CompileSynchronously = true)]
     public struct ContinentWitnessJob : IJob
     {
-        public SurfaceDef            Surface;
-        public RootQuad              Root;
+        public double3               Point;
         public ContinentParams       Params;
         public NativeContinentTables Tables;
 
@@ -142,8 +136,8 @@ namespace Sonoma.Core.Generation
             ClearIfManaged(ref burst);
             Compiled[0] = burst ? 1 : 0;
 
-            ContinentTexel  t = ContinentMap.ScanTexel(Surface, Root, 8, 3, 4, Tables);
-            ContinentSample o = ContinentField.AtTexel(Surface, Root, 8, 3, 4, Tables, Params);
+            ContinentTexel  t = ContinentMap.ScanTexel(Point, Tables);
+            ContinentSample o = ContinentField.Sample(Point, Tables, Params);
             Sample[0] = t.MacroD2 + t.MicroD2 + o.Height;
         }
 
@@ -152,77 +146,94 @@ namespace Sonoma.Core.Generation
     }
 
     // The continent stages on workers, for MacroMaps.Build; ContinentMap and ContinentField hold
-    // the managed references they are tested against.
+    // the managed references they are tested against. Both stages take the top level's points
+    // (ContinentMap.TopPoints), computed once in managed code; the overloads without them compute
+    // them, for callers running one stage alone.
     public static class ContinentJobs
     {
+        // The top level's points as a NativeArray, for both stages' jobs.
+        public static NativeArray<double3> TopPoints(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, Allocator allocator)
+            => new NativeArray<double3>(ContinentMap.TopPoints(s, roots, layout), allocator);
+
+        public static ContinentMap BuildMap(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, in ContinentParams cp,
+                                            bool keepTopTexels = false)
+        {
+            var points = TopPoints(s, roots, layout, Allocator.TempJob);
+            try { return BuildMap(s, roots, layout, cp, points, keepTopTexels); }
+            finally { points.Dispose(); }
+        }
+
         // Stage A with the texel scan in Burst: placement, the scan job, then the reductions,
         // BFS and threshold over its output. keepTopTexels keeps each texel's nearest micro seed
         // (ContinentMap.TopMicro).
         public static ContinentMap BuildMap(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, in ContinentParams cp,
-                                            bool keepTopTexels = false)
+                                            NativeArray<double3> points, bool keepTopTexels = false)
         {
+            int top = layout.LevelCount - 1, w = layout.Width(top), count = layout.QuadCount * w * w;
+            if (!points.IsCreated || points.Length != count)
+                throw new ArgumentException("ContinentJobs: one point per stored texel of the top level, from TopPoints.", nameof(points));
+
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var map   = ContinentMap.Place(s, roots, cp);
 
-            int top = layout.LevelCount - 1, w = layout.Width(top);
-            var tables    = NativeContinentTables.From(map, Allocator.TempJob);
-            var rootArray = default(NativeArray<RootQuad>);
-            var scan      = default(NativeArray<ContinentTexel>);
+            var tables = NativeContinentTables.From(map, Allocator.TempJob);
+            var scan   = default(NativeArray<ContinentTexel>);
             try
             {
-                rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
-                scan      = new NativeArray<ContinentTexel>(layout.QuadCount * w * w, Allocator.TempJob,
-                                                            NativeArrayOptions.UninitializedMemory);
-                new ContinentTexelScanJob
-                {
-                    Surface = s, Cells = layout.Cells(top), Width = w, Tables = tables,
-                    Roots = rootArray, Out = scan,
-                }.Schedule(scan.Length, 256).Complete();
+                scan = new NativeArray<ContinentTexel>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                new ContinentTexelScanJob { Tables = tables, Points = points, Out = scan }.Schedule(count, 256).Complete();
 
                 map.Finish(s, roots, layout, cp, new NativeContinentScan(scan));
                 if (keepTopTexels)
                 {
-                    map.TopMicro = new int[scan.Length];
-                    for (int k = 0; k < scan.Length; k++) map.TopMicro[k] = scan[k].Micro;
+                    map.TopMicro = new int[count];
+                    for (int k = 0; k < count; k++) map.TopMicro[k] = scan[k].Micro;
                 }
             }
             finally
             {
                 tables.Dispose();
-                if (rootArray.IsCreated) rootArray.Dispose();
-                if (scan.IsCreated)      scan.Dispose();
+                if (scan.IsCreated) scan.Dispose();
             }
 
             map.Stats.StageAMilliseconds = clock.Elapsed.TotalMilliseconds;
             return map;
         }
 
+        public static double FillTop(NativeArray<float> channel, in SurfaceDef s, RootQuad[] roots, in MacroLayout layout,
+                                     in ContinentParams cp, ContinentMap map, bool keepTopTexels = false)
+        {
+            var points = TopPoints(s, roots, layout, Allocator.TempJob);
+            try { return FillTop(channel, points, layout, cp, map, keepTopTexels); }
+            finally { points.Dispose(); }
+        }
+
         // Stage B: the field job over the top level of channel, which must hold one value per
         // texel of the layout. Throws, through ContinentField.CheckPlateau, if a warped point inside
         // a region is too far from its own class for the plateau; returns the worst ratio.
         // keepTopTexels keeps each texel's signed coast distance (ContinentMap.TopCoast).
-        public static double FillTop(NativeArray<float> channel, in SurfaceDef s, RootQuad[] roots, in MacroLayout layout,
+        public static double FillTop(NativeArray<float> channel, NativeArray<double3> points, in MacroLayout layout,
                                      in ContinentParams cp, ContinentMap map, bool keepTopTexels = false)
         {
+            int top = layout.LevelCount - 1, w = layout.Width(top), count = layout.QuadCount * w * w;
             if (!channel.IsCreated || channel.Length != layout.TexelCount)
                 throw new ArgumentException("ContinentJobs: the channel must have one value per texel of the layout.", nameof(channel));
+            if (!points.IsCreated || points.Length != count)
+                throw new ArgumentException("ContinentJobs: one point per stored texel of the top level, from TopPoints.", nameof(points));
 
-            int top = layout.LevelCount - 1, w = layout.Width(top), count = layout.QuadCount * w * w;
-            var tables    = NativeContinentTables.From(map, Allocator.TempJob);
-            var rootArray = default(NativeArray<RootQuad>);
-            var plateau   = default(NativeArray<double>);
-            var coast     = default(NativeArray<float>);
-            double worst  = 0.0;
+            var tables  = NativeContinentTables.From(map, Allocator.TempJob);
+            var plateau = default(NativeArray<double>);
+            var coast   = default(NativeArray<float>);
+            double worst = 0.0;
             try
             {
-                rootArray = new NativeArray<RootQuad>(roots, Allocator.TempJob);
-                plateau   = new NativeArray<double>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-                coast     = new NativeArray<float>(keepTopTexels ? count : 1, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                plateau = new NativeArray<double>(count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                coast   = new NativeArray<float>(keepTopTexels ? count : 1, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
                 new ContinentFieldJob
                 {
-                    Surface = s, Params = cp, Tables = tables, Cells = layout.Cells(top), Width = w,
+                    Params = cp, Tables = tables, Cells = layout.Cells(top), Width = w,
                     QuadStride = layout.QuadStride, TopOffset = layout.LevelOffset(top),
-                    Roots = rootArray, Continent = channel, Plateau = plateau,
+                    Points = points, Continent = channel, Plateau = plateau,
                     KeepCoast = keepTopTexels, Coast = coast,
                 }.Schedule(count, 256).Complete();
                 for (int k = 0; k < count; k++) worst = math.max(worst, plateau[k]);
@@ -231,9 +242,8 @@ namespace Sonoma.Core.Generation
             finally
             {
                 tables.Dispose();
-                if (rootArray.IsCreated) rootArray.Dispose();
-                if (plateau.IsCreated)   plateau.Dispose();
-                if (coast.IsCreated)     coast.Dispose();
+                if (plateau.IsCreated) plateau.Dispose();
+                if (coast.IsCreated)   coast.Dispose();
             }
             ContinentField.CheckPlateau(worst, cp);
             return worst;
@@ -250,7 +260,8 @@ namespace Sonoma.Core.Generation
             {
                 new ContinentWitnessJob
                 {
-                    Surface = s, Root = root, Params = cp, Tables = tables, Compiled = compiled, Sample = sample,
+                    Point = SurfaceMath.SurfacePoint(s, root, 0.375, 0.5), Params = cp, Tables = tables,
+                    Compiled = compiled, Sample = sample,
                 }.Schedule().Complete();
                 return compiled[0] == 1 && !double.IsNaN(sample[0]);
             }

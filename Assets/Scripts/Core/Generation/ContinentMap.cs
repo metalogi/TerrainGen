@@ -144,7 +144,7 @@ namespace Sonoma.Core.Generation
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var map   = Place(s, roots, cp);
-            map.Finish(s, roots, layout, cp, new ArrayContinentScan(map.Scan(s, roots, layout)));
+            map.Finish(s, roots, layout, cp, new ArrayContinentScan(map.Scan(TopPoints(s, roots, layout))));
             map.Stats.StageAMilliseconds = clock.Elapsed.TotalMilliseconds;
             return map;
         }
@@ -366,30 +366,43 @@ namespace Sonoma.Core.Generation
 
         // ── The texel scan ───────────────────────────────────────────────────
 
-        // One stored texel of the top level, at the point MacroGenerator.Texel evaluates it.
-        public static ContinentTexel ScanTexel<T>(in SurfaceDef s, in RootQuad q, int n, int i, int j, T t)
-            where T : struct, IContinentTables
+        // One stored texel of the top level, at its point from TopPoints.
+        public static ContinentTexel ScanTexel<T>(double3 p, T t) where T : struct, IContinentTables
         {
-            double  cells = n;
-            double3 p     = SurfaceMath.SurfacePoint(s, q, i / cells, j / cells);
             var o = new ContinentTexel();
             o.Macro = NearestMacro(t, p, out o.MacroD2);
             o.Micro = NearestMicro(t, p, out o.MicroD2);
             return o;
         }
 
-        // Every stored texel of the top level, borders included, in the order Finish reads:
-        // quad, then row, then column, ScanIndex.
-        public ContinentTexel[] Scan(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout)
+        // The surface point of every stored texel of the top level, borders included, in ScanIndex
+        // order, at the point MacroGenerator.Texel evaluates it -- in managed code, once, for both
+        // Stage A's scan and Stage B's field, in both builds. SurfacePoint takes a tangent on a cube
+        // sphere and a sine and cosine on a cylinder, which Burst's builtins at FloatPrecision.Standard
+        // compute to 3.5 ULP rather than managed code's, so a point computed inside a job differs in
+        // its last bits: invisible in the float macro texels, but not in the squared distances the
+        // continent map decides by. Reading the points instead keeps the jobs to + - x /, and the
+        // two builds equal to the bit by construction.
+        public static double3[] TopPoints(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout)
         {
-            int top = layout.LevelCount - 1, n = layout.Cells(top), w = layout.Width(top);
-            var tables = new ArrayContinentTables(this);
-            var scan   = new ContinentTexel[layout.QuadCount * w * w];
-            for (int k = 0; k < scan.Length; k++)
+            int    top = layout.LevelCount - 1, w = layout.Width(top);
+            double n   = layout.Cells(top);
+            var points = new double3[layout.QuadCount * w * w];
+            for (int k = 0; k < points.Length; k++)
             {
                 ScanCoords(k, w, out int q, out int i, out int j);
-                scan[k] = ScanTexel(s, roots[q], n, i, j, tables);
+                points[k] = SurfaceMath.SurfacePoint(s, roots[q], i / n, j / n);
             }
+            return points;
+        }
+
+        // Every stored texel of the top level, borders included, in the order Finish reads:
+        // quad, then row, then column, ScanIndex.
+        public ContinentTexel[] Scan(double3[] points)
+        {
+            var tables = new ArrayContinentTables(this);
+            var scan   = new ContinentTexel[points.Length];
+            for (int k = 0; k < scan.Length; k++) scan[k] = ScanTexel(points[k], tables);
             return scan;
         }
 

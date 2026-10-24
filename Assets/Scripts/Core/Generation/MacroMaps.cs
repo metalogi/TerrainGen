@@ -96,18 +96,25 @@ namespace Sonoma.Core.Generation
             {
                 var continent = default(NativeArray<float>);
                 var rootArray = default(NativeArray<RootQuad>);
+                var points    = default(NativeArray<double3>);
                 try
                 {
                     int2[] copies;
                     if (cp.Enabled)
                     {
-                        map = ContinentJobs.BuildMap(s, roots, p.Layout, cp, keepTopTexels);
+                        // The top level's points, in managed code, for both stages: see
+                        // ContinentMap.TopPoints. Counted in Stage A's time.
+                        var stage = Stopwatch.StartNew();
+                        points = ContinentJobs.TopPoints(s, roots, p.Layout, Allocator.TempJob);
+                        double pointsMs = stage.Elapsed.TotalMilliseconds;
+                        map = ContinentJobs.BuildMap(s, roots, p.Layout, cp, points, keepTopTexels);
+                        map.Stats.StageAMilliseconds += pointsMs;
 
                         // Cleared: Stage B writes the top level and the pyramid every level below,
                         // and a texel either missed would differ between this and the managed build.
-                        var stage = Stopwatch.StartNew();
+                        stage.Restart();
                         continent = new NativeArray<float>(p.Layout.TexelCount, Allocator.TempJob);
-                        map.Stats.WarpedSaturation   = math.sqrt(ContinentJobs.FillTop(continent, s, roots, p.Layout, cp, map, keepTopTexels));
+                        map.Stats.WarpedSaturation   = math.sqrt(ContinentJobs.FillTop(continent, points, p.Layout, cp, map, keepTopTexels));
                         map.Stats.StageBMilliseconds = stage.Elapsed.TotalMilliseconds;
 
                         stage.Restart();
@@ -137,6 +144,7 @@ namespace Sonoma.Core.Generation
                 {
                     if (continent.IsCreated) continent.Dispose();
                     if (rootArray.IsCreated) rootArray.Dispose();
+                    if (points.IsCreated)    points.Dispose();
                 }
             }
             catch

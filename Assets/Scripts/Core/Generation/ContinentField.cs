@@ -79,7 +79,9 @@ namespace Sonoma.Core.Generation
             return o;
         }
 
-        // At a stored texel of the top level, at the point MacroGenerator.Texel evaluates it.
+        // At a stored texel of the top level, at the point MacroGenerator.Texel evaluates it, which is
+        // the point ContinentMap.TopPoints holds for it. For managed callers; the stages read the
+        // points (see TopPoints for why).
         public static ContinentSample AtTexel<T>(in SurfaceDef s, in RootQuad q, int n, int i, int j, T t, in ContinentParams cp)
             where T : struct, IContinentTables
         {
@@ -112,6 +114,11 @@ namespace Sonoma.Core.Generation
         // does, and returns the largest PlateauRatio.
         public static double FillTop(float[] channel, in SurfaceDef s, RootQuad[] roots, in MacroLayout layout,
                                      in ContinentParams cp, ContinentMap map)
+            => FillTop(channel, ContinentMap.TopPoints(s, roots, layout), layout, cp, map);
+
+        // The same at the top level's points (ContinentMap.TopPoints), shared with Stage A's scan.
+        public static double FillTop(float[] channel, double3[] points, in MacroLayout layout,
+                                     in ContinentParams cp, ContinentMap map)
         {
             int top = layout.LevelCount - 1, n = layout.Cells(top), w = layout.Width(top);
             int origin = layout.LevelOffset(top);
@@ -120,7 +127,7 @@ namespace Sonoma.Core.Generation
             for (int k = 0, count = layout.QuadCount * w * w; k < count; k++)
             {
                 ContinentMap.ScanCoords(k, w, out int q, out int i, out int j);
-                ContinentSample o = AtTexel(s, roots[q], n, i, j, tables, cp);
+                ContinentSample o = Sample(points[k], tables, cp);
                 channel[q * layout.QuadStride + origin + (j + MacroLayout.Border) * w + i + MacroLayout.Border] = (float)o.Height;
                 worst = math.max(worst, PlateauRatio(o, n, i, j, cp));
             }

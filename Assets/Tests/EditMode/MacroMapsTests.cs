@@ -90,17 +90,23 @@ namespace Sonoma.Tests
                 Assert.IsTrue(ContinentJobs.WitnessCompiled(map, c.Surface, c.Roots[0], c.Continents),
                     "ContinentWitnessJob ran as managed code, so the continent jobs are not Burst-compiled");
                 Assert.IsNotNull(maps.Continents, $"{c.Name}: the maps lost their continent map");
-                Assert.AreEqual(map.Stats.WarpedSaturation, maps.Continents.Stats.WarpedSaturation, $"{c.Name}: warped saturation");
 
-                int differ = 0;
+                // The texels first, so a difference names how many, before the radius it moves.
+                int  differ = 0;
+                uint worst  = 0;
                 for (int t = 0; t < managed.Length; t++)
+                {
+                    for (int ch = 0; ch < 4; ch++) worst = math.max(worst, UlpDistance(managed[t][ch], maps.Texels[t][ch]));
                     if (math.any(math.asuint(managed[t]) != math.asuint(maps.Texels[t]))) differ++;
-                Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed");
+                }
+                Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed, " +
+                                           $"by up to {worst} ULP");
+                Assert.AreEqual(map.Stats.WarpedSaturation, maps.Continents.Stats.WarpedSaturation, $"{c.Name}: warped saturation");
 
                 // What a build asked to keep its top texels keeps, for the export: the managed
                 // scan's nearest micro seeds and the managed field's s, texel for texel.
                 using var kept = MacroMaps.Build(c.Surface, c.Roots, c.Macro, c.Continents, keepTopTexels: true);
-                ContinentTexel[] scan = map.Scan(c.Surface, c.Roots, c.Layout);
+                ContinentTexel[] scan = map.Scan(ContinentMap.TopPoints(c.Surface, c.Roots, c.Layout));
                 int top = c.Layout.LevelCount - 1, n = c.Layout.Cells(top), w = c.Layout.Width(top);
                 var tables = new ArrayContinentTables(map);
                 Assert.AreEqual(scan.Length, kept.Continents.TopMicro.Length, $"{c.Name}: kept micro seeds");
@@ -183,11 +189,17 @@ namespace Sonoma.Tests
                 using var burst     = new NativeArray<float>(c.Layout.TexelCount, Allocator.TempJob);
                 double burstWorst   = ContinentJobs.FillTop(burst, c.Surface, c.Roots, c.Layout, c.Continents, map);
 
-                Assert.AreEqual(managedWorst, burstWorst, $"{c.Name}: the worst plateau distance");
-                int differ = 0;
+                // The texels first, so a difference names how many, before the radius it moves.
+                int  differ = 0;
+                uint worst  = 0;
                 for (int t = 0; t < managed.Length; t++)
+                {
+                    worst = math.max(worst, UlpDistance(managed[t], burst[t]));
                     if (math.asuint(managed[t]) != math.asuint(burst[t])) differ++;
-                Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed");
+                }
+                Assert.AreEqual(0, differ, $"{c.Name}: {differ} of {managed.Length} texels differ between Burst and managed, " +
+                                           $"by up to {worst} ULP");
+                Assert.AreEqual(managedWorst, burstWorst, $"{c.Name}: the worst plateau distance");
             }
         }
 

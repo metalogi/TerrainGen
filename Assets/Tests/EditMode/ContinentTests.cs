@@ -80,6 +80,16 @@ namespace Sonoma.Tests
             return values[values.Count / 2];
         }
 
+        // The measuring tools run only when asked for: [Explicit] did not keep them out of an Editor
+        // run, where they took 53 minutes and three hit the Test Runner's 180 s timeout. Set
+        // SONOMA_MEASURE=1 and run them through the out-of-Editor harness; elsewhere they skip.
+        internal static void MeasuringToolsOnly()
+        {
+            if (Environment.GetEnvironmentVariable("SONOMA_MEASURE") != "1")
+                Assert.Ignore("A measuring tool, minutes outside the Editor and up to 40 under its Mono: set " +
+                              "SONOMA_MEASURE=1 and run it through the out-of-Editor harness.");
+        }
+
         // The stress scenes with continents. The tests below also run the probe on the synthetic
         // scene, which keeps it honest whatever this returns.
         internal static IEnumerable<MacroTests.SceneMacro> ContinentScenes()
@@ -128,6 +138,7 @@ namespace Sonoma.Tests
         [Test, Explicit("Evidence for the lapse-rate decision, printed.")]
         public void ClimateOverLand()
         {
+            MeasuringToolsOnly();
             var m5bBaseHeight = new Dictionary<string, float>
             {
                 ["EarthStress"] = 3000f, ["SmallPlanetStress"] = 2000f, ["RingworldStress"] = 1500f, ["NarrowRingStress"] = 1500f,
@@ -190,6 +201,7 @@ namespace Sonoma.Tests
         [Test, Explicit("A retuning tool: about a minute a scene outside the Editor.")]
         public void ContinentsSurviveTheDetailNoiseAtFullSample()
         {
+            MeasuringToolsOnly();
             foreach (var m in MeasuredScenes())
                 TestContext.WriteLine($"{m.Scene}: {ProbeScene(m, MacroTests.RoughParams(m.Scene), 100000, 0x5EA1EAFu)}");
         }

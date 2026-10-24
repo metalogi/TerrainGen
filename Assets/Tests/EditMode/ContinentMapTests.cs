@@ -203,7 +203,7 @@ namespace Sonoma.Tests
                 var map    = Build(c);
                 var layout = c.Layout;
                 int top = layout.LevelCount - 1, n = layout.Cells(top), w = layout.Width(top);
-                ContinentTexel[] scan = map.Scan(c.Surface, c.Roots, layout);
+                ContinentTexel[] scan = map.Scan(ContinentMap.TopPoints(c.Surface, c.Roots, layout));
                 double cover2 = 0.0, sat2 = 0.0;
                 for (int k = 0; k < scan.Length; k++)
                 {
