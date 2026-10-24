@@ -27,6 +27,15 @@ using Sonoma.Core.Surface;
 //   <scene>_biomes.png       the biome classifier's weights over the biome colours, unlit, and
 //                            the climate and biome at each pole of a sphere in the console
 //
+// With a continent map (Docs/Continents_Plan.md) the base height includes the continent height,
+// the detail drops the octaves the cutoff removes, and two more images show the map itself:
+//
+//   <scene>_continents.png   the micro cells, green land and blue ocean, brighter with their parent
+//                            macro cell's elevation; micro cell edges darkened, macro cell edges in
+//                            black, and the continent centres' cells tinted red
+//   <scene>_coast.png        the signed coast distance s, green on land and blue at sea, pale near
+//                            the coast and saturated at two micro spacings, with the coast in black
+//
 // The three heights share one colour scale -- blue below zero, green through brown to white
 // above, by the largest |total| -- and a hillshade lit from the upper left with the vertical
 // exaggeration logged, so they compare directly. Each image is the top pyramid level, one pixel
@@ -71,16 +80,26 @@ static class MacroMapExport
     {
         SurfaceDef s     = root.BuildSurface();
         RootQuad[] roots = SurfaceMath.BuildRoots(s);
+        // As TerrainRoot.Start builds them, so the detail image carries the octaves the terrain does.
         var hp = HeightParams.Create(s, t.ChunkResolution, t.OctaveWavelength0, t.OctaveCount,
-                                     t.HeightScale, t.Persistence, t.Lacunarity, t.Seed);
-        var mp = MacroParams.Create(s, hp, t.Macro.ToConfig());
+                                     t.HeightScale, t.Persistence, t.Lacunarity, t.Seed)
+                             .WithBands(t.Macro.LowBandEdge, t.Macro.MidBandEdge);
+        if (t.RoughnessCrossover > 0.0)
+            hp = hp.WithRoughness(t.FinePersistence, t.RoughnessCrossover);
+        if (t.Macro.Continents != null)
+            hp = hp.WithContinentalCutoff(t.Macro.Continents.DetailCutoff, t.Macro.Continents.CoarseOctaveAmplitude);
+        MacroConfig config = t.Macro.ToConfig();
+        var mp = MacroParams.Create(s, hp, config);
+        var cp = ContinentParams.Create(s, mp, config);
 
-        float4[] texels;
-        double   buildMs;
-        using (var maps = MacroMaps.Build(s, roots, mp))
+        float4[]     texels;
+        double       buildMs;
+        ContinentMap map;
+        using (var maps = MacroMaps.Build(s, roots, mp, cp))
         {
             texels  = maps.Texels.ToArray();
             buildMs = maps.BuildMilliseconds;
+            map     = maps.Continents;
         }
 
         int level = mp.Layout.LevelCount - 1;
@@ -169,6 +188,16 @@ static class MacroMapExport
         }
 
         WriteBiomes(s, roots, mp, t.Macro, texels, level, tile, w, h, Path.Combine(folder, $"{scene}_biomes.png"));
+        if (map != null)
+        {
+            WriteContinents(s, roots, cp, map, tile, w, h, folder, scene);
+            ContinentStats st = map.Stats;
+            Debug.Log($"[MacroMapExport] {scene} continents: {st.MacroCells} macro and {st.MicroCells:N0} micro cells, " +
+                      $"{st.LandCells:N0} land, {st.LandFraction:P1} of the map by area; micro spacing " +
+                      $"{cp.MicroSpacing / 1000.0:F1} km, {cp.MicroSpacing * n / (hp.S0 / math.SQRT2_DBL):F1} texels; " +
+                      $"saturation {st.SaturationRadius:F2} ({st.WarpedSaturation:F2} warped) micro spacings; detail " +
+                      $"octaves from {hp.FirstOctave}.");
+        }
 
         Debug.Log($"[MacroMapExport] {scene}: level {level} of {mp.Layout.LevelCount}, {tile} x {tile} " +
                   $"texels a quad, built in {buildMs:F1} ms. " +
@@ -247,6 +276,92 @@ static class MacroMapExport
             for (int b = 1; b < mp.BiomeCount; b++) if (wt[b] > wt[top]) top = b;
             Debug.Log($"[MacroMapExport] {label}: quad {q}, {m.Temperature:F1} C, moisture {m.Moisture:F2}, " +
                       $"base {m.BaseHeight:F0} m -> {settings.Biomes[top].name} ({wt[top]:P0}); weights {wt}");
+        }
+    }
+
+    // ── Continents ───────────────────────────────────────────────────────────
+
+    // <scene>_continents.png and <scene>_coast.png, at every texel of the top level: the micro cell
+    // each texel's point falls in, unwarped, and the field's signed distance there, warped, as the
+    // build computed them.
+    static void WriteContinents(in SurfaceDef s, RootQuad[] roots, in ContinentParams cp, ContinentMap map,
+                                int tile, int w, int h, string folder, string scene)
+    {
+        int n      = tile - 1;
+        var tables = new ArrayContinentTables(map);
+        var micro  = new int[w * h];
+        var signed = new double[w * h];
+        Array.Fill(micro, -1);
+        Array.Fill(signed, double.NaN);
+
+        for (int q = 0; q < roots.Length; q++)
+        {
+            EditorUtility.DisplayProgressBar("Export Macro Maps", $"Continents, root quad {q + 1} of {roots.Length}",
+                                             (q + 1f) / roots.Length);
+            Place(s, q, out int tx, out int ty);
+            for (int j = 0; j <= n; j++)
+            for (int i = 0; i <= n; i++)
+            {
+                double3 p  = SurfaceMath.SurfacePoint(s, roots[q], i / (double)n, j / (double)n);
+                int     at = (ty * tile + j) * w + tx * tile + i;
+                micro[at]  = ContinentMap.NearestMicro(tables, p, out _);
+                signed[at] = ContinentField.Sample(p, tables, cp).S;
+            }
+        }
+
+        var cells = new Color32[w * h];
+        var coast = new Color32[w * h];
+        double cap = 2.0 * cp.MicroSpacing;
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            int at = y * w + x;
+            if (micro[at] < 0)
+            {
+                cells[at] = coast[at] = new Color32(40, 40, 40, 255);
+                continue;
+            }
+
+            int    m      = micro[at], parent = map.MicroParent[m];
+            float  e      = (float)map.MacroElevation[parent];
+            float3 rgb    = map.MicroLand[m] != 0 ? new float3(40f + 120f * e, 110f + 120f * e, 40f + 40f * e)
+                                                  : new float3(20f + 60f * e, 40f + 90f * e, 110f + 120f * e);
+            if (map.MacroCentre[parent]) rgb.x += 40f;
+
+            // Edges against the right and upper neighbours within the tile.
+            bool microEdge = false, macroEdge = false, coastLine = false;
+            foreach (int nb in new[] { (x + 1) % tile != 0 ? at + 1 : -1, (y + 1) % tile != 0 ? at + w : -1 })
+            {
+                if (nb < 0 || nb >= micro.Length || micro[nb] < 0) continue;
+                if (micro[nb] != m) microEdge = true;
+                if (map.MicroParent[micro[nb]] != parent) macroEdge = true;
+                if ((signed[nb] >= 0.0) != (signed[at] >= 0.0)) coastLine = true;
+            }
+            if (microEdge) rgb *= 0.8f;
+            if (macroEdge) rgb = 0f;
+            rgb = math.clamp(rgb, 0f, 255f);
+            cells[at] = new Color32((byte)rgb.x, (byte)rgb.y, (byte)rgb.z, 255);
+
+            float  u    = (float)math.clamp(signed[at] / cap, -1.0, 1.0);
+            float3 pale = new float3(235f, 235f, 225f);
+            float3 c    = u >= 0f ? math.lerp(pale, new float3(30f, 120f, 40f), u) : math.lerp(pale, new float3(20f, 50f, 140f), -u);
+            if (coastLine) c = 0f;
+            coast[at] = new Color32((byte)c.x, (byte)c.y, (byte)c.z, 255);
+        }
+
+        foreach (var (name, pixels) in new[] { ("continents", cells), ("coast", coast) })
+        {
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            try
+            {
+                tex.SetPixels32(pixels);
+                tex.Apply();
+                File.WriteAllBytes(Path.Combine(folder, $"{scene}_{name}.png"), tex.EncodeToPNG());
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tex);
+            }
         }
     }
 
