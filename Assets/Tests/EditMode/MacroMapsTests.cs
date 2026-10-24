@@ -74,6 +74,47 @@ namespace Sonoma.Tests
             }
         }
 
+        // MacroPyramidJob derives the same levels as the managed MacroPyramid.Run, to the bit, with
+        // and without the top level's filter. It calls the same static functions, so a difference
+        // here means Burst reordered or fused the filter's arithmetic.
+        [Test]
+        public void PyramidJobMatchesTheManagedPyramid()
+        {
+            var cases = new[]
+            {
+                (s: SurfaceDef.CubeSphere(6371000.0),            cells0: 16, levels: 3),
+                (s: SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4), cells0: 8,  levels: 3),
+                (s: SurfaceDef.PlaneGrid(1000.0, 2, 2),          cells0: 8,  levels: 2),
+            };
+            foreach (var (s, cells0, levels) in cases)
+            {
+                var layout = new MacroLayout(cells0, levels, s.QuadCount);
+                var plan   = MacroPyramidPlan.Create(s, layout);
+                foreach (bool filterTop in new[] { true, false })
+                {
+                    var managed = new float[layout.TexelCount];
+                    var rng     = new Unity.Mathematics.Random(0x51ED27u);
+                    for (int t = 0; t < managed.Length; t++) managed[t] = rng.NextFloat(-1000f, 1000f);
+
+                    using var native = new NativeArray<float>(managed, Allocator.TempJob);
+                    MacroPyramid.Run(managed, layout, plan, filterTop);
+                    MacroPyramidJob.Run(native, layout, plan, filterTop);
+
+                    int  differ = 0;
+                    uint worst  = 0;
+                    for (int t = 0; t < managed.Length; t++)
+                    {
+                        if (managed[t] == native[t]) continue;
+                        differ++;
+                        worst = math.max(worst, UlpDistance(managed[t], native[t]));
+                    }
+                    Assert.AreEqual(0, differ,
+                        $"{s.Type}, filterTop {filterTop}: {differ} of {managed.Length} texels differ between " +
+                        $"Burst and managed, by up to {worst} ULP");
+                }
+            }
+        }
+
         // TerrainRoot disposes the maps after the scheduler, whose Dispose completes the jobs that
         // read them. Torn down mid-generation in that order there is nothing to report; in the
         // other order the safety system refuses to free an array jobs are still reading -- which

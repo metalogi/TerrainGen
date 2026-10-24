@@ -618,6 +618,35 @@ timings measured in the harness, managed, as an upper bound.
 The plan above is the plan as written. Record here where building it proved it wrong, rather than
 editing the tasks, so the plan still reads as what was decided up front.
 
+### Task 1, `macro-pyramid` (2026-10-23)
+
+1. **One job, not three.** K5 named `PyramidFilterJob`, `PyramidDecimateJob` and `GatherJob`. The
+   sequence runs level by level and each level needs the one above finished, so there is nothing to run
+   in parallel across steps. A single-threaded `MacroPyramidJob` calls the same static
+   `MacroPyramid.Run` as the managed reference, which makes the two bit-identical by construction rather
+   than by care. The whole pyramid is a 5 × 5 stencil per texel, about 13 million weighted adds on
+   Earth's four levels.
+2. **The halo is exact only where the quads continue into each other.** Measured at 8 and 32 cells, the
+   distance from a border texel's continued point to its source is:
+   - inside a cylinder or a plane grid: 0;
+   - across a cube edge: 0 at an edge's midpoint, at most 0.567 texels per texel of depth over the
+     middle half, and exactly 1.0 at the ends, one texel from the cube corner. There the two faces'
+     grid lines are different great circles.
+
+   K5 expected this ("needs only to be continuous, not exact"), and the test pins both regimes. Ignoring
+   a link's reversal lands 70–83% of the cube's reversed-link side texels more than two texels per
+   texel away, up to 25: the mutation the test keeps.
+3. **The edge copies are load-bearing on every topology, not just the cube.** Without them below the top,
+   the derived edges disagree on all five test surfaces (60 to 672 samples). Even where both quads meet
+   in the same orientation, their extension texels come from different halos.
+4. **The filter leaves 25.7% of a derived level's energy under four texels per wavelength** on white
+   noise, against white noise's own 50.4%. That is close to the 24% the binomial's `cos⁴` response
+   predicts. K5's fallback, the 7-tap filter, waits for ringing to show in a real channel.
+5. **Tests:** five pure ones in `MacroPyramidTests`, and `MacroMapsTests.PyramidJobMatchesTheManagedPyramid`
+   in the Editor. That makes 146 EditMode tests, 108 of them pure; all 108 pass outside the Editor.
+   `MacroTests.Surfaces`, `Real`, `Sampler` and `EdgeDisagreements` became `internal` so the derived
+   channel is held to the same C2 check as generated maps.
+
 ---
 
 ## Out of scope

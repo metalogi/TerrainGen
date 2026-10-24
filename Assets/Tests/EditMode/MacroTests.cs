@@ -22,7 +22,7 @@ namespace Sonoma.Tests
         // Every topology, and every kind of corner: three faces on a cube, four roots at the
         // terrarium's interior corners, two at a ring's open ends, a one-column cylinder whose
         // East edge is its own West, and a plane grid with outer edges that link nowhere.
-        static readonly (string Name, SurfaceDef Surface)[] Surfaces =
+        internal static readonly (string Name, SurfaceDef Surface)[] Surfaces =
         {
             ("cube sphere",         SurfaceDef.CubeSphere(6371000.0)),
             ("ring",                SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1)),
@@ -405,11 +405,11 @@ namespace Sonoma.Tests
             a.BaseHeight == b.BaseHeight && a.Temperature == b.Temperature &&
             a.Moisture == b.Moisture && a.Ruggedness == b.Ruggedness;
 
-        delegate MacroSample Sampler(float4[] texels, in MacroLayout layout, int quad, int level,
-                                     double u, double v);
+        internal delegate MacroSample Sampler(float4[] texels, in MacroLayout layout, int quad, int level,
+                                              double u, double v);
 
-        static MacroSample Real(float4[] texels, in MacroLayout layout, int quad, int level,
-                                double u, double v)
+        internal static MacroSample Real(float4[] texels, in MacroLayout layout, int quad, int level,
+                                         double u, double v)
             => MacroSampler.Sample(new ArrayTexels(texels), layout, quad, level, u, v);
 
         // The read as anyone would first write it: the textbook Catmull-Rom weights, summed left to
@@ -461,8 +461,8 @@ namespace Sonoma.Tests
         const int FullEdgeLimit = 1024;
         const int DeepSamples   = 128;
 
-        static int EdgeDisagreements(in SurfaceDef s, in MacroLayout layout, float4[] texels,
-                                     Sampler sample, out int onReversed, out int samples)
+        internal static int EdgeDisagreements(in SurfaceDef s, in MacroLayout layout, float4[] texels,
+                                              Sampler sample, out int onReversed, out int samples)
         {
             int bad = 0;
             onReversed = 0;
