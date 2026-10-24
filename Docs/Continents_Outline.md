@@ -129,6 +129,16 @@ cost. Stage A took 0.7–1.0 s managed: brute-force blue noise, 400,000 adjacenc
 area samples. That is startup time, and would need a bucket grid and fewer samples, or caching, in a
 real build.
 
+**Follow-up (2026-10-23), the ripple fix.** Two changes, both now in `Docs/Continents_Plan.md` (K2):
+- The squared distance `(dO² − dL²) / 2D` removes the cell ripple entirely: inside a region the capped
+  term dominates, and the profile is exactly flat.
+- An odd quintic `t (15 − 10t² + 3t⁴) / 8` replaces `tanh`. It is a polynomial, so a Burst build can
+  match it to the bit.
+
+Together they also raise agreement: Earth at 1,000 km and 2 / 6 km goes from 94.5% to 95.6%, and the
+ring at 250 km and 1.5 / 4.5 km from 97.2% to 97.9%. The even smootherstep was tried too and lost 1.8
+points on Earth, because its zero slope at the coast leaves a flat band at sea level.
+
 **Recommended starting point for a plan:** a 1,000 km cutoff on the planets and 250 km on the ring, land
 and ocean amplitudes of 0.10 / 0.30 of `HeightScale` on Earth and 0.15 / 0.45 on the ring, the threshold
 solved against the final terrain, and the border-distance fix.
