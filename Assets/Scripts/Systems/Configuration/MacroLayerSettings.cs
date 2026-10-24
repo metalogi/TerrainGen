@@ -91,6 +91,11 @@ namespace Sonoma.Systems.Configuration
         [Min(0f)]
         public float RuggednessMax = 1f;
 
+        [Header("Continents")]
+        [Tooltip("A Voronoi continent map whose height is added to the base height, and whose detail " +
+                 "cutoff drops the coarse detail octaves it replaces. None means no continents.")]
+        public ContinentSettings Continents;
+
         public MacroConfig ToConfig()
         {
             var biomes = new BiomeConfig[Biomes?.Length ?? 0];
@@ -124,6 +129,7 @@ namespace Sonoma.Systems.Configuration
                 // Amplitudes in the inspector, gains relative to one at runtime (C5).
                 RuggednessGainMin  = RuggednessMin - 1f,
                 RuggednessGainMax  = RuggednessMax - 1f,
+                Continents         = Continents != null ? Continents.ToConfig() : (ContinentConfig?)null,
             };
         }
     }
