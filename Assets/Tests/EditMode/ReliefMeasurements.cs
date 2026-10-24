@@ -19,6 +19,9 @@ namespace Sonoma.Tests
     {
         const int Resolution = 33;
 
+        [SetUp]
+        public void OnlyWhenAsked() => ContinentTests.MeasuringToolsOnly();
+
         // The detail noise's relief factor C at the scene's cutoff, by C10's method: 20,000 random
         // nodes per depth, every vertex of each, the bands at the amplitudes the scene's C is
         // measured at, and C = half-relief / (nominal node size x HeightScale / S0). The pinned C is

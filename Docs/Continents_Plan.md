@@ -715,8 +715,13 @@ editing the tasks, so the plan still reads as what was decided up front.
    - **On Earth the colder-interiors premise did not hold.** Land averages 3.9 °C with continents against −0.7 °C for M5b's land, taken as the 30% above its sea level. Tundra takes 41% of the biome weights against 54%. Most likely the continents sit at lower latitudes than M5b's land happened to, which outweighs their height; not measured.
    - **On the ring it did hold.** A cylinder has no latitude, so land averages 7.7 °C against 17.0 °C, and tundra rises from 1% to 21%. `ContinentTests.ClimateOverLand` prints both.
 9. **The export builds its height parameters as `TerrainRoot` does,** bands, roughness and cutoff included. Its detail image had ignored the roughness spectrum since C10.
-10. **Tooling and tests.**
-    - The measuring code is committed as `[Explicit]` tests: `ReliefMeasurements` (C, C_m, skirt shares, the land-fraction bisection, working sets), `ContinentTests.ContinentsSurviveTheDetailNoiseAtFullSample` and `ClimateOverLand`. `SONOMA_SCENES` (comma-separated) limits them to the named scenes.
+10. **The first Editor run found the jobs a ULP apart.** Burst's builtin sin, cos and tan run at `FloatPrecision.Standard`, 3.5 ULP, not managed code's. So `SurfacePoint` inside a job differed in its last bits.
+    - **Why it surfaced only here.** The float macro texels never showed it; the continent map's squared distances, compared as doubles, did. The saturation and plateau radii were one ULP apart, while every decision (adjacency, areas, land, elevations, parents) agreed.
+    - **The fix.** `ContinentMap.TopPoints` computes the top level's texel points once in managed code, and both stages' jobs read them, so neither evaluates trigonometry. The two builds are now equal by construction, not by luck.
+    - **Test order.** The equality tests compare texels before radii, so a future difference names how many texels and by how much.
+    - **The measuring tools also ran in that Editor run,** despite `[Explicit]`. They took 53 minutes, and three hit the Test Runner's 180 s timeout. They now skip unless `SONOMA_MEASURE=1`. The suite itself took 33 s.
+11. **Tooling and tests.**
+    - The measuring code is committed as `[Explicit]` tests: `ReliefMeasurements` (C, C_m, skirt shares, the land-fraction bisection, working sets), `ContinentTests.ContinentsSurviveTheDetailNoiseAtFullSample` and `ClimateOverLand`. `SONOMA_SCENES` (comma-separated) limits them to the named scenes, and they run only with `SONOMA_MEASURE=1`.
     - There are 168 EditMode tests, 125 of them pure, plus the seven explicit tools. All 125 pure tests pass outside the Editor.
     - Not yet run in the Editor: the four new Burst-against-managed checks, the geomorph invariant with continents and a cutoff, the asset holds, and the export.
 
