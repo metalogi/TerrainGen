@@ -102,6 +102,17 @@ namespace Sonoma.Tests
                 if (m.Continents.HasValue) yield return m;
         }
 
+        // The continent scenes the explicit measuring tools run on: all of them, or those the
+        // environment variable SONOMA_SCENES names, comma-separated, so retuning one scene does
+        // not re-measure the rest.
+        internal static IEnumerable<MacroTests.SceneMacro> MeasuredScenes()
+        {
+            string only = Environment.GetEnvironmentVariable("SONOMA_SCENES");
+            var    names = string.IsNullOrWhiteSpace(only) ? null : new HashSet<string>(only.Split(','));
+            foreach (var m in ContinentScenes())
+                if (names == null || names.Contains(m.Scene)) yield return m;
+        }
+
         // At 20,000 points: agreement of at least 90%, and final land within 1.5 points of each
         // scene's target. The synthetic scene's detail is a tenth of its continents' heights, so its
         // final land is its map's to within the same 1.5 points.
@@ -135,7 +146,7 @@ namespace Sonoma.Tests
             {
                 ["EarthStress"] = 3000f, ["SmallPlanetStress"] = 2000f, ["RingworldStress"] = 1500f, ["NarrowRingStress"] = 1500f,
             };
-            foreach (var m in ContinentScenes())
+            foreach (var m in MeasuredScenes())
             {
                 var rough = MacroTests.RoughParams(m.Scene);
                 var built = MacroTests.ContinentBuild(m);
@@ -193,7 +204,7 @@ namespace Sonoma.Tests
         [Test, Explicit("A retuning tool: about a minute a scene outside the Editor.")]
         public void ContinentsSurviveTheDetailNoiseAtFullSample()
         {
-            foreach (var m in ContinentScenes())
+            foreach (var m in MeasuredScenes())
                 TestContext.WriteLine($"{m.Scene}: {ProbeScene(m, MacroTests.RoughParams(m.Scene), 100000, 0x5EA1EAFu)}");
         }
     }

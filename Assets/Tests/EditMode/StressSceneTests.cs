@@ -121,8 +121,14 @@ namespace Sonoma.Tests
         // of 20,000 nodes per depth has C 113.7 at depth 16 (2026-10-18), and 171 is half again
         // over it. A cylinder's allowance is large enough that the ring stays at SplitFactor 3,
         // flattened by LodVerticalScale 0.2; the belts take its MorphStartFraction from 0.15,
-        // where they would leave nothing to spare, to 0.14. The worst working set, flattened, is
+        // where they would leave nothing to spare, to 0.14. The worst working set, flattened, was
         // 5,000 (2026-10-19; M5b's unflattened scan found 4,944).
+        //
+        // With continents (Docs/Continents_Plan.md) the 250 km cutoff drops detail octaves 0-2 and
+        // C does not move: 113.4 at the roughest (depth 15) with the cutoff and without it, on
+        // 20,000 nodes per depth, so 171 stands. The height envelope falls from 50 to 32.2 km, and
+        // the worst working set, from a 33 x 33 scan of root 0 refined on the 1/512 lattice, is
+        // 4,980 at (21/512, 245/512) (ReliefMeasurements and its scan, 2026-10-24).
         internal static readonly Scene Ringworld = new Scene
         {
             Name = "RingworldStress", Asset = "Assets/Settings/RingworldTerrainSettings.asset",
@@ -131,7 +137,7 @@ namespace Sonoma.Tests
             MorphStart = 0.14f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.0763,
             ReliefFactor = 171.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 19.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 5000,
+            WorstQuad = 0, WorstU = 21.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 4980,
         };
 
         // An O'Neill-style interior, 10 km in radius and 30 km long: depth 9 gives 0.65 m vertex
@@ -383,9 +389,10 @@ namespace Sonoma.Tests
         // runtime, so a retune that roughens the terrain should rerun the measurement.
         //
         // With continents, rerun by ReliefMeasurements.SkirtShares on the same 400 edges per depth
-        // and gap (2026-10-24): Earth 0.605 at a gap of three (0.313 at one, 0.484 at two), so its
-        // 1 stands. The coasts add relief to the chunks across them, and the share is of each
-        // chunk's own relief, so they barely move it.
+        // and gap (2026-10-24): Earth 0.605 at a gap of three (0.313 at one, 0.484 at two), and the
+        // ring 0.774 (0.401, 0.607), so Earth's 1 and the ring's 1.2 stand. The coasts add relief
+        // to the chunks across them, and the share is of each chunk's own relief, so they barely
+        // move it.
         //
         // The tests below take one edge per depth and gap, every gap down to depth 6 and one a
         // depth below it, and the relief on every fourth vertex, for time. Sampled coarser, the
