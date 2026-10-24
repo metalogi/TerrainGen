@@ -420,19 +420,24 @@ namespace Sonoma.Tests
                 var m = MacroTests.For(scene);
                 _s     = s;
                 _roots = SurfaceMath.BuildRoots(s);
-                _hp    = rough.WithBands(m.LowBandEdge, m.MidBandEdge);
+                _hp    = MacroTests.SceneParams(m, rough);
                 _mp    = m.Params;
+                float[] continent = null;
                 if (smooth)
                 {
                     // No terrain at all: the surface's own curvature is the whole gap.
                     _hp = HeightParams.Create(s, Resolution, 0.0, 4, 0f, 0.5f, Lacunarity, Seed);
-                    var c = m.Config; c.BaseHeightScale = 0f;
+                    var c = m.Config; c.BaseHeightScale = 0f; c.Continents = null;
                     _mp = MacroParams.Create(s, _hp, c);
                 }
-                _texels = new LazyTexels(s, _roots, _mp);
+                else if (_mp.HasContinents)
+                    continent = MacroTests.ContinentBuild(m).Channel;
+                _texels = new LazyTexels(s, _roots, _mp, continent);
             }
 
-            public SurfaceDef Surface => _s;
+            public SurfaceDef   Surface => _s;
+            public HeightParams Height  => _hp;
+            public MacroParams  Macro   => _mp;
             public int QuadCount => _roots.Length;
             public double S0 => _hp.S0;
 
@@ -506,7 +511,7 @@ namespace Sonoma.Tests
             }
         }
 
-        readonly struct TexelReader : IMacroTexels
+        internal readonly struct TexelReader : IMacroTexels
         {
             readonly LazyTexels _t;
             public TexelReader(LazyTexels t) { _t = t; }
