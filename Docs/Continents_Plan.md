@@ -661,7 +661,9 @@ editing the tasks, so the plan still reads as what was decided up front.
      lists are built straight into pre-sized arrays.
 5. **Tests:** seven pure ones in `MacroPyramidTests`, and `PyramidJobMatchesTheManagedPyramid` and
    `PyramidJobRefusesAMismatchedChannelOrPlan` in `MacroMapsTests`. That makes 149 EditMode tests, 110
-   of them pure; all 110 pass outside the Editor. `MacroTests.Surfaces`, `Real`, `Sampler` and
+   of them pure; all 110 pass outside the Editor. In the Editor (2026-10-23) all 149 were green,
+   including the Burst job against the managed reference in all three top-level modes, the new scripts
+   imported cleanly from their hand-written `.meta` files, and the scenes played without errors. `MacroTests.Surfaces`, `Real`, `Sampler` and
    `EdgeDisagreements` became `internal` so the derived channel is held to the same C2 check as
    generated maps.
 
