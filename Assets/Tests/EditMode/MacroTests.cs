@@ -142,11 +142,20 @@ namespace Sonoma.Tests
         // The terrarium's range, 0.5 to 1.0, had no room to amplify anything.
         internal static readonly SceneMacro[] StressMacros =
         {
+            // Continents (Docs/Continents_Plan.md, D1 crisp): land 2,000 m and ocean 6,000 m, a
+            // 1,000 km cutoff dropping detail octaves 0-3, and the macro fBm at 0.3 of M5b's 3,000 m.
+            // C_m on the built maps, 20,000 random nodes per depth, was 53.7 at its roughest
+            // (depth 14) in units of (6,000 + 900) / S0 (ReliefMeasurements.MacroReliefFactor,
+            // 2026-10-24); 81 is half again over it. LandFraction 0.322 puts the final terrain at
+            // 30%: 29.98% on 50,000 points and 29.68% on another 100,000, with 95.8% agreement and
+            // medians of +2,330 and -5,752 m (ReliefMeasurements.CalibrateLandFraction, 2026-10-24).
             new SceneMacro { Scene = "EarthStress", Settings = "Assets/Settings/EarthTerrainSettings.asset",
                              Asset = "Assets/Settings/EarthMacro.asset", Surface = EarthScaleTests.Earth, MaxDepth = EarthScaleTests.MaxDepth,
-                             Levels = 4, BaseHeightScale = 3000f, EquatorTemperature = 30f,
+                             Levels = 4, BaseHeightScale = 900f, EquatorTemperature = 30f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f },
+                             RuggednessCentre = 0.2f, ReliefFactor = 81.0,
+                             ContinentAsset = "Assets/Settings/EarthContinents.asset",
+                             Continents = SceneContinentConfig(landFraction: 0.322f, land: 2000f, ocean: 6000f, cutoff: 1000000.0) },
             new SceneMacro { Scene = "SmallPlanetStress", Settings = StressSceneTests.SmallPlanet.Asset,
                              Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface, MaxDepth = StressSceneTests.SmallPlanet.MaxDepth,
                              Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f,
@@ -168,6 +177,15 @@ namespace Sonoma.Tests
                              LowBandEdge = 2000.0, MidBandEdge = 50.0, RuggednessMin = 0.5f, RuggednessMax = 1f,
                              RuggednessCentre = 0.5f },
         };
+
+        // A stress scene's continents: K9's defaults with the scene's land fraction, heights and
+        // cutoff, as its ContinentSettings asset holds them.
+        static ContinentConfig SceneContinentConfig(float landFraction, float land, float ocean, double cutoff)
+        {
+            var k = ContinentConfig.Default;
+            k.LandFraction = landFraction; k.LandHeight = land; k.OceanDepth = ocean; k.DetailCutoff = cutoff;
+            return k;
+        }
 
         internal static SceneMacro For(string scene)
         {

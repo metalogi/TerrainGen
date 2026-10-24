@@ -122,6 +122,73 @@ namespace Sonoma.Tests
             }
         }
 
+        // D4's evidence: the climate over land with continents against M5b's. Continents put land
+        // kilometres above the sea, so at the same lapse rate interiors are colder. Prints, over the
+        // final land of 20,000 area-uniform points, the mean temperature and each biome's share of
+        // the weights. M5b's land is the 30% above its own sea level, the height's 70th percentile,
+        // as the ocean plan set it; its base height is M5b's BaseHeightScale with no continents and
+        // no cutoff.
+        [Test, Explicit("Evidence for the lapse-rate decision, printed.")]
+        public void ClimateOverLand()
+        {
+            var m5bBaseHeight = new Dictionary<string, float>
+            {
+                ["EarthStress"] = 3000f, ["SmallPlanetStress"] = 2000f, ["RingworldStress"] = 1500f, ["NarrowRingStress"] = 1500f,
+            };
+            foreach (var m in ContinentScenes())
+            {
+                var rough = MacroTests.RoughParams(m.Scene);
+                var built = MacroTests.ContinentBuild(m);
+                TestContext.WriteLine($"{m.Scene} with continents: " +
+                    Climate(m, MacroTests.SceneParams(m, rough), built.Macro, built.Channel, seaShare: -1.0));
+
+                var c = m.Config; c.BaseHeightScale = m5bBaseHeight[m.Scene]; c.Continents = null;
+                var mp = MacroParams.Create(m.Surface, HeightParams.Create(m.Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), c);
+                TestContext.WriteLine($"{m.Scene} as M5b:        " +
+                    Climate(m, rough.WithBands(m.LowBandEdge, m.MidBandEdge), mp, null, seaShare: 0.70));
+            }
+        }
+
+        // seaShare below zero puts sea level at 0; otherwise at that quantile of the sampled heights.
+        static string Climate(MacroTests.SceneMacro m, in HeightParams hp, in MacroParams mp, float[] channel, double seaShare)
+        {
+            const int Points = 20000;
+            var roots  = SurfaceMath.BuildRoots(m.Surface);
+            var texels = new StressSceneTests.TexelReader(new StressSceneTests.LazyTexels(m.Surface, roots, mp, channel));
+            var rng    = new Unity.Mathematics.Random(0xC11u);
+            int top    = mp.Layout.LevelCount - 1;
+            var h      = new double[Points];
+            var t      = new double[Points];
+            var w      = new float4[Points];
+            for (int k = 0; k < Points; k++)
+            {
+                double3 p = AreaUniform(m.Surface, roots, ref rng);
+                h[k] = TerrainHeightFunction.HeightAtPoint(m.Surface, p, m.MaxDepth, hp, mp, texels);
+                SurfaceMath.Locate(m.Surface, p, out int q, out double u, out double v);
+                var sample = MacroSampler.Read(texels, mp, q, top, u, v);
+                t[k] = sample.Temperature;
+                w[k] = Biomes.Classify(sample, mp);
+            }
+            double sea = 0.0;
+            if (seaShare >= 0.0)
+            {
+                var sorted = (double[])h.Clone();
+                Array.Sort(sorted);
+                sea = sorted[(int)(seaShare * (Points - 1))];
+            }
+            double temperature = 0.0; float4 share = 0f; int land = 0;
+            for (int k = 0; k < Points; k++)
+            {
+                if (h[k] <= sea) continue;
+                land++; temperature += t[k]; share += w[k];
+            }
+            share /= math.max(1, land);
+            string biomes = "";
+            for (int b = 0; b < mp.BiomeCount; b++)
+                biomes += $"{System.IO.Path.GetFileNameWithoutExtension(MacroTests.BiomeTable[b].Asset)} {share[b]:P0}  ";
+            return $"land {land * 100.0 / Points:F1}% above {sea:F0} m, mean land temperature {temperature / math.max(1, land):F1} C; {biomes}";
+        }
+
         // The retuning tool: 100,000 points per continent scene, printed.
         [Test, Explicit("A retuning tool: about a minute a scene outside the Editor.")]
         public void ContinentsSurviveTheDetailNoiseAtFullSample()

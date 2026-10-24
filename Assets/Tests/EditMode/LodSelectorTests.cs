@@ -403,12 +403,14 @@ namespace Sonoma.Tests
 
                 // The corner is where the first replica put its worst fresh case, 4,942. The
                 // selector itself wants this many there: 4,458 at SplitFactor 3, which C2 and
-                // the M4 plan quote, 7,002 at the SplitFactor 4 Earth has run since M5b, and
-                // 7,062 in the world LodVerticalScale 0.2 flattens it to, whose anchor moves the
-                // terrain 68 km towards the centre.
+                // the M4 plan quote, 7,002 at the SplitFactor 4 Earth has run since M5b, 7,062 in
+                // the world LodVerticalScale 0.2 flattens it to while M5b's 84 km envelope moved
+                // the terrain 68 km towards the centre, and 7,002 again with continents, whose
+                // cutoff takes the envelope to 36.6 km and the move to 29 km (the replica,
+                // ReliefMeasurements.WorkingSets, 2026-10-24).
                 if (c.u == 0.0 && c.v == 0.0)
-                    Assert.AreEqual(7062, _selector.WantedCount,
-                        "the fresh working set at the face corner has moved; flattened at SplitFactor 4 it is 7,062");
+                    Assert.AreEqual(7002, _selector.WantedCount,
+                        "the fresh working set at the face corner has moved; flattened at SplitFactor 4 it is 7,002");
             }
         }
 
