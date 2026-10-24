@@ -252,11 +252,116 @@ namespace Sonoma.Core.Generation
             return copies.ToArray();
         }
 
+        // The same pairs for one level only, in the order MacroPyramid applies them: a derived
+        // level gets its copies after its interior and its halo are written.
+        public int2[] EdgeCopies(in SurfaceDef s, int level)
+        {
+            var copies = new System.Collections.Generic.List<int2>();
+            int n = Cells(level);
+            for (int q = 0; q < QuadCount; q++)
+            for (int a = -1; a <= n + 1; a++)
+            {
+                AddCopy(s, copies, q, level, a, 0);
+                AddCopy(s, copies, q, level, a, n);
+                if (a == 0 || a == n) continue;
+                AddCopy(s, copies, q, level, 0, a);
+                AddCopy(s, copies, q, level, n, a);
+            }
+            return copies.ToArray();
+        }
+
         void AddCopy(in SurfaceDef s, System.Collections.Generic.List<int2> copies,
                      int q, int l, int i, int j)
         {
             if (EdgeSource(s, q, l, i, j, out int sq, out int si, out int sj))
                 copies.Add(new int2(Index(q, l, i, j), Index(sq, l, si, sj)));
+        }
+
+        // ── Halo ─────────────────────────────────────────────────────────────
+        //
+        // A level the generator fills computes its border texels itself, continuing this quad's
+        // own parameterisation past the edge. A level MacroPyramid derives from the one above has
+        // no function to continue: its border must come from the neighbouring quad, the texels the
+        // border would overlap if the two quads were laid side by side
+        // (Docs/Continents_Plan.md, K5).
+        //
+        //   * A side texel, `depth` texels past one edge and `along` it, takes the neighbour's texel
+        //     at `along` on the linked edge (reversed if the link is) and `depth` texels in from it.
+        //   * A corner block, past two edges at once, has no neighbour on a cube, where three faces
+        //     meet; it takes what the side texel beside it, on its South or North side, takes.
+        //   * Past an edge with no link (a cylinder's rim, a plane grid's outer edge) there is
+        //     nothing, and the border repeats this quad's own edge texel.
+        //
+        // The source is then resolved through EdgeSource to the texel its owner stores, so every
+        // source lies in [0, n] of some quad and is a texel neither the halo nor the edge copies
+        // write. The fill is one gather, in any order, before or after the copies. Exactness does
+        // not matter here the way it does on the edge line: C2 makes reads exact on the edge,
+        // where shared vertices lie, and a border texel only shapes reads just inside one quad.
+
+        // The texel this border texel is filled from: false, with the source set to (quad, i, j),
+        // for a texel inside [0, n] on both axes, which is not a border texel.
+        public bool HaloSource(in SurfaceDef s, int quad, int level, int i, int j,
+                               out int srcQuad, out int srcI, out int srcJ)
+        {
+            srcQuad = quad; srcI = i; srcJ = j;
+            int  n    = Cells(level);
+            bool outI = i < 0 || i > n;
+            bool outJ = j < 0 || j > n;
+            if (!outI && !outJ) return false;
+
+            // A corner block: the side texel on its South or North side.
+            if (outI && outJ) i = math.clamp(i, 0, n);
+
+            Edge edge;
+            int  along, depth;
+            if (outJ) { edge = j < 0 ? Edge.South : Edge.North; along = i; depth = j < 0 ? -j : j - n; }
+            else      { edge = i < 0 ? Edge.West  : Edge.East;  along = j; depth = i < 0 ? -i : i - n; }
+
+            int q = quad, si, sj;
+            if (SurfaceMath.QuadEdgeLink(s, quad, edge, out EdgeLink link))
+            {
+                OnEdge(link.Edge, link.Reversed ? n - along : along, n, out int ei, out int ej);
+                Inward(link.Edge, out int di, out int dj);
+                q  = link.Face;
+                si = math.clamp(ei + depth * di, 0, n);
+                sj = math.clamp(ej + depth * dj, 0, n);
+            }
+            else
+            {
+                si = math.clamp(i, 0, n);
+                sj = math.clamp(j, 0, n);
+            }
+
+            EdgeSource(s, q, level, si, sj, out srcQuad, out srcI, out srcJ);
+            return true;
+        }
+
+        // The step from an edge row into its own quad.
+        static void Inward(Edge e, out int di, out int dj)
+        {
+            switch (e)
+            {
+                case Edge.South: di = 0;  dj = 1;  return;
+                case Edge.North: di = 0;  dj = -1; return;
+                case Edge.West:  di = 1;  dj = 0;  return;
+                default:         di = -1; dj = 0;  return;   // East
+            }
+        }
+
+        // Every (destination, source) pair of flat indices the halo rule fills at one level,
+        // every border texel of every quad once.
+        public int2[] HaloSources(in SurfaceDef s, int level)
+        {
+            int n    = Cells(level);
+            int side = n + 1 + 2 * Border;
+            var halo = new int2[QuadCount * (side * side - (n + 1) * (n + 1))];
+            int k    = 0;
+            for (int q = 0; q < QuadCount; q++)
+            for (int j = -Border; j <= n + Border; j++)
+            for (int i = -Border; i <= n + Border; i++)
+                if (HaloSource(s, q, level, i, j, out int sq, out int si, out int sj))
+                    halo[k++] = new int2(Index(q, level, i, j), Index(sq, level, si, sj));
+            return halo;
         }
     }
 }
