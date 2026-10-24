@@ -42,6 +42,10 @@ namespace Sonoma.Core.Generation
         // Ruggedness scales the mid band, the mountain band, between these, as gains relative to
         // one like the biomes' (C5): 0 and 0 leave the amplitude alone.
         public float         RuggednessGainMin, RuggednessGainMax;
+
+        // A Voronoi continent map whose height is added to the base height (Docs/Continents_Plan.md).
+        // Null, the default, is none, and the maps are M5b's to the bit.
+        public ContinentConfig? Continents;
     }
 
     // Everything the macro generator and the read need, resolved once at setup and copied into
@@ -73,6 +77,12 @@ namespace Sonoma.Core.Generation
         public float4      BiomeTemperature, BiomeMoisture;
         public float4      BiomeLowGain, BiomeMidGain, BiomeHighGain;
         public float       RuggednessGainMin, RuggednessGainMax;
+
+        // Continents: the base height channel carries a continent height besides the fBm
+        // (ContinentField), at most ContinentBound in magnitude. TerrainHeightFunction.MaxAbsHeight
+        // adds the bound to the envelope; MacroGenerator adds the height only when the flag is set.
+        public bool        HasContinents;
+        public double      ContinentBound;
 
         public static MacroParams Disabled => default;
 
@@ -189,8 +199,15 @@ namespace Sonoma.Core.Generation
                 }
             }
 
+            // The continents' own checks, here as well as in ContinentParams.Create, so the bound the
+            // envelope is built from comes from a configuration the map would accept.
+            c.Continents?.Validate();
+
             return new MacroParams
             {
+                HasContinents           = c.Continents.HasValue,
+                ContinentBound          = c.Continents.HasValue ? c.Continents.Value.Bound : 0.0,
+
                 BiomeCount              = biomes,
                 BiomeSharpness          = c.BiomeSharpness,
                 InverseTemperatureScale = biomes > 0 ? 1f / c.TemperatureScale : 0f,

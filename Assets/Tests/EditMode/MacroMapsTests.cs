@@ -74,6 +74,35 @@ namespace Sonoma.Tests
             }
         }
 
+        // Stage A with its texel scan in Burst gives the managed map's tables to the bit: the scan
+        // decides the adjacency, the micro areas and so the land threshold, so one nearest seed
+        // decided differently would move the coastline. The witness first, since a scan that fell
+        // back to managed code would pass trivially.
+        [Test]
+        public void ContinentScanJobMatchesTheManagedScan()
+        {
+            if (!Unity.Burst.BurstCompiler.Options.EnableBurstCompilation)
+                Assert.Ignore("Burst compilation is disabled in this Editor; the comparison would prove nothing.");
+
+            foreach (var c in ContinentMapTests.Cases())
+            {
+                ContinentMap managed = ContinentMapTests.Build(c);
+                ContinentMap burst   = ContinentJobs.BuildMap(c.Surface, c.Roots, c.Layout, c.Continents);
+                Assert.IsTrue(ContinentJobs.WitnessCompiled(managed, c.Surface, c.Roots[0]),
+                    "ContinentWitnessJob ran as managed code, so the continent jobs are not Burst-compiled");
+
+                CollectionAssert.AreEqual(managed.MicroArea,      burst.MicroArea,      $"{c.Name}: micro areas");
+                CollectionAssert.AreEqual(managed.MicroLand,      burst.MicroLand,      $"{c.Name}: land");
+                CollectionAssert.AreEqual(managed.MacroElevation, burst.MacroElevation, $"{c.Name}: elevations");
+                CollectionAssert.AreEqual(managed.MicroParent,    burst.MicroParent,    $"{c.Name}: parents");
+                for (int m = 0; m < managed.Adjacency.Length; m++)
+                    CollectionAssert.AreEqual(managed.Adjacency[m], burst.Adjacency[m], $"{c.Name}: adjacency of {m}");
+                Assert.AreEqual(managed.BlendRadius2,           burst.BlendRadius2,           $"{c.Name}: blend radius");
+                Assert.AreEqual(managed.Stats.SaturationRadius, burst.Stats.SaturationRadius, $"{c.Name}: saturation");
+                Assert.AreEqual(managed.Stats.LandFraction,     burst.Stats.LandFraction,     $"{c.Name}: land fraction");
+            }
+        }
+
         // MacroPyramidJob derives the same levels as the managed MacroPyramid.Run, to the bit, in
         // every top-level mode. It calls the same static functions, so a difference here means
         // Burst reordered or fused the filter's arithmetic.
