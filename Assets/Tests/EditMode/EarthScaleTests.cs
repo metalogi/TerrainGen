@@ -74,6 +74,12 @@ namespace Sonoma.Tests
         //
         // C is scale-free, so it holds at HeightScale 20,000 unchanged; what the allowance sees is
         // C x LodVerticalScale x HeightScale / S0, the figure it saw at 4,000.
+        //
+        // With continents the detail drops octaves 0-3 below the 1,000 km cutoff, the octaves with
+        // the least slope at persistence 0.7, and C does not move: 20,000 random nodes per depth
+        // found 411 at the roughest (depth 18) with the cutoff and 410 without, a sample whose tail
+        // falls short of the 449 C was pinned from (ReliefMeasurements.DetailReliefFactor,
+        // 2026-10-24). 674 stands.
         internal const double EarthReliefFactor = 674.0;
         internal static readonly float3 EarthReliefMeasuredAt = new float3(1f, 3f, 1f);
 
@@ -146,11 +152,12 @@ namespace Sonoma.Tests
             // grows with depth -- steeply below the roughness crossover. EarthReliefFactor is taken
             // at the deepest level and applied to all of them, which is conservative everywhere
             // above it. It was measured at the mountain belts' band amplitudes (C7), which
-            // DetailDemand holds EarthMacro to; and with EarthMacro's base height added.
+            // DetailDemand holds EarthMacro to; and with EarthMacro's base height added, which with
+            // continents carries the coasts: 0.0004 of a node before them, 0.0108 now.
             double demand   = MacroTests.DetailDemand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0, LodVerticalScale);
             double combined = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0, LodVerticalScale);
             Assert.AreEqual(0.2591, demand,   1e-4, "Earth's flattened relief demand in the mountain belts, as a fraction of node size");
-            Assert.AreEqual(0.2595, combined, 1e-4, "Earth's flattened relief demand with EarthMacro, as a fraction of node size");
+            Assert.AreEqual(0.2699, combined, 1e-4, "Earth's flattened relief demand with EarthMacro, as a fraction of node size");
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);
@@ -201,14 +208,18 @@ namespace Sonoma.Tests
         // relief did, since LodVerticalScale x HeightScale is M5b's HeightScale.
         //
         // The pinned camera is the worst over the first quadrant of face 0 at SplitFactor 4, from a
-        // 65 x 65 scan of camera positions 2 m up refined on a 1/512 lattice, flattened as the
-        // runtime flattens them (2026-10-19): 8,286 at the face corner. Unflattened, M5b's scan
-        // found 8,198 at (76/512, 0), on a face edge; LodVertical's anchor moves the flattened
-        // terrain 68 km towards the centre (0.8 of its 84 km envelope), which shrinks the world
-        // the LOD sees by 1% and adds about that to the working set. At SplitFactor 3 it was
-        // 5,118, at (20/256, 0) -- the working set scales as the square of SplitFactor, near
-        // enough. A cube's six faces are congruent and the geometry has no terrain in it, so
-        // face 0 stands for all of them.
+        // scan of camera positions 2 m up refined on a 1/512 lattice, flattened as the runtime
+        // flattens them. LodVertical's anchor moves the flattened terrain towards the centre by 0.8
+        // of the height envelope, which shrinks the world the LOD sees and changes the working set
+        // with it. Unflattened, M5b's scan found 8,198 at (76/512, 0), on a face edge. With M5b's
+        // 84 km envelope the anchor moved 68 km and the worst was 8,286 at the face corner
+        // (2026-10-19). With continents the cutoff takes the envelope to 36.6 km, the anchor to
+        // 29 km, and a 33 x 33 scan refined on the lattice puts the worst back on the face edge:
+        // 8,222 at (72/512, 0) and at (76/512, 0), with the corner at 8,046
+        // (ReliefMeasurements.WorkingSets and its scan, 2026-10-24). At SplitFactor 3 it was 5,118,
+        // at (20/256, 0) -- the working set scales as the square of SplitFactor, near enough. A
+        // cube's six faces are congruent and the geometry has no terrain in it, so face 0 stands
+        // for all of them.
         [Test]
         public void WorkingSetFitsTheResidentBudget()
         {
@@ -217,7 +228,7 @@ namespace Sonoma.Tests
             var p     = Params(OctaveCount);
             var lod   = Lod(p);
 
-            SurfaceMath.SurfaceFrame(s, roots[0], 0.0, 0.0, out double3 ground, out float3 up);
+            SurfaceMath.SurfaceFrame(s, roots[0], 76.0 / 512.0, 0.0, out double3 ground, out float3 up);
 
             // From 10,000 km down to the ground, roughly two steps an octave of altitude. The
             // camera is flattened as TerrainRoot flattens it before handing it to the selector.
@@ -230,7 +241,7 @@ namespace Sonoma.Tests
             }
 
             int wanted = Select(s, roots, lod, lod.Vertical.MapPoint(s, ground + (double3)up * 2.0));
-            Assert.AreEqual(8286, wanted, 82,
+            Assert.AreEqual(8222, wanted, 82,
                 "the worst-case working set has moved by more than 1%; re-measure it and re-check " +
                 "MaxResidentChunks against the new figure");
             Assert.GreaterOrEqual(wanted, peak, "the descent found a worse working set above the ground");

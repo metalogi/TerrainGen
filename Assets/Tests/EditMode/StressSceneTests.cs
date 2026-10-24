@@ -382,6 +382,11 @@ namespace Sonoma.Tests
         // That is a sample, not the whole population, and nothing reports an uncovered gap at
         // runtime, so a retune that roughens the terrain should rerun the measurement.
         //
+        // With continents, rerun by ReliefMeasurements.SkirtShares on the same 400 edges per depth
+        // and gap (2026-10-24): Earth 0.605 at a gap of three (0.313 at one, 0.484 at two), so its
+        // 1 stands. The coasts add relief to the chunks across them, and the share is of each
+        // chunk's own relief, so they barely move it.
+        //
         // The tests below take one edge per depth and gap, every gap down to depth 6 and one a
         // depth below it, and the relief on every fourth vertex, for time. Sampled coarser, the
         // relief is a lower bound on the chunk's, so the drop a test grants is never longer than
@@ -747,8 +752,9 @@ namespace Sonoma.Tests
         // a longer one is a curtain outside the ring larger than the ring. The per-chunk rule
         // needs no cap: a chunk's relief is at most twice TerrainHeightFunction.MaxAbsHeight, so
         // the longest drop it can hang at depth d is SkirtDepth + SkirtFraction x 2 x MaxAbsHeight
-        // + ChordSag(d), largest at depth 0 where the sag is: 1,479 km on Earth (169 km of
-        // relief bound, 1,310 km of sag) against a 6,371 km radius, 424 km on the small planet
+        // + ChordSag(d), largest at depth 0 where the sag is: 1,383 km on Earth (73 km of relief
+        // bound since its continents' cutoff, 169 km before; 1,310 km of sag) against a 6,371 km
+        // radius, 424 km on the small planet
         // against 1,593, 183 km on the ring against 1,593, and 5.6 km in the terrarium against 10.
         [Test]
         public void NoSkirtReachesPastTheCentre()

@@ -317,6 +317,33 @@ namespace Sonoma.Tests
                 Assert.AreEqual(m.RuggednessMax,             a.RuggednessMax,    $"{m.Asset}: RuggednessMax");
                 Assert.AreEqual(m.RuggednessCentre,          a.RuggednessCentre, $"{m.Asset}: RuggednessCentre");
 
+                // The continents (Docs/Continents_Plan.md): the asset the scene's copy names, field
+                // for field, or none.
+                if (m.ContinentAsset == null)
+                    Assert.IsNull(a.Continents, $"{m.Asset}: continents the copy does not have");
+                else
+                {
+                    Assert.AreEqual(m.ContinentAsset, AssetDatabase.GetAssetPath(a.Continents), $"{m.Asset}: Continents");
+                    ContinentConfig k = a.Continents.ToConfig(), want = m.Continents.Value;
+                    Assert.AreEqual(want.Seed,                  k.Seed,                  $"{m.ContinentAsset}: Seed");
+                    Assert.AreEqual(want.MacroCells,            k.MacroCells,            $"{m.ContinentAsset}: MacroCells");
+                    Assert.AreEqual(want.MicroCells,            k.MicroCells,            $"{m.ContinentAsset}: MicroCells");
+                    Assert.AreEqual(want.ContinentCount,        k.ContinentCount,        $"{m.ContinentAsset}: ContinentCount");
+                    Assert.AreEqual(want.DecayMin,              k.DecayMin,              $"{m.ContinentAsset}: DecayMin");
+                    Assert.AreEqual(want.DecayMax,              k.DecayMax,              $"{m.ContinentAsset}: DecayMax");
+                    Assert.AreEqual(want.ElevationFloor,        k.ElevationFloor,        $"{m.ContinentAsset}: ElevationFloor");
+                    Assert.AreEqual(want.ScoreNoise,            k.ScoreNoise,            $"{m.ContinentAsset}: ScoreNoise");
+                    Assert.AreEqual(want.LandFraction,          k.LandFraction,          $"{m.ContinentAsset}: LandFraction");
+                    Assert.AreEqual(want.WarpAmplitude,         k.WarpAmplitude,         $"{m.ContinentAsset}: WarpAmplitude");
+                    Assert.AreEqual(want.WarpWavelength,        k.WarpWavelength,        $"{m.ContinentAsset}: WarpWavelength");
+                    Assert.AreEqual(want.CoastWidth,            k.CoastWidth,            $"{m.ContinentAsset}: CoastWidth");
+                    Assert.AreEqual(want.LandHeight,            k.LandHeight,            $"{m.ContinentAsset}: LandHeight");
+                    Assert.AreEqual(want.OceanDepth,            k.OceanDepth,            $"{m.ContinentAsset}: OceanDepth");
+                    Assert.AreEqual(want.InteriorRise,          k.InteriorRise,          $"{m.ContinentAsset}: InteriorRise");
+                    Assert.AreEqual(want.DetailCutoff,          k.DetailCutoff,          $"{m.ContinentAsset}: DetailCutoff");
+                    Assert.AreEqual(want.CoarseOctaveAmplitude, k.CoarseOctaveAmplitude, $"{m.ContinentAsset}: CoarseOctaveAmplitude");
+                }
+
                 // And the scene draws with the biome material, keyword on (C9), and with its sky:
                 // the sky keyword on and haze configured (M5b).
                 var material = SceneMaterial(root, out string materialPath);
