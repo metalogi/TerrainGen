@@ -9,6 +9,11 @@ namespace Sonoma.Core.Generation
     public interface IMacroTexels
     {
         float4 Texel(int index);
+
+        // The drainage maps' texel at the same index (M5c, E4): x wetness, y the erosion
+        // correction D. Read only when MacroParams.HasErosion, so a reader of maps without erosion
+        // may return anything here.
+        float2 Drainage(int index);
     }
 
     // The bicubic read of the macro maps: Catmull-Rom on each axis, separable, rows first.
@@ -68,12 +73,23 @@ namespace Sonoma.Core.Generation
         public static double4 Combine(double4 w, double4 p0, double4 p1, double4 p2, double4 p3)
             => (w.x * p0 + w.w * p3) + (w.y * p1 + w.z * p2);
 
+        public static double2 Combine(double4 w, double2 p0, double2 p1, double2 p2, double2 p3)
+            => (w.x * p0 + w.w * p3) + (w.y * p1 + w.z * p2);
+
         // The read every caller makes: MacroSample.Zero, reading nothing, when there is no macro
-        // layer. The sample jobs, MacroMaps.Sample and TerrainHeightFunction.HeightAtPoint all
-        // come through here, so none can forget the check or apply it differently.
+        // layer, and wetness only where there is erosion. The sample jobs, MacroMaps.Sample and
+        // TerrainHeightFunction.HeightAtPoint all come through here, so none can forget a check or
+        // apply it differently.
         public static MacroSample Read<T>(T texels, in MacroParams p, int quad, int level, double u, double v)
             where T : struct, IMacroTexels
-            => p.Enabled ? Sample(texels, p.Layout, quad, level, u, v) : MacroSample.Zero;
+        {
+            if (!p.Enabled) return MacroSample.Zero;
+            var m = Sample(texels, p.Layout, quad, level, u, v);
+            // Saturated, because the bicubic read overshoots between texels, and wetness means
+            // nothing outside 0..1.
+            if (p.HasErosion) m.Wetness = math.saturate((float)SampleDrainage(texels, p.Layout, quad, level, u, v).x);
+            return m;
+        }
 
         // The macro sample at (u, v) on this quad and level.
         public static MacroSample Sample<T>(T texels, in MacroLayout layout, int quad, int level,
@@ -104,5 +120,28 @@ namespace Sonoma.Core.Generation
 
         static double4 Row<T>(T texels, int at, double4 w) where T : struct, IMacroTexels
             => Combine(w, texels.Texel(at), texels.Texel(at + 1), texels.Texel(at + 2), texels.Texel(at + 3));
+
+        // The drainage maps at (u, v): the same cells, weights and order as Sample, so a read is
+        // exact on texels and bit-identical across a shared edge, as the main maps' is.
+        public static double2 SampleDrainage<T>(T texels, in MacroLayout layout, int quad, int level,
+                                                double u, double v)
+            where T : struct, IMacroTexels
+        {
+            int n = layout.Cells(level);
+            Weights(u * n, n, out int ci, out double4 wu);
+            Weights(v * n, n, out int cj, out double4 wv);
+
+            int w  = layout.Width(level);
+            int at = layout.Index(quad, level, ci - 1, cj - 1);
+
+            double2 r0 = DrainageRow(texels, at,         wu);
+            double2 r1 = DrainageRow(texels, at + w,     wu);
+            double2 r2 = DrainageRow(texels, at + 2 * w, wu);
+            double2 r3 = DrainageRow(texels, at + 3 * w, wu);
+            return Combine(wv, r0, r1, r2, r3);
+        }
+
+        static double2 DrainageRow<T>(T texels, int at, double4 w) where T : struct, IMacroTexels
+            => Combine(w, texels.Drainage(at), texels.Drainage(at + 1), texels.Drainage(at + 2), texels.Drainage(at + 3));
     }
 }

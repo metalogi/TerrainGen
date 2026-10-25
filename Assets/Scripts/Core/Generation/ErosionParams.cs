@@ -97,9 +97,15 @@ namespace Sonoma.Core.Generation
         public static ErosionParams Create(in SurfaceDef s, in HeightParams hp, in MacroParams mp, in MacroConfig c)
         {
             if (!c.Erosion.HasValue)
+            {
+                if (mp.HasErosion)
+                    throw new ArgumentException("ErosionParams: the macro parameters have erosion and the configuration none.");
                 return None;
+            }
             if (!mp.Enabled)
                 throw new ArgumentException("ErosionParams: erosion needs a macro layer to write into.");
+            if (!mp.HasErosion)
+                throw new ArgumentException("ErosionParams: the macro parameters were made without erosion.");
 
             var e = c.Erosion.Value;
             e.Validate();

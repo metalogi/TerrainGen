@@ -548,6 +548,8 @@ namespace Sonoma.Tests
             readonly LazyTexels _t;
             public TexelReader(LazyTexels t) { _t = t; }
             public float4 Texel(int index) => _t.Texel(index);
+            // No stress scene erodes yet, so nothing reads it.
+            public float2 Drainage(int index) => default;
         }
 
         // edgesPerDepth transient edges for each depth from minDepth to maxDepth and each depth

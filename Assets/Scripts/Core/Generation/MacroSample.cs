@@ -39,6 +39,11 @@ namespace Sonoma.Core.Generation
         // the climate fields above -- and zero, the identity, in a default sample.
         public float3 BandGain;
 
+        // How much water passes here, 0..1 (M5c, E4): 0 a ridge, 1 a river draining a root quad's
+        // area. Read from the drainage maps only where erosion is on. Its default 0 means "no
+        // erosion data" and must leave everything it drives at its identity (C5).
+        public float Wetness;
+
         public static MacroSample Zero => default;
     }
 }

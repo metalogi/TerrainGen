@@ -12,10 +12,16 @@ namespace Sonoma.Core.Generation
     public readonly struct MacroMapReader : IMacroTexels
     {
         [ReadOnly] readonly NativeArray<float4> _texels;
+        [ReadOnly] readonly NativeArray<float2> _drainage;
 
-        public MacroMapReader(NativeArray<float4> texels) { _texels = texels; }
+        public MacroMapReader(NativeArray<float4> texels, NativeArray<float2> drainage)
+        {
+            _texels   = texels;
+            _drainage = drainage;
+        }
 
-        public float4 Texel(int index) => _texels[index];
+        public float4 Texel(int index)    => _texels[index];
+        public float2 Drainage(int index) => _drainage[index];
     }
 
     // Fills every texel of every level of every quad from MacroGenerator. One texel per index,
@@ -52,19 +58,26 @@ namespace Sonoma.Core.Generation
     public sealed class MacroMaps : IDisposable
     {
         NativeArray<float4> _texels;
+        NativeArray<float2> _drainage;
 
         public MacroParams         Params            { get; }
         public NativeArray<float4> Texels            => _texels;
+        // The drainage maps (M5c, E4): wetness and the erosion correction D, with the texels'
+        // indexing. One element without erosion, never read then, because a job's NativeArray
+        // must be constructed to be scheduled at all.
+        public NativeArray<float2> Drainage          => _drainage;
         public double              BuildMilliseconds { get; }
-        public long                Bytes             => (long)_texels.Length * 16;
+        public long                Bytes             => (long)_texels.Length * 16 + (long)_drainage.Length * 8;
 
         // The continent map the base height was built from, with its stats, or null without
         // continents. Managed and small: a few thousand seeds and a bucket grid.
         public ContinentMap        Continents        { get; }
 
-        MacroMaps(NativeArray<float4> texels, in MacroParams p, double buildMilliseconds, ContinentMap continents)
+        MacroMaps(NativeArray<float4> texels, NativeArray<float2> drainage, in MacroParams p,
+                  double buildMilliseconds, ContinentMap continents)
         {
             _texels           = texels;
+            _drainage         = drainage;
             Params            = p;
             BuildMilliseconds = buildMilliseconds;
             Continents        = continents;
@@ -153,25 +166,30 @@ namespace Sonoma.Core.Generation
                 throw;
             }
 
-            return new MacroMaps(texels, p, clock.Elapsed.TotalMilliseconds, map);
+            // Cleared, so until the erosion pass writes it (M5c-1, task 6) every read takes
+            // wetness 0, the identity.
+            var drainage = new NativeArray<float2>(p.HasErosion ? p.Layout.TexelCount : 1, Allocator.Persistent);
+            return new MacroMaps(texels, drainage, p, clock.Elapsed.TotalMilliseconds, map);
         }
 
-        // No macro layer: Enabled false, and a one-texel array so the jobs still have a
+        // No macro layer: Enabled false, and one-texel arrays so the jobs still have a
         // constructed NativeArray to carry -- an unconstructed one fails the safety check when
         // the job is scheduled, before the job ever gets to test the flag.
         public static MacroMaps Disabled()
-            => new MacroMaps(new NativeArray<float4>(1, Allocator.Persistent), MacroParams.Disabled, 0.0, null);
+            => new MacroMaps(new NativeArray<float4>(1, Allocator.Persistent), new NativeArray<float2>(1, Allocator.Persistent),
+                             MacroParams.Disabled, 0.0, null);
 
         // A main-thread read, for tools. Generation reads the same maps through the same
         // arithmetic inside the sample jobs.
         public MacroSample Sample(int quad, int level, double u, double v)
             => MacroSampler.Read(Reader, Params, quad, level, u, v);
 
-        public MacroMapReader Reader => new MacroMapReader(_texels);
+        public MacroMapReader Reader => new MacroMapReader(_texels, _drainage);
 
         public void Dispose()
         {
-            if (_texels.IsCreated) _texels.Dispose();
+            if (_texels.IsCreated)   _texels.Dispose();
+            if (_drainage.IsCreated) _drainage.Dispose();
         }
     }
 }
