@@ -1307,7 +1307,47 @@ Pure where possible, as before.
   finer erosion-only grid that stores only `D` and wetness is cheaper (68 MB at 10 km on Earth) but
   needs its own addressing. Either is worth deciding only after the terrarium and ring show what
   erosion buys.
-- **D4 — cache the maps to disk.** Depends on the measured erosion time.
+- **D4 — cache the maps to disk.** Depends on the measured erosion time. **Measured (2026-10-25):**
+  9.1 s in the Editor on the terrarium before the flood fix below, and an estimated 3 to 4 s after
+  it, still over the second this section set. No player build has been measured. See amendment 4.
+
+#### Building M5c-1: amendments (2026-10-24 to 2026-10-25)
+
+Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terrarium only.
+
+1. **Determinism ruled three choices.** Burst's `pow` and `log` are not managed code's to the bit,
+   the continent jobs' rule for trigonometry. So `m` is kept to the nearest 1/1024 and `A^m` is
+   ten square roots (`ErosionParams.AreaPower`; 0.45 runs as 0.4502). Wetness, which takes a log, is
+   computed in managed code in both builds (`ErosionChannels`). `IncisionDepth` is taken at unit
+   slope (E3's table).
+2. **The pass as built** (`ErosionPass`). The flood's pop order is the stack, so there is no
+   separate stack pass. Incision only lowers a node, so lakes stay hollows. Diffusion is one Jacobi
+   sweep per iteration and is refused above a diffusion number of 1. A surface with nothing at or
+   below `BaseLevel` drains to its lowest node. The cylinders' rims are not outlets (D1).
+3. **The terrarium's first erosion**, `TerrariumErosion.asset`: 30 iterations, `IncisionDepth`
+   4,000 m, `m` 0.45, diffusion 0.02, `BaseLevel` +68 m. On the managed build the land is cut 12 m
+   at the median, 30 at the 90th percentile, 69 at the 99th and 258 at most, from 29.8% to 28.8% of
+   the terrarium above the base level. The diffusion number is 0.059. The envelope falls from 2,593
+   to 2,318 m, because the stored base height (±217 m) is under its analytic bound, so the
+   terrarium's `LodVertical` anchor moves in rather than out. The figures pinned from the uneroded
+   configuration (C, C_m, the working set, the skirt shares) are not yet re-measured under erosion:
+   E5's work, once the parameters settle. `MacroTests.SceneMacro.ErodedConfig` is the configuration
+   the scene runs.
+4. **Verified in the Editor (2026-10-25).** All tests green, the four Burst-against-managed ones
+   (graph, pass, pyramid, the whole build) included, so Burst's `Height` matches managed code's to
+   the bit. The export's erosion and wetness images read well. A fly-through of the terrarium gave
+   no warnings, and `LodVertical` logged the 2.3 km envelope. The macro build took 9,070 ms: erosion
+   8,837 (graph 185, heights 69, **pass 8,511**, wetness 44, pyramid 27). Two causes:
+   - **The flood queued the sea.** 70.2% of the terrarium's nodes are outlets, and 68.6% are outlets
+     whose neighbours are all outlets, which come out of the queue to push nothing. They now go
+     straight onto the stack, and only coastal outlets are queued. The heights, filled surface,
+     drainage and receivers are unchanged to the byte, on the terrarium and the unit surfaces at
+     three base levels, and the managed pass fell from 5,573 to 2,205 ms. Not yet re-timed in the
+     Editor; at the same ratio the pass would be about 3.4 s there.
+   - **The Editor's safety checks.** Burst ran the pass in 8.5 s in the Editor where .NET 8 ran it
+     in 5.3 s outside it. The likely cause is the Editor's checks on every array access in this
+     access-heavy code. A player build runs without them, so the Editor's figure overstates what
+     the plan's target measures.
 
 #### Out of scope for M5c
 
