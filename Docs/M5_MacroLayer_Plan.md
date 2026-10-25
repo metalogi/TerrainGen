@@ -1308,9 +1308,16 @@ Pure where possible, as before.
   needs its own addressing. Either is worth deciding only after the terrarium and ring show what
   erosion buys.
 - **D4 — cache the maps to disk.** Depends on the measured erosion time. **Measured (2026-10-25):**
-  9.1 s in the Editor on the terrarium before the flood fix below, and 3.8 s after it, the pass
-  3.2 s of that: still over the second this section set. No player build has been measured. See
-  amendment 4.
+  9.1 s in the Editor on the terrarium at first, 3.8 s after the flood fix below, and 2.0 s after
+  the keyed heap and the job's safety checks, the pass 1.3 s of it: still about twice the second
+  this section set. No player build has been measured. See amendment 4.
+
+  **Deferred (2026-10-25) until the ring and the planets erode.** Two seconds once at startup is
+  tolerable while tuning; the planets have fewer nodes than the terrarium (Earth 393,218 against
+  525,312) and as much sea, so they should land in the same range; and a cache's key has to cover
+  every setting the maps depend on, which is what the tuning still to come will change. D3 would
+  change the answer: finer erosion on the planets multiplies their nodes by four or more, and
+  caching would then be needed. Take D4 up again with the planets' measured times, or with D3.
 
 #### Building M5c-1: amendments (2026-10-24 to 2026-10-25)
 
@@ -1355,8 +1362,10 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
      `ErosionJob` compiles with Burst's safety checks off (`DisableSafetyChecks`; Safety Checks >
      Force On restores them). Results are again unchanged to the byte. The managed pass fell only
      5% more, to about 2,100 ms, of which routing and drainage are 1,493, incision 375 and
-     diffusion 174: what remains is the flood itself over the 31% of nodes still queued. The Editor
-     figure is still to be measured.
+     diffusion 174: what remains is the flood itself over the 31% of nodes still queued. **In the
+     Editor (2026-10-25)** the macro build took 1,960 ms, erosion 1,697 (graph 197, heights 76,
+     **pass 1,344**, wetness 49, pyramid 31), with a peak working set of 3,220. The safety checks
+     were most of the gain: the managed pass moved 5%, the Editor's 58%.
 
 #### Out of scope for M5c
 
