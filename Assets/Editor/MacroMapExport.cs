@@ -36,6 +36,16 @@ using Sonoma.Core.Surface;
 //   <scene>_coast.png        the signed coast distance s, green on land and blue at sea, pale near
 //                            the coast and saturated at two micro spacings, with the coast in black
 //
+// With erosion (Docs/M5_MacroLayer_Plan.md, M5c-1) the base height is the eroded one, D folded in,
+// and two more images show what the pass did:
+//
+//   <scene>_erosion.png      D, the correction: white where nothing changed, through orange to dark
+//                            red where ground was cut, and to blue where diffusion raised it, on a
+//                            square-root scale symmetric about zero to the largest |D|, so shallow
+//                            cuts show beside the deep ones; valleys that join should read as lines
+//   <scene>_wetness.png      wetness, 0 to 1: dark ground through blue to white, ridges dark and
+//                            rivers bright; a river network should read as a branching tree
+//
 // The three heights share one colour scale -- blue below zero, green through brown to white
 // above, by the largest |total| -- and a hillshade lit from the upper left with the vertical
 // exaggeration logged, so they compare directly. Each image is the top pyramid level, one pixel
@@ -94,16 +104,19 @@ static class MacroMapExport
         var ep = ErosionParams.Create(s, hp, mp, config);
 
         float4[]     texels;
+        float2[]     drainage;
         double       buildMs;
         ContinentMap map;
+        ErosionStats erosion;
         // Keeping the top level's nearest micro seeds and coast distances, which the continent
-        // images draw, rather than running Stages A and B again here. With erosion the base height
-        // is the eroded one; its own images are M5c-1's task 7.
+        // images draw, rather than running Stages A and B again here.
         using (var maps = MacroMaps.Build(s, roots, mp, cp, hp, ep, keepTopTexels: true))
         {
-            texels  = maps.Texels.ToArray();
-            buildMs = maps.BuildMilliseconds;
-            map     = maps.Continents;
+            texels   = maps.Texels.ToArray();
+            drainage = maps.Drainage.ToArray();
+            buildMs  = maps.BuildMilliseconds;
+            map      = maps.Continents;
+            erosion  = maps.Erosion;
         }
 
         int level = mp.Layout.LevelCount - 1;
@@ -202,6 +215,14 @@ static class MacroMapExport
                       $"saturation {st.SaturationRadius:F2} ({st.WarpedSaturation:F2} warped) micro spacings; detail " +
                       $"octaves from {hp.FirstOctave}.");
         }
+        if (erosion != null)
+        {
+            WriteErosion(s, roots, mp.Layout, drainage, tile, w, h, folder, scene, out string dRange, out string wetRange);
+            Debug.Log($"[MacroMapExport] {scene} erosion: {erosion.NodeCount:N0} nodes, {ep.Iterations} iterations, " +
+                      $"eroding the base height and detail octaves to {ErosionChannels.ErodedOctave(hp, mp)}; D {dRange} m, " +
+                      $"wetness {wetRange}; deepest cut {erosion.MaxCut:F0} m; base height within " +
+                      $"+-{erosion.MaxAbsBaseHeight:F0} m; {erosion.TotalMilliseconds:F1} ms of the build.");
+        }
 
         Debug.Log($"[MacroMapExport] {scene}: level {level} of {mp.Layout.LevelCount}, {tile} x {tile} " +
                   $"texels a quad, built in {buildMs:F1} ms. " +
@@ -219,7 +240,8 @@ static class MacroMapExport
         readonly float4[] _texels;
         public ArrayTexels(float4[] texels) { _texels = texels; }
         public float4 Texel(int index) => _texels[index];
-        // The export reads base height and climate; wetness gets its own image in M5c-1, task 7.
+        // The poles' log reads climate only, which wetness does not change; the wetness image reads
+        // the drainage maps directly.
         public float2 Drainage(int index) => default;
     }
 
@@ -375,6 +397,69 @@ static class MacroMapExport
         if ((signed[nb] >= 0.0) != (signed[at] >= 0.0)) coastLine = true;
     }
 
+    // ── Erosion ──────────────────────────────────────────────────────────────
+
+    // <scene>_erosion.png and <scene>_wetness.png at every texel of the top level, from the drainage
+    // maps as the build left them: D in y, wetness in x.
+    static void WriteErosion(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, float2[] drainage,
+                             int tile, int w, int h, string folder, string scene,
+                             out string dRange, out string wetRange)
+    {
+        int n = tile - 1, level = layout.LevelCount - 1;
+        var d   = new double[w * h];
+        var wet = new double[w * h];
+        Array.Fill(d,   double.NaN);
+        Array.Fill(wet, double.NaN);
+        for (int q = 0; q < roots.Length; q++)
+        {
+            Place(s, q, out int tx, out int ty);
+            for (int j = 0; j <= n; j++)
+            for (int i = 0; i <= n; i++)
+            {
+                float2 v  = drainage[layout.Index(q, level, i, j)];
+                int    at = (ty * tile + j) * w + tx * tile + i;
+                d[at]   = v.y;
+                wet[at] = v.x;
+            }
+        }
+        dRange   = Range(d);
+        wetRange = Range(wet);
+
+        double scale = 1e-6;
+        foreach (double v in d) if (!double.IsNaN(v)) scale = math.max(scale, math.abs(v));
+
+        var cut   = new Color32[w * h];
+        var water = new Color32[w * h];
+        var none  = new Color32(40, 40, 40, 255);
+        for (int at = 0; at < w * h; at++)
+        {
+            if (double.IsNaN(d[at])) { cut[at] = water[at] = none; continue; }
+            cut[at]   = Pixel(Diverging(math.sign(d[at]) * math.sqrt(math.abs(d[at]) / scale)));
+            water[at] = Pixel(Wetness(wet[at]));
+        }
+
+        foreach (var (name, pixels) in new[] { ("erosion", cut), ("wetness", water) })
+        {
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            try
+            {
+                tex.SetPixels32(pixels);
+                tex.Apply();
+                File.WriteAllBytes(Path.Combine(folder, $"{scene}_{name}.png"), tex.EncodeToPNG());
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tex);
+            }
+        }
+    }
+
+    static Color32 Pixel(float3 rgb)
+    {
+        rgb = math.saturate(rgb) * 255f;
+        return new Color32((byte)rgb.x, (byte)rgb.y, (byte)rgb.z, 255);
+    }
+
     // ── Layout ───────────────────────────────────────────────────────────────
 
     static void Tiles(in SurfaceDef s, out int x, out int y)
@@ -460,6 +545,25 @@ static class MacroMapExport
         float u = (float)math.saturate(m);
         return u < 0.5f ? math.lerp(new float3(0.85f, 0.75f, 0.50f), new float3(0.25f, 0.60f, 0.20f), u / 0.5f)
                         : math.lerp(new float3(0.25f, 0.60f, 0.20f), new float3(0.10f, 0.30f, 0.80f), (u - 0.5f) / 0.5f);
+    }
+
+    // u in -1..1: dark red through orange to white at zero, cuts below; white to blue above, where
+    // diffusion filled ground in.
+    static float3 Diverging(double u)
+    {
+        float t = (float)math.clamp(u, -1.0, 1.0);
+        if (t >= 0f) return math.lerp(new float3(1f, 1f, 1f), new float3(0.10f, 0.30f, 0.80f), t);
+        float c = -t;
+        return c < 0.5f ? math.lerp(new float3(1f, 1f, 1f), new float3(0.95f, 0.55f, 0.15f), c / 0.5f)
+                        : math.lerp(new float3(0.95f, 0.55f, 0.15f), new float3(0.45f, 0.05f, 0.05f), (c - 0.5f) / 0.5f);
+    }
+
+    // 0..1: dark brown ground through blue to near white, so the wettest channels stand out.
+    static float3 Wetness(double v)
+    {
+        float u = (float)math.saturate(v);
+        return u < 0.6f ? math.lerp(new float3(0.12f, 0.10f, 0.08f), new float3(0.15f, 0.40f, 0.80f), u / 0.6f)
+                        : math.lerp(new float3(0.15f, 0.40f, 0.80f), new float3(0.90f, 0.97f, 1.00f), (u - 0.6f) / 0.4f);
     }
 
     static string Range(double[] values)
