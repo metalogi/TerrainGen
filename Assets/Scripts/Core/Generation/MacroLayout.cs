@@ -346,8 +346,9 @@ namespace Sonoma.Core.Generation
             return true;
         }
 
-        // Both crossings of a corner block, landing inside [0, n] of the quad reached.
-        static bool Walk(in SurfaceDef s, int n, int quad, int i, int j, bool crossJFirst,
+        // Both crossings of a corner block, landing inside [0, n] of the quad reached. Internal,
+        // with Cross, because ErosionGraph resolves its neighbours across an edge by the same walk.
+        internal static bool Walk(in SurfaceDef s, int n, int quad, int i, int j, bool crossJFirst,
                          out int q, out int si, out int sj)
         {
             q = quad; si = i; sj = j;
@@ -363,7 +364,7 @@ namespace Sonoma.Core.Generation
         // when crossJ, the West or East otherwise. The texel may still be outside the new quad
         // along that edge, when it was past two. False, leaving it unchanged, past an edge with no
         // link.
-        static bool Cross(in SurfaceDef s, int n, ref int q, ref int i, ref int j, bool crossJ)
+        internal static bool Cross(in SurfaceDef s, int n, ref int q, ref int i, ref int j, bool crossJ)
         {
             Edge edge;
             int  along, depth;
