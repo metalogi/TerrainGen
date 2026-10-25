@@ -4,6 +4,8 @@
 current code and outlines how it would fit. It is a high-level outline, not an implementation plan;
 an exact-steps plan in the style of the `Docs/M*_Plan.md` files would follow if it goes ahead.
 **Written:** 2026-10-21, with M5a and M5b merged and M5c (erosion) and the ocean planned.
+**Followed by:** `Docs/Continents_Plan.md`, the implementation plan (2026-10-23). Its amendments record
+what the build measured, on all four planet and ring scenes (done 2026-10-24).
 
 ---
 
@@ -138,6 +140,12 @@ real build.
 Together they also raise agreement: Earth at 1,000 km and 2 / 6 km goes from 94.5% to 95.6%, and the
 ring at 250 km and 1.5 / 4.5 km from 97.2% to 97.9%. The even smootherstep was tried too and lost 1.8
 points on Earth, because its zero slope at the coast leaves a flat band at sea level.
+
+**As built (2026-10-24), through the real height function at `MaxDepth`** (`Docs/Continents_Plan.md`,
+amendments): Earth 96% and the ring 93.7%, against the prototype's 95.6% and 97.9%. Neither the small
+planet nor the narrow ring was prototyped. The small planet reached 95.5% at 1,000 / 3,000 m with a
+250 km cutoff. The narrow ring reached 92.5% at 600 / 1,800 m, and only with a 150 km cutoff: without
+one it reached 86%.
 
 **Recommended starting point for a plan:** a 1,000 km cutoff on the planets and 250 km on the ring, land
 and ocean amplitudes of 0.10 / 0.30 of `HeightScale` on Earth and 0.15 / 0.45 on the ring, the threshold

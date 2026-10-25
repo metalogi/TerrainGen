@@ -287,6 +287,7 @@ Each milestone ends with something runnable and a test that would catch regressi
 - Per-root-quad macro maps in a Burst job, shared read-only `NativeArray`, bicubic sampling inside the height function.
 - `BiomeDefinition` ScriptableObjects; per-octave amplitude/roughness modulation; splat weights in vertex colour; shader reads them.
 - Optional in this milestone: a simple thermal/hydraulic erosion pass on the macro maps as proof that non-local algorithms fit here.
+- **Continents, between M5b and M5c (added 2026-10-23, done 2026-10-24).** A Voronoi continent map built once at startup, its field in the macro base height, and the detail octaves longer than a per-scene cutoff dropped. Before it the coastlines came from the detail noise's coarsest octaves, which climate never saw. Plan and amendments: `Docs/Continents_Plan.md`. It landed in three branches: `macro-pyramid` (the filter-down M5c's erosion reuses), `continents-a` (Earth and the ring) and `continents-b` (the small planet, the narrow ring and the docs). After it the order is M5c-1, M5c-2, `ocean-a`, `ocean-b`, M6, `ocean-c`.
 
 ### M6 — Collision, tooling, polish (medium)
 - Colliders at the finest depths via `Physics.BakeMesh` jobs; NavMesh surface hook.

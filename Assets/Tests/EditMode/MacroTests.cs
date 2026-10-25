@@ -156,11 +156,19 @@ namespace Sonoma.Tests
                              RuggednessCentre = 0.2f, ReliefFactor = 81.0,
                              ContinentAsset = "Assets/Settings/EarthContinents.asset",
                              Continents = SceneContinentConfig(landFraction: 0.322f, land: 2000f, ocean: 6000f, cutoff: 1000000.0) },
+            // Continents (D1 crisp, at Earth's shares of HeightScale): land 1,000 m and ocean
+            // 3,000 m, a 250 km cutoff dropping detail octaves 0-2, and the macro fBm at 0.3 of M5b's
+            // 2,000 m. C_m was 51.4 at its roughest (depth 14) in units of (3,000 + 600) / S0, and 77
+            // is half again over it. LandFraction 0.312 puts the final terrain at 30%: 30.03% on
+            // 50,000 points and 29.78% on another 100,000, with 95.5% agreement, 9.4% of the map's
+            // land flooded, and medians of +1,161 and -2,885 m (ReliefMeasurements, 2026-10-24).
             new SceneMacro { Scene = "SmallPlanetStress", Settings = StressSceneTests.SmallPlanet.Asset,
                              Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface, MaxDepth = StressSceneTests.SmallPlanet.MaxDepth,
-                             Levels = 4, BaseHeightScale = 2000f, EquatorTemperature = 30f,
+                             Levels = 4, BaseHeightScale = 600f, EquatorTemperature = 30f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f },
+                             RuggednessCentre = 0.2f, ReliefFactor = 77.0,
+                             ContinentAsset = "Assets/Settings/SmallPlanetContinents.asset",
+                             Continents = SceneContinentConfig(landFraction: 0.312f, land: 1000f, ocean: 3000f, cutoff: 250000.0) },
             // Continents (D1 crisp): land 1,500 m and ocean 4,500 m, a 250 km cutoff dropping detail
             // octaves 0-2, and the macro fBm at 0.3 of M5b's 1,500 m. C_m was 48.7 at its roughest
             // (depth 10) in units of (4,500 + 450) / S0, and 73 is half again over it. LandFraction
@@ -175,11 +183,23 @@ namespace Sonoma.Tests
                              RuggednessCentre = 0.2f, ReliefFactor = 73.0,
                              ContinentAsset = "Assets/Settings/RingworldContinents.asset",
                              Continents = SceneContinentConfig(landFraction: 0.351f, land: 1500f, ocean: 4500f, cutoff: 250000.0) },
+            // Continents (D1 crisp, at the ring's shares of HeightScale): land 600 m and ocean
+            // 1,800 m, and the macro fBm at 0.3 of M5b's 1,500 m. The plan started it without a
+            // cutoff, which left 86% agreement and 28% of the map's land flooded; a 150 km cutoff
+            // drops detail octave 0 alone, 187.5 km, in the low band, so the mountain band is whole.
+            // CoastWidth is 0.8: at 1 the warp took four texels on the open rims, where a point has
+            // seeds on one side only, 1.46 micro spacings from their class, past the plateau's 1.41
+            // (0.8 allows 1.55). C_m was 24.9 at its roughest (depth 12) in units of (1,800 + 450) /
+            // S0, and 37 is half again over it. LandFraction 0.300 puts the final terrain at 30%:
+            // 30.01% on 50,000 points and 30.03% on another 100,000, with 92.5% agreement, 12.6%
+            // flooded, and medians of +747 and -1,764 m (ReliefMeasurements, 2026-10-24).
             new SceneMacro { Scene = "NarrowRingStress", Settings = StressSceneTests.NarrowRing.Asset,
                              Asset = "Assets/Settings/NarrowRingMacro.asset", Surface = StressSceneTests.NarrowRing.Surface, MaxDepth = StressSceneTests.NarrowRing.MaxDepth,
-                             Levels = 3, BaseHeightScale = 1500f, EquatorTemperature = 18f,
+                             Levels = 3, BaseHeightScale = 450f, EquatorTemperature = 18f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f },
+                             RuggednessCentre = 0.2f, ReliefFactor = 37.0,
+                             ContinentAsset = "Assets/Settings/NarrowRingContinents.asset",
+                             Continents = SceneContinentConfig(landFraction: 0.300f, land: 600f, ocean: 1800f, cutoff: 150000.0, coastWidth: 0.8f) },
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
@@ -189,10 +209,10 @@ namespace Sonoma.Tests
 
         // A stress scene's continents: K9's defaults with the scene's land fraction, heights and
         // cutoff, as its ContinentSettings asset holds them.
-        static ContinentConfig SceneContinentConfig(float landFraction, float land, float ocean, double cutoff)
+        static ContinentConfig SceneContinentConfig(float landFraction, float land, float ocean, double cutoff, float coastWidth = 1f)
         {
             var k = ContinentConfig.Default;
-            k.LandFraction = landFraction; k.LandHeight = land; k.OceanDepth = ocean; k.DetailCutoff = cutoff;
+            k.LandFraction = landFraction; k.LandHeight = land; k.OceanDepth = ocean; k.DetailCutoff = cutoff; k.CoastWidth = coastWidth;
             return k;
         }
 

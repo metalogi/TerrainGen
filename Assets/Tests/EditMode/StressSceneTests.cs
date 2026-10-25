@@ -96,9 +96,16 @@ namespace Sonoma.Tests
         // depth has a half-relief of 0.174 of its node at depth 17 at M5b's relief (2026-10-18),
         // C 226.5, and 340 is half again over it. Flattened by LodVerticalScale 0.2, that needs
         // SplitFactor 4 at MorphStartFraction 0.123 or less; the small planet runs 0.12. The worst
-        // working set, flattened, is 7,466 beside the face corner (2026-10-19, over the envelope
-        // with the macro read's overshoot; M5b's unflattened scan found 7,206), and the budget is
-        // 11% over that.
+        // working set, flattened, was 7,466 beside the face corner (2026-10-19, over the envelope
+        // with the macro read's overshoot; M5b's unflattened scan found 7,206).
+        //
+        // With continents (Docs/Continents_Plan.md) the 250 km cutoff drops detail octaves 0-2 and
+        // C does not move: 214.5 at the roughest (depth 16) with the cutoff and 215.3 without, on
+        // 20,000 nodes per depth, a tail short of the 226.5 C was pinned from, so 340 stands and
+        // MorphStartFraction 0.12 still has room to 0.123. The height envelope falls from 48 to
+        // 23.2 km, and a 33 x 33 scan of the face's first quadrant refined on the 1/512 lattice
+        // puts the worst working set at the face corner: 7,302, and the budget is 14% over it
+        // (ReliefMeasurements and its scan, 2026-10-24).
         internal static readonly Scene SmallPlanet = new Scene
         {
             Name = "SmallPlanetStress", Asset = "Assets/Settings/SmallPlanetTerrainSettings.asset",
@@ -107,7 +114,7 @@ namespace Sonoma.Tests
             SplitFactor = 4f, MorphStart = 0.12f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.53f, TenMetreFeature = 1.332, TenMetreOnOneSlope = 0.0382,
             ReliefFactor = 340.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 0.0, WorstV = 4.0 / 512.0, Worst = 7466,
+            WorstQuad = 0, WorstU = 0.0, WorstV = 0.0, Worst = 7302,
         };
 
         // A ring of the small planet's radius, as wide as one column of its eight is long, viewed
@@ -180,22 +187,33 @@ namespace Sonoma.Tests
         // (15.1 MB, under the 16 MB limit only at three). With the bands at (1, 3, 1) the
         // roughest of 20,000 nodes per depth has C 44.2 at depth 14 (2026-10-21), and 67 is half
         // again over it; its macro's own relief factor is 3.05, under MacroTests' 7. Flattened
-        // by LodVerticalScale 0.2 that runs the ring's SplitFactor 3 at MorphStartFraction 0.14,
-        // with 0.145 the most it allows. The worst working set, flattened, is 4,324
-        // (2026-10-21), and the budget is 13% over it.
+        // by LodVerticalScale 0.2 that ran the ring's SplitFactor 3 at MorphStartFraction 0.14,
+        // with 0.145 the most it allowed. The worst working set, flattened, was 4,324
+        // (2026-10-21).
         //
-        // Skirts: on 200 edges per depth and per gap the side above has to cover at most 0.677
-        // of its relief, at a gap of three (0.295 and 0.542 at one and two), so SkirtFraction is
-        // 1.1, half again over that, rounded up.
+        // With continents (Docs/Continents_Plan.md) a 150 km cutoff drops detail octave 0, the
+        // one root across. The re-measurement found C 48.4 at the roughest (depth 14) with the
+        // cutoff and 48.5 without, on 20,000 nodes per depth (ReliefMeasurements, 2026-10-24): the
+        // terrain's own tail, which October's sample of the same terrain had missed, not the
+        // continents. 73 is half again over it, and leaves 0.14 short of twice the demand, so the
+        // narrow ring runs MorphStartFraction 0.13, with 0.133 the most both margins allow. The
+        // height envelope is 27.9 km, and the worst working set, from a 33 x 33 scan of root 0
+        // refined on the 1/512 lattice, is 4,320 at (37/512, 243/512) and at its mirror, the
+        // pinned camera; the budget is 13% over it.
+        //
+        // Skirts: on 200 edges per depth and per gap the side above had to cover at most 0.677
+        // of its relief, at a gap of three. With continents, on 400 (ReliefMeasurements.SkirtShares,
+        // 2026-10-24), it is 0.788 (0.340 and 0.538 at one and two), so SkirtFraction is 1.2,
+        // half again over that, rounded up.
         internal static readonly Scene NarrowRing = new Scene
         {
             Name = "NarrowRingStress", Asset = "Assets/Settings/NarrowRingTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(1194562.5, 187500.0, 40, 1),
-            MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4000f, SkirtFraction = 1.1f,
-            MorphStart = 0.14f, Persistence = 0.7f,
+            MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4000f, SkirtFraction = 1.2f,
+            MorphStart = 0.13f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 0.657, TenMetreOnOneSlope = 0.1221,
-            ReliefFactor = 67.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
-            WorstQuad = 0, WorstU = 37.0 / 512.0, WorstV = 267.0 / 512.0, Worst = 4324,
+            ReliefFactor = 73.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
+            WorstQuad = 0, WorstU = 37.0 / 512.0, WorstV = 267.0 / 512.0, Worst = 4320,
         };
 
         internal static readonly Scene[] All = { SmallPlanet, Ringworld, NarrowRing, Terrarium };
@@ -390,9 +408,11 @@ namespace Sonoma.Tests
         //
         // With continents, rerun by ReliefMeasurements.SkirtShares on the same 400 edges per depth
         // and gap (2026-10-24): Earth 0.605 at a gap of three (0.313 at one, 0.484 at two), and the
-        // ring 0.774 (0.401, 0.607), so Earth's 1 and the ring's 1.2 stand. The coasts add relief
-        // to the chunks across them, and the share is of each chunk's own relief, so they barely
-        // move it.
+        // ring 0.774 (0.401, 0.607), so Earth's 1 and the ring's 1.2 stand; and the small planet
+        // 0.622 (0.323, 0.451), so its 1 stands, and the narrow ring 0.788 (0.340, 0.538), so its
+        // 1.1 goes to 1.2. The coasts add relief to the chunks across them, and the share is of
+        // each chunk's own relief, so they barely move it. The narrow ring's rise is mostly the
+        // larger sample: its 0.677 came from 200 edges.
         //
         // The tests below take one edge per depth and gap, every gap down to depth 6 and one a
         // depth below it, and the relief on every fourth vertex, for time. Sampled coarser, the
@@ -761,8 +781,9 @@ namespace Sonoma.Tests
         // the longest drop it can hang at depth d is SkirtDepth + SkirtFraction x 2 x MaxAbsHeight
         // + ChordSag(d), largest at depth 0 where the sag is: 1,383 km on Earth (73 km of relief
         // bound since its continents' cutoff, 169 km before; 1,310 km of sag) against a 6,371 km
-        // radius, 424 km on the small planet
-        // against 1,593, 183 km on the ring against 1,593, and 5.6 km in the terrarium against 10.
+        // radius, 374 km on the small planet against 1,593 (424 km before its continents), 139 km
+        // on the ring against 1,593 (183 km before), 69 km on the narrow ring against 1,195, and
+        // 5.6 km in the terrarium against 10.
         [Test]
         public void NoSkirtReachesPastTheCentre()
         {

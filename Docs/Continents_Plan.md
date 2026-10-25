@@ -581,8 +581,8 @@ timings measured in the harness, managed, as an upper bound.
 
 ## Definition of done
 
-- [ ] `macro-pyramid` merged: halo fill, filter and filter-down, tested, Burst equal to managed.
-- [ ] `continents-a` merged: the cutoff, the map, the field, the pipeline, the assets and re-pinned
+- [x] `macro-pyramid` merged: halo fill, filter and filter-down, tested, Burst equal to managed.
+- [x] `continents-a` merged: the cutoff, the map, the field, the pipeline, the assets and re-pinned
       figures for Earth and the ring, the export.
 - [ ] `continents-b` merged: the small planet and the narrow ring, the documentation.
 - [ ] Every scene without a continent map builds M5b's maps and heights to the bit.
@@ -741,6 +741,44 @@ editing the tasks, so the plan still reads as what was decided up front.
 
     - **Ground rule 3's target is not met in the Editor.** It asks for under 200 ms on Earth in a build; Stages A–C take 397 ms here. No build has been measured. Stage A is mostly managed code: placement, `TopPoints` and the reductions after the scan. It is the place to start if a build is over too.
     - **One rebase on the ring took 16.9 ms** over 4,700 chunks, where rebases elsewhere took 1–5 ms (Earth's slowest this session was 3.6 ms). Continents do not touch the rebase, so a one-off hitch is the likely cause; not investigated.
+
+### Task 9 and Task 10, `continents-b` (2026-10-24)
+
+1. **The small planet took Task 9's starting values unchanged.** It runs 1,000 / 3,000 m and a 250 km cutoff, which drops detail octaves 0–2, with the macro fBm at 600 m.
+   - **`LandFraction` 0.312.** It reaches 30.0% final land on 50,000 points and 29.8% on an independent 100,000. Agreement is 95.5%, flooding 9.4%, islands 2.3%, and the medians are +1,161 and −2,885 m.
+   - **C does not move.** On 20,000 nodes per depth the roughest is 214.5 with the cutoff and 215.3 without. That falls short of the 226.5 its 340 was pinned from, so 340 stands, and `MorphStartFraction` 0.12 still has room to 0.123.
+   - **C_m is 51.4 at the roughest, pinned at 77.**
+   - **The envelope falls from 48 to 23.2 km.** The worst working set moves to the face corner: 7,302, under the 8,300 budget by 14%.
+   - **The worst skirt share is 0.622**, so `SkirtFraction` 1 stands.
+2. **The narrow ring needed two changes from Task 9.**
+   - **`CoastWidth` 0.8, not 1.** At 1, Stage B threw. On the open rims a point has seeds on one side only, and the warp took four rim texels to 1.46 micro spacings from their class, past the plateau's √2. Away from the rims the worst is 1.24.
+     - The three levers the error names were measured. `WarpAmplitude` 0.3 clears it (1.38 against 1.41) but changes every coast's shape. Doubling `MicroCells` does not help (1.45), since the rim effect is scale-free.
+     - `CoastWidth` 0.8 raises the limit to 1.55 and leaves the map alone. It makes coasts a quarter steeper, which costs little at 600 / 1,800 m.
+     - Unwarped, the rims' saturation is 1.32 against Earth's and the ring's 1.20, so a narrower band would need the same.
+   - **A 150 km cutoff, not none.** Without one agreement was 86% and 28% of the map's land flooded, under the 90% floor. On 30,000 points at roughly calibrated land fractions:
+
+     | heights | no cutoff | 150 km (octave 0) | 80 km (octaves 0–1) |
+     |---|---|---|---|
+     | 600 / 1,800 m | 86.2% | 92.2% | 95.2% |
+     | 800 / 2,400 m | | 94.6% | |
+     | 1,000 / 3,000 m | 92.9% | 96.1% | 97.9% |
+
+     150 km keeps D1's shares of `HeightScale` and drops only octave 0, the 187.5 km one in the low band. 80 km would also drop the 94 km octave, in the mountain band, which every other continent scene keeps whole.
+   - **`LandFraction` 0.300.** It reaches 30.0% final land on 50,000 and 100,000 points. Agreement is 92.5%, flooding 12.6%, islands 5.3%, and the medians are +747 and −1,764 m. Micro cells are 11.5 top-level texels across, so the band-limit warning stays quiet, as Task 9 asked.
+   - **C rose, and with it the morph start fell.** On 20,000 nodes per depth the roughest is 48.4 with the cutoff and 48.5 without. October's pin of 67 was half again over 44.2, a sample of the same terrain that missed this tail; the continents did not move it. 73 is half again over 48.5.
+     - At 73, `MorphStartFraction` 0.14 leaves an allowance of 0.420 against the 0.441 that twice the detail demand needs. The narrow ring therefore runs 0.13, with 0.133 the most both margins allow.
+     - That is a morph window a little narrower, the same lever `SampleScene` took at 0.09.
+   - **C_m is 24.9 at the roughest, pinned at 37.** The envelope is 27.9 km. The worst working set is 4,320 at the pinned camera, (37/512, 267/512) and its mirror, under the 4,900 budget by 13%.
+   - **The worst skirt share is 0.788** on 400 edges, against 0.677 on the 200 its 1.1 was sized from, so `SkirtFraction` is 1.2.
+3. **D4, on the two new scenes.** The small planet behaves like Earth. Land averages 10.2 °C with continents against 0.6 °C for M5b's land, and tundra falls from 52% to 26% of the biome weights. The narrow ring behaves like the ring, mildly. Its land averages 13.8 °C against 15.4 °C, and tundra stays at 2%. The lapse rate stays at 6.5 °C/km.
+4. **Documentation (Task 10):**
+   - `CLAUDE.md`: the status, the systems, Stage 0, the continents' height-function entry and table, the Non-Obvious entries (the squared distance and odd quintic, the cutoff's identity path, and Burst's trigonometry), the tests, the envelopes, working sets, skirts and `C_m`;
+   - `Docs/M5_MacroLayer_Plan.md`: E4 names `MacroPyramid`, and D1's sea levels are superseded for the continent scenes;
+   - `Docs/Ocean_Plan.md`: Q2, Q10 and C8;
+   - `SonomaRevisedPlan.md` §5;
+   - `Docs/Continents_Outline.md`.
+5. **Tests.** There are no new tests. The continent tests iterate over every scene with continents, so the two scenes joined them through their `MacroTests.StressMacros` entries. That leaves 168 EditMode tests, 125 of them pure, plus the seven explicit tools; all 125 pure tests pass outside the Editor.
+   - **Not yet run in the Editor:** the Burst checks and asset holds for the two new assets, `MacroMapExport` on both scenes, and the play-throughs.
 
 ---
 

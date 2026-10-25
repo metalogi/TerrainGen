@@ -250,6 +250,9 @@ L = measuredMin(d) − Between(d) − Residual(d)
   difference between `MacroLevel(d)` and the top level. The second term is bounded by the macro octaves
   the coarser level leaves out, times `MacroSampler.MaxOvershoot`, plus the two levels' interpolation
   difference. The interpolation part is the least obvious term; bound it, and test it (Task 5, test 4).
+  **Note (2026-10-24):** in a continent scene the lower levels' continent height is filtered down from
+  the top (`MacroPyramid`, `Docs/Continents_Plan.md` K5), so no octave count bounds this term there.
+  Bound it from the filtered levels instead; see Q10.
 
 Then each child is:
 
@@ -521,6 +524,12 @@ These need the user's decision, or a measurement, before the task that depends o
   `Docs/Continents_Outline.md` proposes replacing the coarsest octaves with a continent map in the macro
   layer. If that is built, land fraction becomes one of its parameters and these sea levels are
   superseded.
+
+  **Superseded for the continent scenes (2026-10-24).** The continents are built
+  (`Docs/Continents_Plan.md`). On Earth, the small planet, the ring and the narrow ring, `SeaLevel` is 0,
+  because the continent field's zero is the coast. 30% land comes from each scene's calibrated
+  `LandFraction`. The terrarium has no continents and keeps +68 m. The first finding above no longer
+  holds where there are continents: the macro layer now places the coasts, and climate follows them.
 - **Q3 — Wave model.** Gerstner sums with world-space directions on the 2⁻ᴾ lattice (C7) are the
   proposal. Their poles are harmless on a sphere with several directions; a cylinder's up rotates about
   one axis, so directions along the axis never pole and directions across it pole twice per turn. The
@@ -579,6 +588,13 @@ These need the user's decision, or a measurement, before the task that depends o
 
   Building `ocean-a` first remains possible if visible water matters sooner. The cost is re-deriving
   C8's terms and re-running test 4 after M5c, and retuning the sea level.
+
+  **Amended (2026-10-23):** the continents go first (`Docs/Continents_Plan.md`), so the order is
+  continents, M5c-1, M5c-2, `ocean-a`, `ocean-b`, M6, `ocean-c`. They are done (2026-10-24). They also
+  bring the first reason above forward. Continent scenes derive their lower macro levels with
+  `MacroPyramid`'s filter, not by leaving out macro octaves. So C8's `Residual(d)` must bound a filtered
+  coarser level against the top level, not a truncated one, whether M5c has run or not. The filter keeps
+  every value within the top level's range, which gives a bound to start from.
 
 ---
 
