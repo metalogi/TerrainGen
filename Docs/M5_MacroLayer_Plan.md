@@ -1366,6 +1366,16 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
      Editor (2026-10-25)** the macro build took 1,960 ms, erosion 1,697 (graph 197, heights 76,
      **pass 1,344**, wetness 49, pyramid 31), with a peak working set of 3,220. The safety checks
      were most of the gain: the managed pass moved 5%, the Editor's 58%.
+5. **The ring's first erosion**, `RingworldErosion.asset`: 30 iterations, `IncisionDepth` 100 km,
+   `m` 0.45, diffusion 0.002, `BaseLevel` 0, the continents' coast. Its texels are 4.8 km, against
+   the terrarium's 59 m, so incision needs tens of kilometres. **Diffusion does not carry over
+   between scenes.** It is set in texels², but its effect in metres follows the height differences
+   between neighbouring texels, which on the ring's coasts are kilometres. At the terrarium's 0.02
+   it raised land by up to 564 m and was most of what the ring saw; with diffusion off, 30 km of
+   incision cut the land 48 m at the 90th percentile and 100 km 155. At 0.002 diffusion fills at
+   most 66 m. As configured, on the managed build: land cut 60 m at the median, 159 at the 90th
+   percentile, 294 at the 99th and 1,226 at most; land from 30.1% to 29.6%; the envelope from
+   32,150 to 31,269 m. Not yet run in the Editor.
 
 #### Out of scope for M5c
 
