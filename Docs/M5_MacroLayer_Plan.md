@@ -1293,6 +1293,13 @@ Pure where possible, as before.
   (`Docs/Continents_Plan.md`). On Earth, the small planet, the ring and the narrow ring the field's zero
   is the coast, so sea level and `BaseLevel` are 0 there. Each scene's `LandFraction` is calibrated so
   the final terrain is 30% land. The terrarium has no continents and keeps +68 m.
+
+  **Rims answered (2026-10-24): the cylinders drain to `BaseLevel` only.** A rim node is an ordinary
+  node, not an outlet, on the ring, the narrow ring and the terrarium alike, so water reaches the sea
+  rather than spilling off an open end. This matches a later intention: the open rims will get walls,
+  either as separate geometry or as mountains forced at the rims in the macro base height. If the
+  walls are forced mountains, they belong in the base height before erosion runs, so that erosion
+  drains them inwards; nothing in M5c-1 has to change for that.
 - **D2 — G2 or not.** Built only if G1 in play reads too smooth.
 - **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
   wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two
