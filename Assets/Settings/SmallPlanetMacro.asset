@@ -15,7 +15,7 @@ MonoBehaviour:
   LevelCount: 4
   Wavelength0: 0
   Persistence: 0.5
-  BaseHeightScale: 2000
+  BaseHeightScale: 600
   EquatorTemperature: 30
   PoleTemperature: -30
   LapseRate: 6.5
@@ -36,3 +36,4 @@ MonoBehaviour:
   MidBandEdge: 5000
   RuggednessMin: 0.3
   RuggednessMax: 3.3
+  Continents: {fileID: 11400000, guid: 1d7f3b115f784498aa7fdfc6bd5fd0f9, type: 2}

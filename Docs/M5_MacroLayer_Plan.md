@@ -1055,6 +1055,14 @@ means no erosion.
 
 #### E4 — A second array for drainage, and a pyramid derived downwards
 
+**Built already (2026-10-24).** The halo fill, the binomial filter and the filter-down below are
+`MacroPyramid` and `MacroPyramidJob`, from the continents' first branch (`Docs/Continents_Plan.md`,
+Task 1, and its amendments), and the continents use them. The erosion correction runs them in the
+`MacroPyramidTop.Fill` mode, for a channel written only inside the quads. One difference from the text
+below: the filter is the 5 × 5 binomial applied as one stencil, and the halo's corner blocks walk to
+the diagonal quad rather than repeating the corner node. The edge copies then run after the halo,
+because on a cube the two do not commute.
+
 **A new channel.** Channel x carries the folded base height (E1), but the drainage area needs a home,
 and the `float4` texel is full. Add a second persistent array: `NativeArray<float2>`, with the same
 `MacroLayout` indexing and C2's edge rule, holding:
@@ -1280,6 +1288,11 @@ Pure where possible, as before.
   measurement is in the ocean plan's Q2. Whether the cylinders also drain at their rims is still to be
   chosen. If the continent map in `Docs/Continents_Outline.md` is built first, it sets the land fraction
   directly and these values are superseded.
+
+  **Superseded for the continent scenes (2026-10-24).** The continent map was built first
+  (`Docs/Continents_Plan.md`). On Earth, the small planet, the ring and the narrow ring the field's zero
+  is the coast, so sea level and `BaseLevel` are 0 there. Each scene's `LandFraction` is calibrated so
+  the final terrain is 30% land. The terrarium has no continents and keeps +68 m.
 - **D2 — G2 or not.** Built only if G1 in play reads too smooth.
 - **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
   wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two
