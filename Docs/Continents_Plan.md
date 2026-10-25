@@ -585,9 +585,9 @@ timings measured in the harness, managed, as an upper bound.
 - [x] `continents-a` merged: the cutoff, the map, the field, the pipeline, the assets and re-pinned
       figures for Earth and the ring, the export.
 - [ ] `continents-b` merged: the small planet and the narrow ring, the documentation.
-- [ ] Every scene without a continent map builds M5b's maps and heights to the bit.
-- [ ] Agreement at least 90% and final land within ±1.5 points of target in every continent scene.
-- [ ] The Editor checks under "Verification" done and recorded.
+- [x] Every scene without a continent map builds M5b's maps and heights to the bit.
+- [x] Agreement at least 90% and final land within ±1.5 points of target in every continent scene.
+- [x] The Editor checks under "Verification" done and recorded.
 
 ## Decisions for the user
 
@@ -792,7 +792,7 @@ editing the tasks, so the plan still reads as what was decided up front.
 
    - No relief, budget, band-limit or plateau warning in either scene.
    - The narrow ring's macro build is the slowest of the five, because its three levels hold the most texels (991,480). Stage B there is the costliest stage of any scene.
-   - The Editor test run is still to be reported.
+   - All 168 EditMode tests are green in the Editor, the Burst continent checks and the new assets' holds included.
 
 ---
 
