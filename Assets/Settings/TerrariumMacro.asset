@@ -36,3 +36,5 @@ MonoBehaviour:
   MidBandEdge: 50
   RuggednessMin: 0.5
   RuggednessMax: 1
+  Continents: {fileID: 0}
+  Erosion: {fileID: 11400000, guid: 5d2e8f1a7c3b4e96a0f4b8c2d6e1a3f7, type: 2}
