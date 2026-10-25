@@ -43,6 +43,13 @@ namespace Sonoma.Systems.Configuration
         [Min(0f)]
         public float MinOutletArea = 0f;
 
+        [Header("Basins")]
+        [Tooltip("Metres. Before erosion, each closed basin gets an outlet carved through its rim to the " +
+                 "sea, lowering no ground more than this; a basin deeper than that is filled up to the " +
+                 "deepest outlet it can have. Without it basins stay lakes that rivers cross uncut. 0 is off.")]
+        [Min(0f)]
+        public float BreachDepth = 0f;
+
         public ErosionConfig ToConfig() => new ErosionConfig
         {
             Iterations    = Iterations,
@@ -51,6 +58,7 @@ namespace Sonoma.Systems.Configuration
             Diffusion     = Diffusion,
             BaseLevel     = BaseLevel,
             MinOutletArea = MinOutletArea,
+            BreachDepth   = BreachDepth,
         };
     }
 }

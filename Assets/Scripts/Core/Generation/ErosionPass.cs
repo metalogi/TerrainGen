@@ -114,6 +114,8 @@ namespace Sonoma.Core.Generation
                 hi = math.max(hi, h);
             }
 
+            if (p.BreachDepth > 0.0) Condition(p, nodeCount, ref a);
+
             for (int it = 0; it < p.Iterations; it++)
             {
                 Route(p, nodeCount, ref a);
@@ -127,6 +129,133 @@ namespace Sonoma.Core.Generation
 
             Route(p, nodeCount, ref a);
             Drain(nodeCount, ref a);
+        }
+
+        // ── Breaching and filling, once, before the iterations ──
+        //
+        // A closed basin is a lake to the flood: rivers cross its filled surface, which incision never
+        // cuts, so it stays flat and the river network stops at its rim. On the ring a fifth of the
+        // land lay in basins walled by its mountain band, kilometres high, which 30 iterations of
+        // incision barely notch. So the surface is first made to drain, by the hybrid of breaching and
+        // filling (after Lindsay 2016):
+        //
+        //   A priority flood from the seas over the heights, remembering in Receivers the node each was
+        //   reached from. When it steps from a node c down to a lower neighbour m, m is in a basin. A
+        //   channel is carved from c back along the remembered chain towards the sea, each node lowered
+        //   to just below m, strictly downhill, until the chain is already lower or reaches the sea. If
+        //   that would lower any node more than BreachDepth below its own height, nothing is carved and
+        //   m is raised to just above c instead: filled.
+        //
+        // So a shallow basin gets an outlet and keeps its floor; a deep one gets an outlet carved
+        // up to BreachDepth deep and is filled up to it, a flat plain the rivers cross. The heights it
+        // leaves are what the iterations erode, and D includes the carving and the filling. Scratch holds the
+        // original heights the limit is measured from; it is free until the first diffusion sweep.
+        static void Condition<TI, TF, TD>(in ErosionParams p, int nodeCount, ref ErosionArrays<TI, TF, TD> a)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            for (int i = 0; i < nodeCount; i++)
+            {
+                a.State.Set(i, 0);
+                a.Scratch.Set(i, a.Heights.Get(i));
+            }
+            MarkSeas(p, nodeCount, ref a);
+
+            int size = 0, done = 0;
+            for (int i = 0; i < nodeCount; i++)
+            {
+                if (a.State.Get(i) != Sea) continue;
+                done++;
+                if (IsCoastal(ref a, i)) Seed(ref a, i, ref size);
+                else
+                {
+                    a.Filled.Set(i, a.Heights.Get(i));
+                    a.Receivers.Set(i, i);
+                    a.State.Set(i, 2);
+                }
+            }
+
+            while (done < nodeCount)
+            {
+                // As in Route: a surface with no sea, or ground the seas do not reach, drains to its
+                // lowest node left.
+                if (size == 0)
+                {
+                    int lowest = -1;
+                    for (int i = 0; i < nodeCount; i++)
+                        if (a.State.Get(i) == 0 && (lowest < 0 || a.Heights.Get(i) < a.Heights.Get(lowest)))
+                            lowest = i;
+                    Seed(ref a, lowest, ref size);
+                    done++;
+                }
+
+                int c = Pop(ref a, ref size);
+                for (int k = 0; k < MaxNeighbours; k++)
+                {
+                    int m = a.Neighbours.Get(c * MaxNeighbours + k);
+                    if (m < 0 || a.State.Get(m) != 0) continue;
+                    a.State.Set(m, 1);
+                    a.Receivers.Set(m, c);
+                    done++;
+
+                    // c's height as it stands: a carve through it may have lowered it since it was pushed.
+                    double step = EpsilonSlope * a.Lengths.Get(c * MaxNeighbours + k);
+                    double hc   = a.Heights.Get(c), hm = a.Heights.Get(m);
+                    if (!(hm >= hc + step))
+                    {
+                        // No channel is carved below the base level, and a floor below it is raised to
+                        // it: a hollow under sea level becomes a plain at sea level rather than an arm of
+                        // the sea. Carved to their floors, the ring's hollows joined the ocean through
+                        // their channels, and its rivers ran a median of 8 steps.
+                        double floor = math.max(hm, p.BaseLevel + step);
+                        if (floor < hc + step && Breach(p, ref a, c, floor - step))
+                            hm = floor;
+                        else
+                            hm = hc + step;   // filled
+                        a.Heights.Set(m, hm);
+                    }
+                    a.Filled.Set(m, hm);
+                    Push(ref a, m, ref size);
+                }
+            }
+        }
+
+        // Lowers the chain from c towards the sea so that it runs strictly downhill from target, if no
+        // node on it falls more than BreachDepth below its original height; true if the channel is
+        // carved, false, changing nothing, if it cannot be. The chain ends at an outlet, which water
+        // leaves whatever its height, or at a node already below its target.
+        static bool Breach<TI, TF, TD>(in ErosionParams p, ref ErosionArrays<TI, TF, TD> a, int c, double target)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            // The chain descends by the flood's epsilon slope, never to the base level itself, where a
+            // node would count as water and the channel would join the sea: it runs out level just
+            // above it instead, a flat the flood gives its slope.
+            double lowest = p.BaseLevel + EpsilonSlope;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int    x = c;
+                double t = math.max(target, lowest);
+                while (true)
+                {
+                    int up = a.Receivers.Get(x);
+                    if (up == x || a.Heights.Get(x) <= t) break;
+                    if (pass == 0)
+                    {
+                        if (a.Scratch.Get(x) - t > p.BreachDepth) return false;
+                    }
+                    else
+                    {
+                        a.Heights.Set(x, t);
+                        a.Filled.Set(x, t);
+                    }
+                    t  = math.max(t - EpsilonSlope * LinkLength(ref a, x, up), lowest);
+                    x  = up;
+                }
+            }
+            return true;
         }
 
         static bool IsOutlet<TI, TF, TD>(in ErosionArrays<TI, TF, TD> a, int node)

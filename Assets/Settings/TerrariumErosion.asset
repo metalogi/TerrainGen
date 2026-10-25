@@ -17,4 +17,5 @@ MonoBehaviour:
   AreaExponent: 0.45
   Diffusion: 0.02
   BaseLevel: 68
-  MinOutletArea: 0.1
+  MinOutletArea: 0
+  BreachDepth: 50

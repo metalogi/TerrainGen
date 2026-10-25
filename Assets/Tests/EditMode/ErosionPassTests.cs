@@ -251,7 +251,7 @@ namespace Sonoma.Tests
 
         // A plane rising from a sea row at the base level, with a pit far below it in the middle:
         // the shape of the ring's inland hollows. Node heights by texel; the pit is 2 x 2 nodes.
-        static (ErosionGraph g, double[] h, bool[] pit, bool[] sea) PitAndSea()
+        static (ErosionGraph g, double[] h, bool[] pit, bool[] sea) PitAndSea(double pitHeight = -1000.0)
         {
             var c   = ErosionGraphTests.Make("plane", SurfaceDef.PlaneGrid(1000.0, 1, 1), 8, 2);
             var g   = c.Graph;
@@ -263,7 +263,7 @@ namespace Sonoma.Tests
                 ErosionGraph.Coords(g.Cells, g.NodeTexel[node], out _, out int i, out int j);
                 sea[node] = j == 0;
                 pit[node] = (i == 8 || i == 9) && (j == 8 || j == 9);
-                h[node]   = sea[node] ? 0.0 : pit[node] ? -1000.0 : 100.0 + 10.0 * j + 3.0 * math.abs(i - 8);
+                h[node]   = sea[node] ? 0.0 : pit[node] ? pitHeight : 100.0 + 10.0 * j + 3.0 * math.abs(i - 8);
             }
             return (g, h, pit, sea);
         }
@@ -323,6 +323,78 @@ namespace Sonoma.Tests
                 if (r.Heights[i] < h[i]) cut++;
             }
             Assert.Greater(cut, g.NodeCount / 4, "the incision did not run");
+        }
+
+        // The breach-and-fill step alone: no incision or diffusion, one iteration, so the heights
+        // that come back are the conditioned ones, and the routing is over them.
+        static ErosionPass.Result Condition(double[] h, ErosionGraph g, double breach, double minOutletArea)
+        {
+            var p = Params();
+            p.BreachDepth   = breach;
+            p.MinOutletArea = minOutletArea;
+            return ErosionPass.Run(p, g, h);
+        }
+
+        // After conditioning nothing lies under a lake: every node that is not sea drains, so its
+        // filled height is its own (to the clamp's rounding), and no node is lowered more than the
+        // breach depth.
+        static void AssertDrainsWithin(ErosionGraph g, double[] before, ErosionPass.Result r, double breach, string name)
+        {
+            for (int i = 0; i < g.NodeCount; i++)
+            {
+                if (r.Receivers[i] == i) continue;
+                Assert.AreEqual(r.Heights[i], r.Filled[i], 0.01, $"{name}: node {i} is still under a lake");
+                Assert.GreaterOrEqual(r.Heights[i] - before[i], -breach - 0.01, $"{name}: node {i} carved past the breach depth");
+            }
+        }
+
+        // A basin shallower than the breach depth gets an outlet and keeps its floor; one deeper is
+        // filled instead, and nothing is carved past the limit.
+        [Test]
+        public void ShallowBasinsAreBreachedAndDeepOnesFilled()
+        {
+            // The rim around the pit is at about 180 m: a floor at 130 m is 50 m deep, one at 20 m 160.
+            foreach (var (pitHeight, breach, breached) in new[] { (130.0, 100.0, true), (20.0, 50.0, false) })
+            {
+                var (g, h, pit, sea) = PitAndSea(pitHeight);
+                var r = Condition(h, g, breach, 0.0);
+                string name = $"pit at {pitHeight} m, breach {breach} m";
+                AssertDrainsWithin(g, h, r, breach, name);
+
+                double floor = double.MaxValue;
+                for (int i = 0; i < g.NodeCount; i++) if (pit[i]) floor = math.min(floor, r.Heights[i]);
+                // Carving across the flat floor lowers it by the flood's epsilon slope, micrometres.
+                if (breached) Assert.AreEqual(pitHeight, floor, 0.01, $"{name}: the floor moved, so it was filled");
+                else          Assert.Greater(floor, pitHeight + 1.0, $"{name}: the floor was not filled");
+            }
+        }
+
+        // A hollow below the base level, too small to be sea, is not drained by a channel below the
+        // base level: its floor is raised to it, and the land around keeps above it.
+        [Test]
+        public void NoChannelIsCarvedBelowTheBaseLevel()
+        {
+            var (g, h, pit, sea) = PitAndSea(-1000.0);
+            double between = 0.5 * (AreaOf(g, pit) + AreaOf(g, sea));
+            var r = Condition(h, g, 5000.0, between);
+            AssertDrainsWithin(g, h, r, 5000.0, "below-sea hollow");
+            for (int i = 0; i < g.NodeCount; i++)
+            {
+                if (sea[i]) continue;
+                Assert.Greater(r.Heights[i], 0.0, $"node {i} ({(pit[i] ? "the hollow" : "land")}) is at or below the base level");
+                Assert.AreNotEqual(i, r.Receivers[i], $"node {i} is an outlet");
+            }
+        }
+
+        // Without a breach depth the step does not run, and basins stay lakes the flood routes over.
+        [Test]
+        public void NoBreachDepthLeavesBasinsAsLakes()
+        {
+            var (g, h, pit, _) = PitAndSea(130.0);
+            var r = Condition(h, g, 0.0, 0.0);
+            CollectionAssert.AreEqual(h, r.Heights, "the heights changed");
+            for (int i = 0; i < g.NodeCount; i++)
+                if (pit[i]) Assert.Greater(r.Filled[i], r.Heights[i], $"pit node {i} is not under a lake");
         }
 
         [Test]

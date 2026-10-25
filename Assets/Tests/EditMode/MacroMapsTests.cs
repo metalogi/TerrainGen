@@ -480,6 +480,7 @@ namespace Sonoma.Tests
                     Assert.AreEqual(want.Diffusion,     e.Diffusion,     $"{m.ErosionAsset}: Diffusion");
                     Assert.AreEqual(want.BaseLevel,     e.BaseLevel,     $"{m.ErosionAsset}: BaseLevel");
                     Assert.AreEqual(want.MinOutletArea, e.MinOutletArea, $"{m.ErosionAsset}: MinOutletArea");
+                    Assert.AreEqual(want.BreachDepth,   e.BreachDepth,   $"{m.ErosionAsset}: BreachDepth");
                 }
 
                 // And the scene draws with the biome material, keyword on (C9), and with its sky:
