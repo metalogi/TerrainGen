@@ -168,7 +168,7 @@ namespace Sonoma.Core.Quadtree
             // The flattened world the LOD measures in, which needs a bound on the terrain's height,
             // and so the macro layer's. Before the selector, which copies the LodMath.
             _lod = _lod.WithVertical(LodVertical.Create(Surface, Settings.LodVerticalScale,
-                                     TerrainHeightFunction.MaxAbsHeight(_params, _macro.Params)));
+                                     _macro.MaxAbsHeight(_params)));
             if (!_lod.Vertical.IsIdentity)
                 Debug.Log($"[TerrainRoot] LOD measures distance with terrain heights scaled by " +
                           $"{_lod.Vertical.Scale:G3}, within a height envelope of " +
@@ -259,6 +259,7 @@ namespace Sonoma.Core.Quadtree
             MacroConfig config = Settings.Macro.ToConfig();
             var p  = MacroParams.Create(Surface, _params, config);
             var cp = ContinentParams.Create(Surface, p, config);
+            var ep = ErosionParams.Create(Surface, _params, p, config);
             int unread = p.UnreadLevels(Settings.MaxDepth);
             if (unread > 0)
                 Debug.LogWarning(
@@ -270,7 +271,7 @@ namespace Sonoma.Core.Quadtree
 
             if (cp.Enabled) WarnContinents(p, cp, config.Continents.Value);
 
-            var maps = MacroMaps.Build(Surface, Roots, p, cp);
+            var maps = MacroMaps.Build(Surface, Roots, p, cp, _params, ep);
             Debug.Log($"[TerrainRoot] Macro layer '{Settings.Macro.name}': {p.Layout.LevelCount} levels, " +
                       $"{p.Layout.TexelCount:N0} texels ({maps.Bytes / (1024.0 * 1024.0):F1} MB), " +
                       $"octaves up to {p.MaxOctave(p.Layout.LevelCount - 1)}, built in " +
@@ -283,6 +284,17 @@ namespace Sonoma.Core.Quadtree
                           $"coverage {st.CoverageRadius / 1000.0:F0} km, saturation {st.SaturationRadius:F2} micro spacings " +
                           $"({st.WarpedSaturation:F2} warped); detail octaves from {_params.FirstOctave}; stages A " +
                           $"{st.StageAMilliseconds:F1} ms, B {st.StageBMilliseconds:F1} ms, C {st.StageCMilliseconds:F1} ms.");
+            }
+            if (maps.Erosion != null)
+            {
+                // Inside the build time above. Over about a second is decision D4's threshold for
+                // caching the maps to disk (Docs/M5_MacroLayer_Plan.md, E4).
+                ErosionStats e = maps.Erosion;
+                Debug.Log($"[TerrainRoot] Erosion '{Settings.Macro.Erosion.name}': {e.NodeCount:N0} nodes, " +
+                          $"{ep.Iterations} iterations, deepest cut {e.MaxCut:F0} m, base height now within " +
+                          $"±{e.MaxAbsBaseHeight / 1000.0:F2} km; {e.TotalMilliseconds:F1} ms (graph " +
+                          $"{e.GraphMilliseconds:F1}, heights {e.HeightsMilliseconds:F1}, pass {e.PassMilliseconds:F1}, " +
+                          $"wetness {e.WriteMilliseconds:F1}, pyramid {e.PyramidMilliseconds:F1}).");
             }
             return maps;
         }

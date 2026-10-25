@@ -12,6 +12,26 @@ namespace Sonoma.Core.Generation
     // node, a few milliseconds at half a million.
     public static class ErosionChannels
     {
+        // The finest detail octave the erosion pass erodes, Oe (E1): one below the top level's own,
+        // since MaxOctave(d) puts depth d's finest octave at about two vertex spacings, so Oe is the
+        // finest at four or more top-level texels, C1's rule for the detail noise.
+        public static int ErodedOctave(in HeightParams hp, in MacroParams p)
+            => hp.MaxOctave(p.Layout.LevelCount - 1) - 1;
+
+        // T at a top-level node (E1): what TerrainHeightFunction.Height sums at its point for the
+        // octaves to Oe, base height and band gains included -- the function itself, not a copy, so
+        // what the pass erodes is what the terrain draws in those octaves. The macro is read on the
+        // node's own texel, exactly.
+        public static double UnerodedHeight<T>(in HeightParams hp, in MacroParams p, T texels,
+                                               double3 point, int quad, int i, int j)
+            where T : struct, IMacroTexels
+        {
+            int    top   = p.Layout.LevelCount - 1;
+            double cells = p.Layout.Cells(top);
+            var macro = Biomes.Modulate(MacroSampler.Read(texels, p, quad, top, i / cells, j / cells), p, out _);
+            return TerrainHeightFunction.Height(point, ErodedOctave(hp, p), macro, hp);
+        }
+
         // log(A / a) / log(Q / a), saturated to 0..1, where A is the node's drainage area, a its own
         // area and Q a root quad's: 0 on a ridge, which drains only itself, and 1 on a river that
         // drains a quad. Logarithmic, because drainage area spans the whole range from a texel to a
