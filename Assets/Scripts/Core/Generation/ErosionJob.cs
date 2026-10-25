@@ -27,7 +27,15 @@ namespace Sonoma.Core.Generation
     // ErosionPass.Run in Burst over a NativeErosionGraph. One job, single-threaded: the flood, the
     // stack and the incision are sequential passes, and the pass is the same static function as the
     // managed reference, so the two are equal to the bit (MacroMapsTests).
-    [BurstCompile(CompileSynchronously = true)]
+    //
+    // Burst's safety checks are off for this job alone. With them, the Editor bounds-checked every
+    // one of the pass's array reads, tens of millions a run, and ran it slower than .NET 8 runs the
+    // managed reference: 3.2 s against 2.2 on the terrarium. Every array is the graph's or sized by
+    // Run from its node count, and every index the pass forms is a node, a neighbour slot or a heap
+    // slot below that count, which the managed reference's checked arrays and ErosionPassTests
+    // exercise. A player build has no checks anyway. Jobs > Burst > Safety Checks > Force On turns
+    // them back on, to debug the job in the Editor.
+    [BurstCompile(CompileSynchronously = true, DisableSafetyChecks = true)]
     public struct ErosionJob : IJob
     {
         public ErosionParams Params;
@@ -38,7 +46,7 @@ namespace Sonoma.Core.Generation
         [ReadOnly] public NativeArray<double> Areas;
 
         public NativeArray<double> Heights;
-        public NativeArray<double> Filled, Drainage, Scratch;
+        public NativeArray<double> Filled, Drainage, Scratch, HeapKeys;
         public NativeArray<int>    Receivers, Stack, Heap, State;
 
         public void Execute()
@@ -48,7 +56,7 @@ namespace Sonoma.Core.Generation
                 Neighbours = new Ints(Neighbours), Lengths = new Floats(Lengths), Areas = new Doubles(Areas),
                 Heights = new Doubles(Heights), Filled = new Doubles(Filled), Drainage = new Doubles(Drainage),
                 Receivers = new Ints(Receivers), Stack = new Ints(Stack), Heap = new Ints(Heap),
-                State = new Ints(State), Scratch = new Doubles(Scratch),
+                HeapKeys = new Doubles(HeapKeys), State = new Ints(State), Scratch = new Doubles(Scratch),
             };
             ErosionPass.Run(Params, NodeCount, ref a);
         }
@@ -70,9 +78,10 @@ namespace Sonoma.Core.Generation
                 Receivers = new NativeArray<int>(n, allocator, NativeArrayOptions.UninitializedMemory),
                 Stack     = new NativeArray<int>(n, allocator, NativeArrayOptions.UninitializedMemory),
             };
-            var heap    = new NativeArray<int>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            var state   = new NativeArray<int>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            var scratch = new NativeArray<double>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var heap     = new NativeArray<int>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var heapKeys = new NativeArray<double>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var state    = new NativeArray<int>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var scratch  = new NativeArray<double>(n, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
             try
             {
                 new ErosionJob
@@ -80,7 +89,8 @@ namespace Sonoma.Core.Generation
                     Params = p, NodeCount = n,
                     Neighbours = g.Neighbours, Lengths = g.Lengths, Areas = g.Areas,
                     Heights = heights, Filled = routing.Filled, Drainage = routing.Drainage, Scratch = scratch,
-                    Receivers = routing.Receivers, Stack = routing.Stack, Heap = heap, State = state,
+                    Receivers = routing.Receivers, Stack = routing.Stack, Heap = heap, HeapKeys = heapKeys,
+                    State = state,
                 }.Schedule().Complete();
             }
             catch
@@ -91,6 +101,7 @@ namespace Sonoma.Core.Generation
             finally
             {
                 heap.Dispose();
+                heapKeys.Dispose();
                 state.Dispose();
                 scratch.Dispose();
             }

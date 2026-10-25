@@ -20,6 +20,7 @@ namespace Sonoma.Core.Generation
         public TI Receivers;    // out: each node's receiver; an outlet is its own
         public TI Stack;        // out: nodes in routing order, every receiver before its donors
         public TI Heap;         // scratch: the flood's queue
+        public TD HeapKeys;     // scratch: each queue entry's key, beside it
         public TI State;        // scratch: the flood's visited marks
         public TD Scratch;      // scratch: the diffusion sweep's new heights
     }
@@ -314,32 +315,35 @@ namespace Sonoma.Core.Generation
 
         // ── The flood's queue: a binary heap of nodes, keyed (filled height, index) ──
         //
-        // A total order, so the pop sequence is the same whatever the heap's internal layout.
+        // A total order, so the pop sequence is the same whatever the heap's internal layout. Each
+        // entry carries its key, a node's filled height as it was pushed, in HeapKeys beside Heap: a
+        // comparison then reads the two slots it compares rather than two nodes' filled heights
+        // scattered across the graph. A node's filled height is set once, before its push, so the key
+        // is always the one a comparison through Filled would read, and the pass's results are the
+        // same bits. On the managed reference it saves about 5% of the terrarium's pass (2,205 ms to
+        // 2,100), where routing and drainage are 1,493 ms, incision 375 and diffusion 174.
 
-        static bool Before<TI, TF, TD>(in ErosionArrays<TI, TF, TD> a, int x, int y)
-            where TI : struct, IErosionArray<int>
-            where TF : struct, IErosionArray<float>
-            where TD : struct, IErosionArray<double>
-        {
-            double fx = a.Filled.Get(x), fy = a.Filled.Get(y);
-            return fx < fy || (fx == fy && x < y);
-        }
+        static bool Before(double kx, int x, double ky, int y) => kx < ky || (kx == ky && x < y);
 
         static void Push<TI, TF, TD>(ref ErosionArrays<TI, TF, TD> a, int node, ref int size)
             where TI : struct, IErosionArray<int>
             where TF : struct, IErosionArray<float>
             where TD : struct, IErosionArray<double>
         {
-            int at = size++;
+            double key = a.Filled.Get(node);
+            int    at  = size++;
             while (at > 0)
             {
-                int parent = (at - 1) >> 1;
-                int up     = a.Heap.Get(parent);
-                if (!Before(a, node, up)) break;
+                int    parent = (at - 1) >> 1;
+                int    up     = a.Heap.Get(parent);
+                double upKey  = a.HeapKeys.Get(parent);
+                if (!Before(key, node, upKey, up)) break;
                 a.Heap.Set(at, up);
+                a.HeapKeys.Set(at, upKey);
                 at = parent;
             }
             a.Heap.Set(at, node);
+            a.HeapKeys.Set(at, key);
         }
 
         static int Pop<TI, TF, TD>(ref ErosionArrays<TI, TF, TD> a, ref int size)
@@ -347,24 +351,32 @@ namespace Sonoma.Core.Generation
             where TF : struct, IErosionArray<float>
             where TD : struct, IErosionArray<double>
         {
-            int top  = a.Heap.Get(0);
-            int last = a.Heap.Get(--size);
-            int at   = 0;
+            int    top     = a.Heap.Get(0);
+            int    last    = a.Heap.Get(--size);
+            double lastKey = a.HeapKeys.Get(size);
+            int    at      = 0;
             while (true)
             {
                 int child = 2 * at + 1;
                 if (child >= size) break;
-                int c = a.Heap.Get(child);
+                int    c  = a.Heap.Get(child);
+                double kc = a.HeapKeys.Get(child);
                 if (child + 1 < size)
                 {
-                    int c2 = a.Heap.Get(child + 1);
-                    if (Before(a, c2, c)) { child++; c = c2; }
+                    int    c2 = a.Heap.Get(child + 1);
+                    double k2 = a.HeapKeys.Get(child + 1);
+                    if (Before(k2, c2, kc, c)) { child++; c = c2; kc = k2; }
                 }
-                if (!Before(a, c, last)) break;
+                if (!Before(kc, c, lastKey, last)) break;
                 a.Heap.Set(at, c);
+                a.HeapKeys.Set(at, kc);
                 at = child;
             }
-            if (size > 0) a.Heap.Set(at, last);
+            if (size > 0)
+            {
+                a.Heap.Set(at, last);
+                a.HeapKeys.Set(at, lastKey);
+            }
             return top;
         }
 
@@ -401,6 +413,7 @@ namespace Sonoma.Core.Generation
                 Receivers  = new ErosionGraph.Ints(r.Receivers),
                 Stack      = new ErosionGraph.Ints(r.Stack),
                 Heap       = new ErosionGraph.Ints(new int[n]),
+                HeapKeys   = new ErosionGraph.Doubles(new double[n]),
                 State      = new ErosionGraph.Ints(new int[n]),
                 Scratch    = new ErosionGraph.Doubles(new double[n]),
             };
