@@ -92,7 +92,28 @@ namespace Sonoma.Core.Quadtree
             : TerrainHeightFunction.HeightAtPoint(Surface, surfacePoint, Settings.MaxDepth, _params,
                                                   _macro.Params, _macro.Reader);
 
-        public int ResidentChunks => _selector != null ? _selector.ResidentCount : 0;
+        // Biome weights at a base-surface point, as the deepest chunks classify it; zero without a
+        // macro layer or biomes. For tools (the fly camera's readout).
+        public float4 BiomeWeightsAt(double3 surfacePoint)
+        {
+            if (_selector == null || _macro == null || !_macro.Params.Enabled) return 0f;
+            SurfaceMath.Locate(Surface, surfacePoint, out int quad, out double u, out double v);
+            Biomes.Modulate(MacroSampler.Read(_macro.Reader, _macro.Params, quad,
+                                              _macro.Params.Layout.MacroLevel(Settings.MaxDepth), u, v),
+                            _macro.Params, out float4 weights);
+            return weights;
+        }
+
+        // Biome names in weight order, and whether this scene has continents (so that sea level,
+        // 0, divides ocean from land).
+        public string BiomeName(int slot)
+        {
+            var b = Settings.Macro != null ? Settings.Macro.Biomes : null;
+            return b != null && slot < b.Length && b[slot] != null ? b[slot].name : "Biome " + slot;
+        }
+        public bool HasContinents => Settings != null && Settings.Macro != null && Settings.Macro.Continents != null;
+
+        public int ResidentChunks =>_selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
         public int InFlightJobs   => _scheduler != null ? _scheduler.InFlightCount : 0;
 

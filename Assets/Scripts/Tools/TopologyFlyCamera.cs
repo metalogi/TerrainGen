@@ -86,7 +86,9 @@ public class TopologyFlyCamera : MonoBehaviour
     // than every frame, so the digits stay legible and OnGUI allocates no string per frame.
     const float ReadoutInterval = 0.1f;
     double   _aboveBase, _groundHeight;
+    float4   _biomeWeights;
     string   _readout = "";
+    float    _readoutHeight = 66f;
     float    _readoutAt = float.NegativeInfinity;
     GUIStyle _readoutStyle;
 
@@ -198,8 +200,22 @@ public class TopologyFlyCamera : MonoBehaviour
             _readout   = "Above base surface  " + FormatLength(_aboveBase) +
                          "\nGround above base   " + FormatLength(_groundHeight) +
                          "\nClearance           " + FormatLength(_aboveBase - _groundHeight);
+            int lines = 3;
+            if (Terrain != null && Terrain.HasContinents)
+            {
+                _readout += "\nSurface             " + (_groundHeight > 0.0 ? "Land" : "Ocean");
+                lines++;
+            }
+            if (math.csum(_biomeWeights) > 0f)
+                for (int b = 0; b < 4; b++)
+                {
+                    if (b > 0 && _biomeWeights[b] == 0f && Terrain.BiomeName(b).StartsWith("Biome ")) continue;
+                    _readout += "\n" + Terrain.BiomeName(b).PadRight(20) + _biomeWeights[b].ToString("F3");
+                    lines++;
+                }
+            _readoutHeight = 6f + lines * 20f;
         }
-        GUI.Box(new Rect(10f, 10f, 300f, 66f), _readout, _readoutStyle);
+        GUI.Box(new Rect(10f, 10f, 300f, _readoutHeight), _readout, _readoutStyle);
     }
 
     // Metres to a kilometre, then kilometres: one format from two metres up to beyond orbit.
@@ -333,6 +349,7 @@ public class TopologyFlyCamera : MonoBehaviour
         {
             _aboveBase    = renderPos.y;
             _groundHeight = 0.0;
+            _biomeWeights = 0f;
             return renderPos.y;
         }
         double3 abs = RenderToAbsoluteWorld(renderPos);
@@ -362,6 +379,7 @@ public class TopologyFlyCamera : MonoBehaviour
         }
         _aboveBase    = elevation;
         _groundHeight = Terrain.HeightAt(basePoint);
+        _biomeWeights = Terrain.BiomeWeightsAt(basePoint);
         return (float)(_aboveBase - _groundHeight);
     }
 }
