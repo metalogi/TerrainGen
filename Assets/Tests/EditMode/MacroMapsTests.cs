@@ -467,6 +467,20 @@ namespace Sonoma.Tests
                     Assert.AreEqual(want.CoarseOctaveAmplitude, k.CoarseOctaveAmplitude, $"{m.ContinentAsset}: CoarseOctaveAmplitude");
                 }
 
+                // Erosion (M5c-1): the asset the scene's copy names, field for field, or none.
+                if (m.ErosionAsset == null)
+                    Assert.IsNull(a.Erosion, $"{m.Asset}: erosion the copy does not have");
+                else
+                {
+                    Assert.AreEqual(m.ErosionAsset, AssetDatabase.GetAssetPath(a.Erosion), $"{m.Asset}: Erosion");
+                    ErosionConfig e = a.Erosion.ToConfig(), want = m.Erosion.Value;
+                    Assert.AreEqual(want.Iterations,    e.Iterations,    $"{m.ErosionAsset}: Iterations");
+                    Assert.AreEqual(want.IncisionDepth, e.IncisionDepth, $"{m.ErosionAsset}: IncisionDepth");
+                    Assert.AreEqual(want.AreaExponent,  e.AreaExponent,  $"{m.ErosionAsset}: AreaExponent");
+                    Assert.AreEqual(want.Diffusion,     e.Diffusion,     $"{m.ErosionAsset}: Diffusion");
+                    Assert.AreEqual(want.BaseLevel,     e.BaseLevel,     $"{m.ErosionAsset}: BaseLevel");
+                }
+
                 // And the scene draws with the biome material, keyword on (C9), and with its sky:
                 // the sky keyword on and haze configured (M5b).
                 var material = SceneMaterial(root, out string materialPath);

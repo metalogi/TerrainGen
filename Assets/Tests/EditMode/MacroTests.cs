@@ -105,6 +105,18 @@ namespace Sonoma.Tests
             // (ReliefMeasurements).
             public double     ReliefFactor = MacroReliefFactor;
 
+            // Macro erosion (M5c-1): the ErosionSettings asset and its copy, or none. MacroMapsTests
+            // holds the copy to the asset. Config leaves it out, and every figure pinned from Config
+            // -- relief factors, envelopes, working sets, skirt shares -- is the uneroded terrain's
+            // until E5's re-measurement; ErodedConfig is the configuration the scene runs.
+            public string         ErosionAsset;
+            public ErosionConfig? Erosion;
+
+            public MacroConfig ErodedConfig
+            {
+                get { var c = Config; c.Erosion = Erosion; return c; }
+            }
+
             public MacroConfig Config => new MacroConfig
             {
                 LevelCount = Levels, Wavelength0 = MacroWavelength0, Persistence = MacroPersistence,
@@ -204,7 +216,16 @@ namespace Sonoma.Tests
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
                              LowBandEdge = 2000.0, MidBandEdge = 50.0, RuggednessMin = 0.5f, RuggednessMax = 1f,
-                             RuggednessCentre = 0.5f },
+                             RuggednessCentre = 0.5f,
+                             // M5c-1's first erosion, a starting point to tune with the export. Outlets
+                             // at +68 m, D1's sea level, which leaves 29.8% of the uneroded terrarium
+                             // above it. Measured on the managed build (2026-10-25): land cut 12 m at
+                             // the median, 30 at the 90th percentile and 69 at the 99th, 258 m at
+                             // most; diffusion number 0.059; the envelope 2,593 m -> 2,318 m, since
+                             // the stored base height, +-217 m, is under its analytic bound.
+                             ErosionAsset = "Assets/Settings/TerrariumErosion.asset",
+                             Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 4000f, AreaExponent = 0.45f,
+                                                           Diffusion = 0.02f, BaseLevel = 68f } },
         };
 
         // A stress scene's continents: K9's defaults with the scene's land fraction, heights and
