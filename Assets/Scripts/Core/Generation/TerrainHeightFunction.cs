@@ -99,20 +99,6 @@ namespace Sonoma.Core.Generation
         // peaks and it, and skirts longer than they need to be at the coarsest depths.
         public static double MaxAbsHeight(in HeightParams p, in MacroParams macro)
         {
-            float3 band = macro.Enabled ? macro.MaxBandAmplitude : new float3(1f);
-
-            double detail = 0.0;
-            for (int k = 0; k < p.OctaveCount; k++)
-            {
-                // The band as LatticeNoise.Fbm applies it, and the fall-off as it does too. The
-                // continental band at its own amplitude, which is none when it is dropped.
-                float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
-                if (k >= p.FirstOctave)
-                    detail += p.OctaveAmplitude(k) * math.abs(gain);
-                else
-                    detail += p.OctaveAmplitude(k) * math.abs(gain) * math.abs(1.0 + p.CoarseGain);
-            }
-
             double baseHeight = 0.0;
             if (macro.Enabled)
             {
@@ -133,7 +119,40 @@ namespace Sonoma.Core.Generation
                     baseHeight += macro.ContinentBound * MacroSampler.MaxOvershoot;
             }
 
-            return math.abs(p.HeightScale) * detail + baseHeight;
+            return DetailBound(p, macro) + baseHeight;
+        }
+
+        // The same bound over eroded maps (M5c, E5). Erosion writes the base height channel as
+        // T' - detail(0 .. Oe), which can leave the analytic base-height bound by up to the detail
+        // bound, so the base-height term becomes the largest |BaseHeight'| the build stored, every
+        // level, times the read's overshoot; the detail term is unchanged, every octave at its
+        // largest amplitude. Without erosion it is the analytic bound above, to the bit, so every
+        // envelope and LodVertical anchor without erosion stays as it was. MacroMaps.MaxAbsHeight
+        // passes its build's measured maximum.
+        public static double MaxAbsHeight(in HeightParams p, in MacroParams macro, double maxAbsBaseHeight)
+        {
+            if (!macro.Enabled || !macro.HasErosion) return MaxAbsHeight(p, macro);
+            return DetailBound(p, macro) + maxAbsBaseHeight * MacroSampler.MaxOvershoot;
+        }
+
+        // The detail noise's share of the bound: every octave at the largest amplitude its band can
+        // take anywhere, the noise at its bound of 1.
+        static double DetailBound(in HeightParams p, in MacroParams macro)
+        {
+            float3 band = macro.Enabled ? macro.MaxBandAmplitude : new float3(1f);
+
+            double detail = 0.0;
+            for (int k = 0; k < p.OctaveCount; k++)
+            {
+                // The band as LatticeNoise.Fbm applies it, and the fall-off as it does too. The
+                // continental band at its own amplitude, which is none when it is dropped.
+                float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
+                if (k >= p.FirstOctave)
+                    detail += p.OctaveAmplitude(k) * math.abs(gain);
+                else
+                    detail += p.OctaveAmplitude(k) * math.abs(gain) * math.abs(1.0 + p.CoarseGain);
+            }
+            return math.abs(p.HeightScale) * detail;
         }
     }
 }

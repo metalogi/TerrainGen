@@ -72,9 +72,37 @@ namespace Sonoma.Core.Generation
             => Build(s, roots, p, ContinentParams.None, out _);
 
         // The same with continents (K1): Stages A to C into a continent channel, then every texel
-        // with its continent height, then the edge copies.
+        // with its continent height, then the edge copies. Refuses erosion, which needs the overload
+        // below: these maps would be the uneroded ones.
         public static float4[] Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp,
                                      out ContinentMap map)
+        {
+            ErosionBuild.Check(p, ErosionParams.None);
+            return Texels(s, roots, p, cp, out map);
+        }
+
+        // Everything, erosion included (M5c-1): the maps above, then ErosionBuild.Erode on them. The
+        // drainage maps come back beside the texels, cleared and one element long without erosion,
+        // as MacroMaps holds them.
+        public static float4[] Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp,
+                                     in HeightParams hp, in ErosionParams ep, out ContinentMap map,
+                                     out float2[] drainage, out ErosionBuild.Managed erosion, out ErosionStats stats)
+        {
+            ErosionBuild.Check(p, ep);
+            float4[] texels = Texels(s, roots, p, cp, out map);
+            drainage = new float2[ep.Enabled ? p.Layout.TexelCount : 1];
+            erosion  = null;
+            stats    = null;
+            if (ep.Enabled)
+            {
+                stats   = new ErosionStats();
+                erosion = ErosionBuild.Erode(s, roots, hp, p, ep, texels, drainage, MacroPyramidPlan.Create(s, p.Layout), stats);
+            }
+            return texels;
+        }
+
+        static float4[] Texels(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp,
+                               out ContinentMap map)
         {
             CheckContinents(p, cp);
             map = null;

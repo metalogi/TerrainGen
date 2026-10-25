@@ -14,6 +14,7 @@ namespace Sonoma.Core.Generation
         public int Cells, NodeCount;
         public NativeArray<int>    NodeOf;       // graph texel -> node
         public NativeArray<int>    NodeTexel;    // node -> its owner's graph texel
+        public NativeArray<double3> Points;      // graph texel -> its surface point, from managed code
         public NativeArray<int>    Neighbours;   // -1 for none
         public NativeArray<float>  Lengths;
         public NativeArray<double> Areas;
@@ -22,6 +23,7 @@ namespace Sonoma.Core.Generation
         {
             if (NodeOf.IsCreated)     NodeOf.Dispose();
             if (NodeTexel.IsCreated)  NodeTexel.Dispose();
+            if (Points.IsCreated)     Points.Dispose();
             if (Neighbours.IsCreated) Neighbours.Dispose();
             if (Lengths.IsCreated)    Lengths.Dispose();
             if (Areas.IsCreated)      Areas.Dispose();
@@ -51,17 +53,18 @@ namespace Sonoma.Core.Generation
                               new Ints(Neighbours), new Floats(Lengths), new Doubles(Areas));
         }
 
-        // Builds the graph and waits. The points are freed here; everything else is the caller's.
+        // Builds the graph and waits. Everything it returns is the caller's to dispose.
         public static NativeErosionGraph Build(in SurfaceDef s, RootQuad[] roots, in MacroLayout layout, Allocator allocator)
         {
             var g      = ErosionGraph.Prepare(s, roots, layout);
-            var points = new NativeArray<double3>(g.Points, Allocator.TempJob);
+            var points = new NativeArray<double3>(g.Points, allocator);
             var graph  = new NativeErosionGraph
             {
                 Cells      = g.Cells,
                 NodeCount  = g.NodeCount,
                 NodeOf     = new NativeArray<int>(g.NodeOf, allocator),
                 NodeTexel  = new NativeArray<int>(g.NodeTexel, allocator),
+                Points     = points,
                 Neighbours = new NativeArray<int>(g.NodeCount * ErosionGraph.MaxNeighbours, allocator, NativeArrayOptions.UninitializedMemory),
                 Lengths    = new NativeArray<float>(g.NodeCount * ErosionGraph.MaxNeighbours, allocator, NativeArrayOptions.UninitializedMemory),
                 Areas      = new NativeArray<double>(g.NodeCount, allocator, NativeArrayOptions.UninitializedMemory),
@@ -79,10 +82,6 @@ namespace Sonoma.Core.Generation
             {
                 graph.Dispose();
                 throw;
-            }
-            finally
-            {
-                points.Dispose();
             }
             return graph;
         }

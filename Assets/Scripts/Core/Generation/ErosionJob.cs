@@ -2,6 +2,7 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Mathematics;
 
 namespace Sonoma.Core.Generation
 {
@@ -96,9 +97,10 @@ namespace Sonoma.Core.Generation
             return routing;
         }
 
-        // The graph's arrays are read-only to the job and never written through these: the pass
-        // writes only its own.
-        struct Ints : IErosionArray<int>
+        // NativeArrays as the erosion code's arrays, inside the jobs and, for MacroMaps.Build's
+        // managed steps, on the main thread. The graph's arrays are read-only to the job and never
+        // written through these: the pass writes only its own.
+        public struct Ints : IErosionArray<int>
         {
             NativeArray<int> _a;
             public Ints(NativeArray<int> a) { _a = a; }
@@ -106,7 +108,7 @@ namespace Sonoma.Core.Generation
             public void Set(int index, int value) => _a[index] = value;
         }
 
-        struct Floats : IErosionArray<float>
+        public struct Floats : IErosionArray<float>
         {
             NativeArray<float> _a;
             public Floats(NativeArray<float> a) { _a = a; }
@@ -114,12 +116,54 @@ namespace Sonoma.Core.Generation
             public void  Set(int index, float value) => _a[index] = value;
         }
 
-        struct Doubles : IErosionArray<double>
+        public struct Doubles : IErosionArray<double>
         {
             NativeArray<double> _a;
             public Doubles(NativeArray<double> a) { _a = a; }
             public double Get(int index)               => _a[index];
             public void   Set(int index, double value) => _a[index] = value;
+        }
+
+        public struct Float2s : IErosionArray<float2>
+        {
+            NativeArray<float2> _a;
+            public Float2s(NativeArray<float2> a) { _a = a; }
+            public float2 Get(int index)               => _a[index];
+            public void   Set(int index, float2 value) => _a[index] = value;
+        }
+
+        public struct Float4s : IErosionArray<float4>
+        {
+            NativeArray<float4> _a;
+            public Float4s(NativeArray<float4> a) { _a = a; }
+            public float4 Get(int index)               => _a[index];
+            public void   Set(int index, float4 value) => _a[index] = value;
+        }
+    }
+
+    // T at every node of the graph (E1), in parallel: ErosionChannels.UnerodedHeight, the managed
+    // reference's own function, at the node's managed point, reading the generated maps on its
+    // texel.
+    [BurstCompile(CompileSynchronously = true)]
+    public struct ErosionHeightJob : IJobParallelFor
+    {
+        public HeightParams Height;
+        public MacroParams  Macro;
+        public int          Cells;
+
+        [ReadOnly] public NativeArray<float4>  Texels;
+        [ReadOnly] public NativeArray<float2>  Drainage;
+        [ReadOnly] public NativeArray<int>     NodeTexel;
+        [ReadOnly] public NativeArray<double3> Points;
+
+        [WriteOnly] public NativeArray<double> Heights;
+
+        public void Execute(int node)
+        {
+            int texel = NodeTexel[node];
+            ErosionGraph.Coords(Cells, texel, out int q, out int i, out int j);
+            Heights[node] = ErosionChannels.UnerodedHeight(Height, Macro, new MacroMapReader(Texels, Drainage),
+                                                           Points[texel], q, i, j);
         }
     }
 }

@@ -91,13 +91,15 @@ static class MacroMapExport
         MacroConfig config = t.Macro.ToConfig();
         var mp = MacroParams.Create(s, hp, config);
         var cp = ContinentParams.Create(s, mp, config);
+        var ep = ErosionParams.Create(s, hp, mp, config);
 
         float4[]     texels;
         double       buildMs;
         ContinentMap map;
         // Keeping the top level's nearest micro seeds and coast distances, which the continent
-        // images draw, rather than running Stages A and B again here.
-        using (var maps = MacroMaps.Build(s, roots, mp, cp, keepTopTexels: true))
+        // images draw, rather than running Stages A and B again here. With erosion the base height
+        // is the eroded one; its own images are M5c-1's task 7.
+        using (var maps = MacroMaps.Build(s, roots, mp, cp, hp, ep, keepTopTexels: true))
         {
             texels  = maps.Texels.ToArray();
             buildMs = maps.BuildMilliseconds;

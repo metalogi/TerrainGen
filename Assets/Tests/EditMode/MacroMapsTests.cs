@@ -288,6 +288,56 @@ namespace Sonoma.Tests
             }
         }
 
+        // The whole erosion build (M5c-1, task 6): MacroMaps.Build's Burst graph, heights, pass and
+        // pyramid against the managed builder's, with and without continents, to the bit.
+        [Test]
+        public void ErodedMapsMatchTheManagedBuild()
+        {
+            foreach (var c in ErosionBuildTests.Cases(ErosionBuildTests.Incising(diffusion: 0.1f)))
+            {
+                var managed = ErosionBuildTests.Build(c, out float2[] drainage, out _, out ErosionStats stats);
+                using var maps = MacroMaps.Build(c.Surface, c.Roots, c.Macro, c.Continents, c.Height, c.Erosion);
+
+                Assert.AreEqual(managed.Length,  maps.Texels.Length,   c.Name);
+                Assert.AreEqual(drainage.Length, maps.Drainage.Length, c.Name);
+                int differ = 0;
+                for (int t = 0; t < managed.Length; t++)
+                {
+                    if (math.any(math.asuint(managed[t])  != math.asuint(maps.Texels[t])))   differ++;
+                    if (math.any(math.asuint(drainage[t]) != math.asuint(maps.Drainage[t]))) differ++;
+                }
+                Assert.AreEqual(0, differ, $"{c.Name}: {differ} texels differ between Burst and managed");
+                Assert.AreEqual(stats.NodeCount,        maps.Erosion.NodeCount,        c.Name);
+                Assert.AreEqual(stats.MaxCut,           maps.Erosion.MaxCut,           c.Name);
+                Assert.AreEqual(stats.MaxAbsBaseHeight, maps.Erosion.MaxAbsBaseHeight, c.Name);
+                Assert.AreEqual(TerrainHeightFunction.MaxAbsHeight(c.Height, c.Macro, stats.MaxAbsBaseHeight),
+                                maps.MaxAbsHeight(c.Height), c.Name);
+            }
+        }
+
+        // The drainage pyramid and the fold (M5c-1, E4): ErosionPyramidJob runs ErosionPyramid.Run,
+        // the managed reference's own functions, so both arrays are equal to the bit.
+        [Test]
+        public void ErosionPyramidJobMatchesTheManagedPyramid()
+        {
+            foreach (var c in ErosionPyramidTests.Cases())
+            {
+                var texels   = (float4[])c.Texels.Clone();
+                var drainage = (float2[])c.Drainage.Clone();
+                ErosionPyramid.Run(texels, drainage, c.Layout, c.Plan);
+
+                using var nativeTexels   = new NativeArray<float4>(c.Texels,   Allocator.TempJob);
+                using var nativeDrainage = new NativeArray<float2>(c.Drainage, Allocator.TempJob);
+                ErosionPyramidJob.Run(nativeTexels, nativeDrainage, c.Layout, c.Plan);
+
+                for (int t = 0; t < texels.Length; t++)
+                {
+                    Assert.AreEqual(math.asuint(texels[t]),   math.asuint(nativeTexels[t]),   $"{c.Name}: texel {t}");
+                    Assert.AreEqual(math.asuint(drainage[t]), math.asuint(nativeDrainage[t]), $"{c.Name}: drainage {t}");
+                }
+            }
+        }
+
         // The job's overload refuses a channel or a plan that does not fit the layout before it
         // schedules anything: in a build the job would otherwise read and write outside the array.
         [Test]

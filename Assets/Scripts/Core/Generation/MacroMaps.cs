@@ -73,18 +73,33 @@ namespace Sonoma.Core.Generation
         // continents. Managed and small: a few thousand seeds and a bucket grid.
         public ContinentMap        Continents        { get; }
 
+        // What the erosion build measured, or null without erosion (M5c-1).
+        public ErosionStats        Erosion           { get; }
+
         MacroMaps(NativeArray<float4> texels, NativeArray<float2> drainage, in MacroParams p,
-                  double buildMilliseconds, ContinentMap continents)
+                  double buildMilliseconds, ContinentMap continents, ErosionStats erosion)
         {
             _texels           = texels;
             _drainage         = drainage;
             Params            = p;
             BuildMilliseconds = buildMilliseconds;
             Continents        = continents;
+            Erosion           = erosion;
         }
+
+        // A bound on |Height| over these maps (E5): the analytic one without erosion, to the bit,
+        // and with it the largest |BaseHeight'| the build stored in place of the base height's
+        // analytic term, since erosion writes the channel and no formula bounds it any more.
+        public double MaxAbsHeight(in HeightParams hp)
+            => TerrainHeightFunction.MaxAbsHeight(hp, Params, Erosion != null ? Erosion.MaxAbsBaseHeight : 0.0);
 
         public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p)
             => Build(s, roots, p, ContinentParams.None);
+
+        // Without erosion, which the overload below refuses here: these would be the uneroded maps.
+        public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp,
+                                      bool keepTopTexels = false)
+            => Build(s, roots, p, cp, default, ErosionParams.None, keepTopTexels);
 
         // With continents, K1's sequence (Docs/Continents_Plan.md): the continent map with its
         // texel scan in Burst (Stage A), the field at the top level (B), the pyramid filtered down
@@ -92,15 +107,23 @@ namespace Sonoma.Core.Generation
         // is temporary, freed before this returns. keepTopTexels keeps, on the continent map, each
         // top-level texel's nearest micro seed and coast distance, for tools that draw them
         // (ContinentMap.TopMicro and TopCoast).
+        //
+        // With erosion, ErosionBuild's sequence after that, the graph, the heights, the pass and the
+        // pyramid in Burst (Erode, below). hp is the terrain's own height parameters, whose detail
+        // octaves the pass erodes with the base height (E1); it is read only with erosion.
         public static MacroMaps Build(in SurfaceDef s, RootQuad[] roots, in MacroParams p, in ContinentParams cp,
-                                      bool keepTopTexels = false)
+                                      in HeightParams hp, in ErosionParams ep, bool keepTopTexels = false)
         {
             MacroGenerator.CheckContinents(p, cp);
+            ErosionBuild.Check(p, ep);
 
             var clock  = Stopwatch.StartNew();
             var texels = new NativeArray<float4>(p.Layout.TexelCount, Allocator.Persistent,
                                                  NativeArrayOptions.UninitializedMemory);
-            ContinentMap map = null;
+            var drainage = default(NativeArray<float2>);
+            ContinentMap     map     = null;
+            ErosionStats     erosion = null;
+            MacroPyramidPlan plan    = null;
             // Everything that can throw is inside the try, so a failed build frees the pyramid
             // rather than leaking 8-12 MB of persistent memory that nothing owns: TerrainRoot.Start
             // aborts with no MacroMaps to dispose, and the leak would be reported at the next
@@ -131,7 +154,7 @@ namespace Sonoma.Core.Generation
                         map.Stats.StageBMilliseconds = stage.Elapsed.TotalMilliseconds;
 
                         stage.Restart();
-                        var plan = MacroPyramidPlan.Create(s, p.Layout);
+                        plan = MacroPyramidPlan.Create(s, p.Layout);
                         MacroPyramidJob.Run(continent, p.Layout, plan, MacroPyramidTop.FilterAndFill);
                         map.Stats.StageCMilliseconds = stage.Elapsed.TotalMilliseconds;
 
@@ -152,6 +175,12 @@ namespace Sonoma.Core.Generation
                     // order is enough (MacroLayout.EdgeSource). A few thousand texels; main thread.
                     foreach (int2 c in copies)
                         texels[c.x] = texels[c.y];
+
+                    // Cleared: the pass writes the top level inside the quads and the pyramid the
+                    // rest, and the heights read wetness 0 from it before either.
+                    drainage = new NativeArray<float2>(ep.Enabled ? p.Layout.TexelCount : 1, Allocator.Persistent);
+                    if (ep.Enabled)
+                        erosion = Erode(s, roots, hp, p, ep, texels, drainage, plan ?? MacroPyramidPlan.Create(s, p.Layout));
                 }
                 finally
                 {
@@ -163,13 +192,68 @@ namespace Sonoma.Core.Generation
             catch
             {
                 texels.Dispose();
+                if (drainage.IsCreated) drainage.Dispose();
                 throw;
             }
 
-            // Cleared, so until the erosion pass writes it (M5c-1, task 6) every read takes
-            // wetness 0, the identity.
-            var drainage = new NativeArray<float2>(p.HasErosion ? p.Layout.TexelCount : 1, Allocator.Persistent);
-            return new MacroMaps(texels, drainage, p, clock.Elapsed.TotalMilliseconds, map);
+            return new MacroMaps(texels, drainage, p, clock.Elapsed.TotalMilliseconds, map, erosion);
+        }
+
+        // ErosionBuild.Erode's steps on the maps' persistent arrays: the graph, the heights, the pass
+        // and the pyramid in Burst, wetness and D in managed code (ErosionChannels), as the managed
+        // reference does them. Every temporary is freed whether or not a step throws.
+        static ErosionStats Erode(in SurfaceDef s, RootQuad[] roots, in HeightParams hp, in MacroParams p,
+                                  in ErosionParams ep, NativeArray<float4> texels, NativeArray<float2> drainage,
+                                  MacroPyramidPlan plan)
+        {
+            var stats   = new ErosionStats();
+            var clock   = Stopwatch.StartNew();
+            var graph   = ErosionGraphJob.Build(s, roots, p.Layout, Allocator.TempJob);
+            var heights = default(NativeArray<double>);
+            var before  = default(NativeArray<double>);
+            var routing = default(NativeErosionRouting);
+            try
+            {
+                stats.GraphMilliseconds = clock.Elapsed.TotalMilliseconds;
+                stats.NodeCount         = graph.NodeCount;
+
+                clock.Restart();
+                heights = new NativeArray<double>(graph.NodeCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                new ErosionHeightJob
+                {
+                    Height = hp, Macro = p, Cells = graph.Cells, Texels = texels, Drainage = drainage,
+                    NodeTexel = graph.NodeTexel, Points = graph.Points, Heights = heights,
+                }.Schedule(graph.NodeCount, 256).Complete();
+                before = new NativeArray<double>(heights, Allocator.TempJob);
+                stats.HeightsMilliseconds = clock.Elapsed.TotalMilliseconds;
+
+                clock.Restart();
+                routing = ErosionJob.Run(ep, graph, heights, Allocator.TempJob);
+                stats.PassMilliseconds = clock.Elapsed.TotalMilliseconds;
+
+                clock.Restart();
+                ErosionChannels.WriteTop(p.Layout, graph.Cells, graph.NodeOf.Length, ep.QuadArea,
+                                         new ErosionJob.Ints(graph.NodeOf), new ErosionJob.Doubles(graph.Areas),
+                                         new ErosionJob.Doubles(routing.Drainage), new ErosionJob.Doubles(before),
+                                         new ErosionJob.Doubles(heights), new ErosionJob.Float2s(drainage));
+                double cut = 0.0;
+                for (int i = 0; i < graph.NodeCount; i++) cut = math.max(cut, before[i] - heights[i]);
+                stats.MaxCut            = cut;
+                stats.WriteMilliseconds = clock.Elapsed.TotalMilliseconds;
+
+                clock.Restart();
+                ErosionPyramidJob.Run(texels, drainage, p.Layout, plan);
+                stats.MaxAbsBaseHeight    = ErosionBuild.MaxAbsBaseHeight(new ErosionJob.Float4s(texels), texels.Length);
+                stats.PyramidMilliseconds = clock.Elapsed.TotalMilliseconds;
+            }
+            finally
+            {
+                graph.Dispose();
+                if (heights.IsCreated) heights.Dispose();
+                if (before.IsCreated)  before.Dispose();
+                routing.Dispose();
+            }
+            return stats;
         }
 
         // No macro layer: Enabled false, and one-texel arrays so the jobs still have a
@@ -177,7 +261,7 @@ namespace Sonoma.Core.Generation
         // the job is scheduled, before the job ever gets to test the flag.
         public static MacroMaps Disabled()
             => new MacroMaps(new NativeArray<float4>(1, Allocator.Persistent), new NativeArray<float2>(1, Allocator.Persistent),
-                             MacroParams.Disabled, 0.0, null);
+                             MacroParams.Disabled, 0.0, null, null);
 
         // A main-thread read, for tools. Generation reads the same maps through the same
         // arithmetic inside the sample jobs.
