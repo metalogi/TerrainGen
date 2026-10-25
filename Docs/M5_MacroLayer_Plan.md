@@ -1048,7 +1048,7 @@ means no erosion.
 | field | meaning |
 |---|---|
 | `Iterations` | implicit steps (start at 30) |
-| `IncisionDepth` | metres a channel draining a whole quad's area is cut down over the run. The asset stores this rather than `K`, which has units of `1/(time × m^(1−2m))`, and `ErosionParams.Create` derives `K Δt` from it. |
+| `IncisionDepth` | metres a channel draining a whole quad's area is cut down over the run. The asset stores this rather than `K`, and `ErosionParams.Create` derives `K Δt` (in `m^(1−2m)`) from it. **Made precise in task 1 (2026-10-24):** with `n = 1` the cut depends on the slope, so the depth is taken at unit slope: `IncisionDepth = Iterations × KΔt × A_quad^m`. That length is also how far a knickpoint climbs such a channel over the run, since `KΔt A^m` is its celerity per step. A channel at slope S is cut about `IncisionDepth × S`, less where it reaches its receiver's height first. `A_quad` is the surface's area over its quad count. |
 | `AreaExponent` | `m`, 0.4 to 0.5 |
 | `Diffusion` | hillslope `κ Δt` per step, as a fraction of a texel² |
 | `BaseLevel` | metres; outlets at or below it |

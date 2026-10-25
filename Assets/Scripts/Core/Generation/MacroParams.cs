@@ -46,6 +46,10 @@ namespace Sonoma.Core.Generation
         // A Voronoi continent map whose height is added to the base height (Docs/Continents_Plan.md).
         // Null, the default, is none, and the maps are M5b's to the bit.
         public ContinentConfig? Continents;
+
+        // Stream-power erosion of the top level (M5c-1). Null, the default, is none, and the maps
+        // are as the generator builds them, to the bit.
+        public ErosionConfig? Erosion;
     }
 
     // Everything the macro generator and the read need, resolved once at setup and copied into

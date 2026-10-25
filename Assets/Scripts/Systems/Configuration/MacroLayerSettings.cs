@@ -96,6 +96,10 @@ namespace Sonoma.Systems.Configuration
                  "cutoff drops the coarse detail octaves it replaces. None means no continents.")]
         public ContinentSettings Continents;
 
+        [Header("Erosion")]
+        [Tooltip("Stream-power erosion of the top level, once, at startup (M5c). None means no erosion.")]
+        public ErosionSettings Erosion;
+
         public MacroConfig ToConfig()
         {
             var biomes = new BiomeConfig[Biomes?.Length ?? 0];
@@ -130,6 +134,7 @@ namespace Sonoma.Systems.Configuration
                 RuggednessGainMin  = RuggednessMin - 1f,
                 RuggednessGainMax  = RuggednessMax - 1f,
                 Continents         = Continents != null ? Continents.ToConfig() : (ContinentConfig?)null,
+                Erosion            = Erosion != null ? Erosion.ToConfig() : (ErosionConfig?)null,
             };
         }
     }
