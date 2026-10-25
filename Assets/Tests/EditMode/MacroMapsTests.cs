@@ -244,6 +244,25 @@ namespace Sonoma.Tests
             }
         }
 
+        // The erosion graph (M5c-1, E2): ErosionGraphJob runs the same Fill as the managed reference,
+        // on the same managed numbering and points, so every array is equal to the bit.
+        [Test]
+        public void ErosionGraphJobMatchesTheManagedGraph()
+        {
+            foreach (var c in ErosionGraphTests.Cases())
+            {
+                var managed = c.Graph;
+                using var native = ErosionGraphJob.Build(c.Surface, c.Roots, c.Layout, Allocator.TempJob);
+
+                Assert.AreEqual(managed.NodeCount, native.NodeCount, c.Name);
+                CollectionAssert.AreEqual(managed.NodeOf,     native.NodeOf.ToArray(),     c.Name + ": nodes");
+                CollectionAssert.AreEqual(managed.NodeTexel,  native.NodeTexel.ToArray(),  c.Name + ": owners");
+                CollectionAssert.AreEqual(managed.Neighbours, native.Neighbours.ToArray(), c.Name + ": neighbours");
+                CollectionAssert.AreEqual(managed.Lengths,    native.Lengths.ToArray(),    c.Name + ": lengths");
+                CollectionAssert.AreEqual(managed.Areas,      native.Areas.ToArray(),      c.Name + ": areas");
+            }
+        }
+
         // The job's overload refuses a channel or a plan that does not fit the layout before it
         // schedules anything: in a build the job would otherwise read and write outside the array.
         [Test]
