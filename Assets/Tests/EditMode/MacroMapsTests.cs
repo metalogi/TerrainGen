@@ -263,6 +263,31 @@ namespace Sonoma.Tests
             }
         }
 
+        // The erosion pass (M5c-1, E3): ErosionJob runs the same ErosionPass.Run as the managed
+        // reference, A^m included through ErosionParams.AreaPower's square roots, so the eroded
+        // heights and the routing are equal to the bit, on pitted ground with incision and diffusion.
+        [Test]
+        public void ErosionJobMatchesTheManagedPass()
+        {
+            foreach (var c in ErosionGraphTests.Cases())
+            {
+                var    h = ErosionPassTests.PittedHeights(c);
+                double u = ErosionPass.DiffusionNumber(1.0, c.Graph.NodeCount, new ErosionGraph.Floats(c.Graph.Lengths));
+                var    p = ErosionPassTests.Params(iterations: 6, kdt: 0.05, kappa: 0.5 / u, mBits: 461);
+                var managed = ErosionPass.Run(p, c.Graph, h);
+
+                using var graph   = ErosionGraphJob.Build(c.Surface, c.Roots, c.Layout, Allocator.TempJob);
+                using var heights = new NativeArray<double>(h, Allocator.TempJob);
+                using var routing = ErosionJob.Run(p, graph, heights, Allocator.TempJob);
+
+                CollectionAssert.AreEqual(managed.Heights,   heights.ToArray(),           c.Name + ": heights");
+                CollectionAssert.AreEqual(managed.Filled,    routing.Filled.ToArray(),    c.Name + ": filled");
+                CollectionAssert.AreEqual(managed.Drainage,  routing.Drainage.ToArray(),  c.Name + ": drainage");
+                CollectionAssert.AreEqual(managed.Receivers, routing.Receivers.ToArray(), c.Name + ": receivers");
+                CollectionAssert.AreEqual(managed.Stack,     routing.Stack.ToArray(),     c.Name + ": stack");
+            }
+        }
+
         // The job's overload refuses a channel or a plan that does not fit the layout before it
         // schedules anything: in a build the job would otherwise read and write outside the array.
         [Test]
