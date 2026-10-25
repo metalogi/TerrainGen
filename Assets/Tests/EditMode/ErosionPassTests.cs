@@ -249,6 +249,82 @@ namespace Sonoma.Tests
             Assert.Throws<ArgumentException>(() => ErosionPass.Run(Params(), g, new double[3]), "wrong length");
         }
 
+        // A plane rising from a sea row at the base level, with a pit far below it in the middle:
+        // the shape of the ring's inland hollows. Node heights by texel; the pit is 2 x 2 nodes.
+        static (ErosionGraph g, double[] h, bool[] pit, bool[] sea) PitAndSea()
+        {
+            var c   = ErosionGraphTests.Make("plane", SurfaceDef.PlaneGrid(1000.0, 1, 1), 8, 2);
+            var g   = c.Graph;
+            var h   = new double[g.NodeCount];
+            var pit = new bool[g.NodeCount];
+            var sea = new bool[g.NodeCount];
+            for (int node = 0; node < g.NodeCount; node++)
+            {
+                ErosionGraph.Coords(g.Cells, g.NodeTexel[node], out _, out int i, out int j);
+                sea[node] = j == 0;
+                pit[node] = (i == 8 || i == 9) && (j == 8 || j == 9);
+                h[node]   = sea[node] ? 0.0 : pit[node] ? -1000.0 : 100.0 + 10.0 * j + 3.0 * math.abs(i - 8);
+            }
+            return (g, h, pit, sea);
+        }
+
+        static double AreaOf(ErosionGraph g, bool[] which)
+        {
+            double a = 0.0;
+            for (int i = 0; i < which.Length; i++) if (which[i]) a += g.Areas[i];
+            return a;
+        }
+
+        // A water body under MinOutletArea is a hollow: its nodes are not outlets, and the land that
+        // drained into it drains on through it to the sea. At 0 every body is an outlet, as before.
+        // Above every body, the largest is still the sea.
+        [Test]
+        public void OnlyLargeWaterBodiesAreSeas()
+        {
+            var (g, h, pit, sea) = PitAndSea();
+            double pitArea = AreaOf(g, pit), seaArea = AreaOf(g, sea);
+            Assert.Less(pitArea, seaArea, "the test's pit is smaller than its sea");
+
+            foreach (var (threshold, pitIsSea) in new[] { (0.0, true), (0.5 * (pitArea + seaArea), false), (10.0 * seaArea, false) })
+            {
+                var p = Params();
+                p.MinOutletArea = threshold;
+                var r = ErosionPass.Run(p, g, h);
+                for (int i = 0; i < g.NodeCount; i++)
+                {
+                    if (sea[i]) Assert.AreEqual(i, r.Receivers[i], $"threshold {threshold}: sea node {i} is not an outlet");
+                    if (pit[i]) Assert.AreEqual(pitIsSea, r.Receivers[i] == i, $"threshold {threshold}: pit node {i}");
+                    // Every node's water ends in an outlet, and past the threshold, in the sea row.
+                    int x = i;
+                    while (r.Receivers[x] != x) x = r.Receivers[x];
+                    if (!pitIsSea) Assert.IsTrue(sea[x], $"threshold {threshold}: node {i} drains to {x}, not the sea");
+                }
+            }
+        }
+
+        // A river entering a lake is cut towards the lake's surface, never its floor. With incision
+        // strong enough to bring a node all the way to its target in one step, nothing outside the
+        // pit may end below the base level: the sea row is at it, and the pit's surface is its spill
+        // point, on land above it. Cut to the pit's floor, the nodes around it would fall towards
+        // -1,000 m.
+        [Test]
+        public void IncisionStopsAtTheLakeSurface()
+        {
+            var (g, h, pit, sea) = PitAndSea();
+            var p = Params(iterations: 1, kdt: 1e9);
+            p.MinOutletArea = 0.5 * (AreaOf(g, pit) + AreaOf(g, sea));
+            var r = ErosionPass.Run(p, g, h);
+
+            int cut = 0;
+            for (int i = 0; i < g.NodeCount; i++)
+            {
+                if (pit[i]) continue;
+                Assert.GreaterOrEqual(r.Heights[i], 0.0, $"node {i} was cut below the lake's surface");
+                if (r.Heights[i] < h[i]) cut++;
+            }
+            Assert.Greater(cut, g.NodeCount / 4, "the incision did not run");
+        }
+
         [Test]
         public void TwoRunsAreIdentical()
         {

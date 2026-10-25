@@ -99,6 +99,19 @@ namespace Sonoma.Tests
         }
 
         [Test]
+        public void MinOutletAreaIsInQuads()
+        {
+            foreach (var s in Surfaces)
+            {
+                var e = Erosion();
+                e.MinOutletArea = 0.1f;
+                var p = Create(s, Macro(e));
+                Assert.AreEqual(0.1f * p.QuadArea, p.MinOutletArea, 1e-9 * p.QuadArea, s.Type.ToString());
+                Assert.AreEqual(0.0, Create(s, Macro(Erosion())).MinOutletArea, $"{s.Type}: the default makes every body a sea");
+            }
+        }
+
+        [Test]
         public void ZeroIncisionCutsNothing()
         {
             var p = Create(Surfaces[1], Macro(Erosion(depth: 0f, diffusion: 0f)));
@@ -124,6 +137,7 @@ namespace Sonoma.Tests
             e = e0;      e.IncisionDepth = float.NaN;      Refuses(e, "NaN incision");
             e = e0;      e.BaseLevel     = float.PositiveInfinity; Refuses(e, "infinite base level");
             e = e0;      e.Diffusion     = float.NaN;      Refuses(e, "NaN diffusion");
+            e = e0;      e.MinOutletArea = -0.1f;          Refuses(e, "negative minimum outlet area");
             Assert.DoesNotThrow(() => Create(s, Macro(ErosionConfig.Default)), "the default");
 
             var hp = HeightParams.Create(s, 9, 0.0, 12, 100f, 0.5f, 2f, 42u);
