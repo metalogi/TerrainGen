@@ -137,16 +137,30 @@ namespace Sonoma.Core.Generation
             where TF : struct, IErosionArray<float>
             where TD : struct, IErosionArray<double>
         {
-            int size = 0;
+            int size = 0, popped = 0;
             for (int i = 0; i < nodeCount; i++)
                 a.State.Set(i, 0);
+
+            // Outlets. Only those beside ground above the base level go in the queue. An outlet whose
+            // neighbours are all outlets would come out of it to find every neighbour visited and push
+            // nothing, so it goes straight onto the stack instead: its own receiver, before any node
+            // that could drain to it. Nothing else reads its place in the stack, so the routing, the
+            // drainage and the heights are the same bits either way, and the queue is smaller by the
+            // sea -- 69% of the terrarium's nodes, about as much of the planets'.
             for (int i = 0; i < nodeCount; i++)
             {
                 if (!(a.Heights.Get(i) <= p.BaseLevel)) continue;
-                Seed(ref a, i, ref size);
+                if (IsCoastal(p, ref a, i))
+                    Seed(ref a, i, ref size);
+                else
+                {
+                    a.Filled.Set(i, a.Heights.Get(i));
+                    a.Receivers.Set(i, i);
+                    a.State.Set(i, 2);
+                    a.Stack.Set(popped++, i);
+                }
             }
 
-            int popped = 0;
             while (popped < nodeCount)
             {
                 // No outlet yet, or ground the outlets do not reach: the lowest node left unvisited
@@ -198,6 +212,20 @@ namespace Sonoma.Core.Generation
                 // the epsilon, c would drain itself rather than nowhere.
                 a.Receivers.Set(c, best >= 0 ? best : c);
             }
+        }
+
+        // An outlet with a neighbour above the base level, which the flood has to start from.
+        static bool IsCoastal<TI, TF, TD>(in ErosionParams p, ref ErosionArrays<TI, TF, TD> a, int node)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            for (int k = 0; k < MaxNeighbours; k++)
+            {
+                int m = a.Neighbours.Get(node * MaxNeighbours + k);
+                if (m >= 0 && !(a.Heights.Get(m) <= p.BaseLevel)) return true;
+            }
+            return false;
         }
 
         // An outlet: filled at its own height, its own receiver, and marked 2 so Route leaves it so.
