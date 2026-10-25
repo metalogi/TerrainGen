@@ -1305,6 +1305,9 @@ Pure where possible, as before.
   now a water body -- nodes at or below `BaseLevel`, connected -- of at least `MinOutletArea` (in root
   quads), or the largest if none is. A smaller body is a hollow, which the flood fills and rivers
   cross to the sea. At 0 every body is an outlet, the rule as first answered. See amendment 6.
+  **Withdrawn for the scenes (amendment 7):** both run 0 again, every body of water a sea; the
+  setting stays, at 0 the identity. Closed basins above the base level are drained by breaching
+  instead (`BreachDepth`).
 - **D2 — G2 or not.** Built only if G1 in play reads too smooth.
 - **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
   wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two
@@ -1408,7 +1411,41 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
    137), land on a river 0.76% -> 1.73%, wetness over 0.5 1.0% -> 2.05%, and the land cut 45 m at the
    median, 264 at the 99th percentile and 1,632 at most. On the terrarium the median goes from 16
    to 17 and nothing else moves by more than hundredths of a percent. Walking the water bodies
-   each iteration costs about 400 ms of the terrarium's managed pass. Not yet run in the Editor.
+   each iteration costs about 400 ms of the terrarium's managed pass. Run in the Editor, the ring's
+   images hardly changed (amendment 7), and the scenes went back to 0.
+7. **Basins are breached, not crossed (2026-10-25).** The re-exported ring still looked mottled,
+   now with straight-lined fans in its wetness. Measured, with "rivers ÷ slopes" the median cut on
+   land draining at least 0.5% of a quad over the median cut on all land:
+   - **A fifth of the ring's land lay in closed basins** (20.7%, against the terrarium's 0.9%),
+     walled off by its mountain band. The flood fills a basin to a flat lake, which water crosses in
+     parallel lines along the grid (the fans), and incision never cuts a lake bed, so the ring's
+     rivers were cut about 1 m against a land median of 45: no contrast, only hillslope mottling.
+     The terrarium's rivers cut 2.5 times its median.
+   - None of the obvious levers moved it: `m` 0.6, one or two octaves fewer, no diffusion, and
+     three times the incision or iterations or both all left 17 to 21% under a lake. The rims are
+     kilometre-high ridges, which incision notches only from downstream.
+
+   The fix is `BreachDepth` (`ErosionSettings`, metres): before the iterations, the hybrid of
+   breaching and filling (after Lindsay 2016; `ErosionPass.Condition`). A priority flood from the
+   seas, stepping down into a basin, carves a channel from the rim back towards the sea, strictly
+   downhill, if no node falls more than `BreachDepth`; otherwise it fills the basin instead. No
+   channel is carved below the base level, and a basin floor below it is raised to it: carved to
+   their floors, below-sea basins joined the ocean as fjords. 0 is off.
+
+   **The size threshold had to go.** With `MinOutletArea` 0.1, breaching treated the small water
+   bodies as basins, and they include scraps of deep ocean cut off on the texel graph: it raised
+   their floors by up to 9.3 km, and the plains it left at sea level eroded back under it, leaving
+   10.8% under a lake. Area does not tell a dip in a continent from a piece of ocean. So both scenes
+   run 0, every body of water a sea, and breach only basins above the base level:
+
+   | | under a lake | raised (most) | rivers ÷ slopes | deepest cut |
+   |---|---|---|---|---|
+   | ring, no breaching | 5.5% | 6.0% (68 m) | 0.5x | 1,226 m |
+   | **ring, breach 2,000 m** | **0.8%** | 0.9% (52 m) | **3.7x** | 1,761 m |
+   | terrarium, breach 50 m | 0.0% | 0.0% (3 m) | 2.5x | 258 m |
+
+   The ring's rivers stay short: half its land is within 8 steps of water, the continents'
+   coastline. The lake-surface rule from amendment 6 stays. Not yet run in the Editor.
 
 #### Out of scope for M5c
 
