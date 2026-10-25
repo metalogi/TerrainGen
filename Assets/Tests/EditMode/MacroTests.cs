@@ -194,7 +194,19 @@ namespace Sonoma.Tests
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
                              RuggednessCentre = 0.2f, ReliefFactor = 73.0,
                              ContinentAsset = "Assets/Settings/RingworldContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.351f, land: 1500f, ocean: 4500f, cutoff: 250000.0) },
+                             Continents = SceneContinentConfig(landFraction: 0.351f, land: 1500f, ocean: 4500f, cutoff: 250000.0),
+                             // M5c-1's second erosion, to tune with the export. Outlets at sea level, 0,
+                             // the continents' coast. The texels are 4.8 km, so incision needs tens of
+                             // kilometres: on the managed build (2026-10-25), with diffusion off, 30 km
+                             // cut the land 48 m at the 90th percentile and 100 km 155. Diffusion is
+                             // scale-free per texel, and at the terrarium's 0.02 it filled up to 564 m
+                             // against the coasts' kilometres-per-texel slopes and swamped the
+                             // incision; 0.002 fills at most 66 m. As configured the land is cut 60 m at
+                             // the median, 159 at the 90th percentile, 294 at the 99th and 1,226 at most,
+                             // land falls from 30.1% to 29.6%, and the envelope from 32,150 to 31,269 m.
+                             ErosionAsset = "Assets/Settings/RingworldErosion.asset",
+                             Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 100000f, AreaExponent = 0.45f,
+                                                           Diffusion = 0.002f, BaseLevel = 0f } },
             // Continents (D1 crisp, at the ring's shares of HeightScale): land 600 m and ocean
             // 1,800 m, and the macro fBm at 0.3 of M5b's 1,500 m. The plan started it without a
             // cutoff, which left 86% agreement and 28% of the map's land flooded; a 150 km cutoff
