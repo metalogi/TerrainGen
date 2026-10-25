@@ -779,6 +779,20 @@ editing the tasks, so the plan still reads as what was decided up front.
    - `Docs/Continents_Outline.md`.
 5. **Tests.** There are no new tests. The continent tests iterate over every scene with continents, so the two scenes joined them through their `MacroTests.StressMacros` entries. That leaves 168 EditMode tests, 125 of them pure, plus the seven explicit tools; all 125 pure tests pass outside the Editor.
    - **Not yet run in the Editor:** the Burst checks and asset holds for the two new assets, `MacroMapExport` on both scenes, and the play-throughs.
+6. **In the Editor (2026-10-24).** The user reports the macro map exports on both scenes looking good and the play-throughs looking right. The startup and exit logs, with Burst in the Editor:
+
+   | | Small planet | Narrow ring |
+   |---|---|---|
+   | Stage A / B / C | 239–245 / 155–187 / 27–28 ms | 288 / 322 / 51 ms |
+   | The whole macro build | 628–678 ms | 987 ms |
+   | Land share of the map; saturation (warped) | 31.2%; 1.20 (1.13) | 30.0%; 1.32 (1.46, under the 1.55 `CoastWidth` 0.8 allows) |
+   | Detail octaves from; height envelope | 4; 23.2 km | 1; 27.9 km |
+   | Peak working set (budget) | 6,402 and 5,310 over two sessions (8,300) | 2,852 (4,900) |
+   | Slowest rebase | 3.76 ms over 5,182 chunks | 1.03 ms |
+
+   - No relief, budget, band-limit or plateau warning in either scene.
+   - The narrow ring's macro build is the slowest of the five, because its three levels hold the most texels (991,480). Stage B there is the costliest stage of any scene.
+   - The Editor test run is still to be reported.
 
 ---
 
