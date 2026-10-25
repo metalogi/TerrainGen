@@ -494,7 +494,7 @@ namespace Sonoma.Tests
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = _params.MaxOctave(node.Depth), Resolution = R,
-                Macro = macro.Params, MacroTexels = macro.Texels,
+                Macro = macro.Params, MacroTexels = macro.Texels, MacroDrainage = macro.Drainage,
                 BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
             }.Schedule(samples, 64).Complete();
 
@@ -502,7 +502,7 @@ namespace Sonoma.Tests
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = _params.MaxOctave(node.Depth - 1), Resolution = R,
-                Macro = macro.Params, MacroTexels = macro.Texels,
+                Macro = macro.Params, MacroTexels = macro.Texels, MacroDrainage = macro.Drainage,
                 BasePoints = coarsePoints, BaseNormals = coarseNormals, Heights = coarseHeights,
                 Splats = coarseSplats,
             }.Schedule(coarse, 64).Complete();

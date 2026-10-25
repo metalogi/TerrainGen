@@ -135,13 +135,32 @@ namespace Sonoma.Tests
         public void ErosionLeavesTheMacroParametersAlone()
         {
             // Erosion is resolved apart from the generator's parameters, so a configuration with it
-            // builds the same MacroParams as one without: until the pass runs, the maps are the bits.
+            // builds the same MacroParams as one without but for the flag the read takes wetness by,
+            // which the generator does not read: until the pass runs, the maps are the bits.
             foreach (var s in Surfaces)
             {
-                var hp = HeightParams.Create(s, 9, 0.0, 12, 100f, 0.5f, 2f, 42u);
-                Assert.AreEqual(MacroParams.Create(s, hp, Macro(null)),
-                                MacroParams.Create(s, hp, Macro(Erosion())), s.Type.ToString());
+                var hp     = HeightParams.Create(s, 9, 0.0, 12, 100f, 0.5f, 2f, 42u);
+                var eroded = MacroParams.Create(s, hp, Macro(Erosion()));
+                Assert.IsTrue(eroded.HasErosion, s.Type.ToString());
+                Assert.IsFalse(MacroParams.Create(s, hp, Macro(null)).HasErosion, s.Type.ToString());
+                eroded.HasErosion = false;
+                Assert.AreEqual(MacroParams.Create(s, hp, Macro(null)), eroded, s.Type.ToString());
             }
+        }
+
+        // The macro parameters and the erosion parameters must come from one configuration, or the
+        // read would take wetness from maps nothing wrote, or ignore maps the pass did.
+        [Test]
+        public void MismatchedMacroParametersAreRefused()
+        {
+            var s     = Surfaces[0];
+            var hp    = HeightParams.Create(s, 9, 0.0, 12, 100f, 0.5f, 2f, 42u);
+            var with  = Macro(Erosion());
+            var plain = Macro(null);
+            Assert.Throws<ArgumentException>(() => ErosionParams.Create(s, hp, MacroParams.Create(s, hp, plain), with),
+                                             "erosion in the configuration only");
+            Assert.Throws<ArgumentException>(() => ErosionParams.Create(s, hp, MacroParams.Create(s, hp, with), plain),
+                                             "erosion in the macro parameters only");
         }
     }
 }

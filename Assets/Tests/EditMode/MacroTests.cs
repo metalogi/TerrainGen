@@ -563,8 +563,10 @@ namespace Sonoma.Tests
         internal readonly struct ArrayTexels : IMacroTexels
         {
             readonly float4[] _texels;
-            public ArrayTexels(float4[] texels) { _texels = texels; }
-            public float4 Texel(int index) => _texels[index];
+            readonly float2[] _drainage;
+            public ArrayTexels(float4[] texels, float2[] drainage = null) { _texels = texels; _drainage = drainage; }
+            public float4 Texel(int index)    => _texels[index];
+            public float2 Drainage(int index) => _drainage != null ? _drainage[index] : default;
         }
 
         static MacroConfig Config(int levelCount = LevelCount) => new MacroConfig

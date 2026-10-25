@@ -228,7 +228,7 @@ namespace Sonoma.Core.Quadtree
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = oct, Resolution = R,
-                Macro = _macro.Params, MacroTexels = _macro.Texels,
+                Macro = _macro.Params, MacroTexels = _macro.Texels, MacroDrainage = _macro.Drainage,
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
                 Splats = p.Splats,
             }.Schedule(samples, 64);
@@ -237,7 +237,7 @@ namespace Sonoma.Core.Quadtree
             {
                 Surface = _surface, Root = root, Node = node, Params = _params,
                 MaxOctave = coarseOct, Resolution = R,
-                Macro = _macro.Params, MacroTexels = _macro.Texels,
+                Macro = _macro.Params, MacroTexels = _macro.Texels, MacroDrainage = _macro.Drainage,
                 BasePoints = p.CoarsePoints, BaseNormals = p.CoarseNormals, Heights = p.CoarseHeights,
                 Splats = p.CoarseSplats,
             }.Schedule(coarse, 64);

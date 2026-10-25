@@ -88,6 +88,11 @@ namespace Sonoma.Core.Generation
         public bool        HasContinents;
         public double      ContinentBound;
 
+        // Erosion (M5c-1): the maps have a drainage array beside the texels, and the read takes
+        // wetness from it. The generator itself does not read the flag, so the texels it builds
+        // are the same with it or without.
+        public bool        HasErosion;
+
         public static MacroParams Disabled => default;
 
         // The largest amplitude each band of the detail noise -- low, mid, high -- can take
@@ -206,9 +211,12 @@ namespace Sonoma.Core.Generation
             // The continents' own checks, here as well as in ContinentParams.Create, so the bound the
             // envelope is built from comes from a configuration the map would accept.
             c.Continents?.Validate();
+            c.Erosion?.Validate();
 
             return new MacroParams
             {
+                HasErosion              = c.Erosion.HasValue,
+
                 HasContinents           = c.Continents.HasValue,
                 ContinentBound          = c.Continents.HasValue ? c.Continents.Value.Bound : 0.0,
 

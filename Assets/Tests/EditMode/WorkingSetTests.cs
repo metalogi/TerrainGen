@@ -211,6 +211,7 @@ namespace Sonoma.Tests
                         Resolution  = Resolution,
                         Macro       = _macro.Params,
                         MacroTexels = _macro.Texels,
+                        MacroDrainage = _macro.Drainage,
                         BasePoints  = _points[k],
                         BaseNormals = _normals[k],
                         Heights     = _heights[k],

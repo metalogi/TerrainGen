@@ -217,6 +217,8 @@ static class MacroMapExport
         readonly float4[] _texels;
         public ArrayTexels(float4[] texels) { _texels = texels; }
         public float4 Texel(int index) => _texels[index];
+        // The export reads base height and climate; wetness gets its own image in M5c-1, task 7.
+        public float2 Drainage(int index) => default;
     }
 
     // <scene>_biomes.png: what Biomes.Classify makes of each texel's climate, the weights
