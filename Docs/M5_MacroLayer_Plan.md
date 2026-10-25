@@ -1308,8 +1308,9 @@ Pure where possible, as before.
   needs its own addressing. Either is worth deciding only after the terrarium and ring show what
   erosion buys.
 - **D4 — cache the maps to disk.** Depends on the measured erosion time. **Measured (2026-10-25):**
-  9.1 s in the Editor on the terrarium before the flood fix below, and an estimated 3 to 4 s after
-  it, still over the second this section set. No player build has been measured. See amendment 4.
+  9.1 s in the Editor on the terrarium before the flood fix below, and 3.8 s after it, the pass
+  3.2 s of that: still over the second this section set. No player build has been measured. See
+  amendment 4.
 
 #### Building M5c-1: amendments (2026-10-24 to 2026-10-25)
 
@@ -1342,12 +1343,20 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
      whose neighbours are all outlets, which come out of the queue to push nothing. They now go
      straight onto the stack, and only coastal outlets are queued. The heights, filled surface,
      drainage and receivers are unchanged to the byte, on the terrarium and the unit surfaces at
-     three base levels, and the managed pass fell from 5,573 to 2,205 ms. Not yet re-timed in the
-     Editor; at the same ratio the pass would be about 3.4 s there.
+     three base levels, and the managed pass fell from 5,573 to 2,205 ms. **Re-timed in the Editor
+     (2026-10-25):** the macro build 3,767 ms, erosion 3,519 (graph 186, heights 73, **pass 3,187**,
+     wetness 45, pyramid 28), and the session's peak working set 3,396 chunks, under the budget of
+     4,400 and the pinned worst case of 3,880.
    - **The Editor's safety checks.** Burst ran the pass in 8.5 s in the Editor where .NET 8 ran it
      in 5.3 s outside it. The likely cause is the Editor's checks on every array access in this
      access-heavy code. A player build runs without them, so the Editor's figure overstates what
      the plan's target measures.
+   - **Then two more changes.** The flood's heap carries each entry's key beside it, and
+     `ErosionJob` compiles with Burst's safety checks off (`DisableSafetyChecks`; Safety Checks >
+     Force On restores them). Results are again unchanged to the byte. The managed pass fell only
+     5% more, to about 2,100 ms, of which routing and drainage are 1,493, incision 375 and
+     diffusion 174: what remains is the flood itself over the 31% of nodes still queued. The Editor
+     figure is still to be measured.
 
 #### Out of scope for M5c
 
