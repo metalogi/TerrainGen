@@ -1049,8 +1049,8 @@ means no erosion.
 |---|---|
 | `Iterations` | implicit steps (start at 30) |
 | `IncisionDepth` | metres a channel draining a whole quad's area is cut down over the run. The asset stores this rather than `K`, and `ErosionParams.Create` derives `K Δt` (in `m^(1−2m)`) from it. **Made precise in task 1 (2026-10-24):** with `n = 1` the cut depends on the slope, so the depth is taken at unit slope: `IncisionDepth = Iterations × KΔt × A_quad^m`. That length is also how far a knickpoint climbs such a channel over the run, since `KΔt A^m` is its celerity per step. A channel at slope S is cut about `IncisionDepth × S`, less where it reaches its receiver's height first. `A_quad` is the surface's area over its quad count. |
-| `AreaExponent` | `m`, 0.4 to 0.5 |
-| `Diffusion` | hillslope `κ Δt` per step, as a fraction of a texel² |
+| `AreaExponent` | `m`, 0.4 to 0.5. **Task 3 (2026-10-24):** kept to the nearest 1/1024, and `A^m` computed from ten square roots (`ErosionParams.AreaPower`), because Burst's `pow` is not managed code's to the bit; 0.45 runs as 0.4502. |
+| `Diffusion` | hillslope `κ Δt` per step, as a fraction of a texel². **Task 3:** one Jacobi sweep per iteration, the graph laplacian taken as half the sum of `(h_j − h_i) / length²`; `ErosionPass.Validate` refuses a diffusion number over 1, where the sweep would overshoot. A surface with no node at or below `BaseLevel` drains to its lowest node. |
 | `BaseLevel` | metres; outlets at or below it |
 
 #### E4 — A second array for drainage, and a pyramid derived downwards

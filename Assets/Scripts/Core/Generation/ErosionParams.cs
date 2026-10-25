@@ -48,7 +48,8 @@ namespace Sonoma.Core.Generation
     {
         public bool   Enabled;
         public int    Iterations;
-        public double AreaExponent;    // m
+        public int    AreaExponentBits; // m in 1024ths; see AreaPower
+        public double AreaExponent;    // m, as AreaExponentBits gives it
         public double BaseLevel;       // metres
         public double QuadArea;        // one root quad's area: the area IncisionDepth and wetness refer to
 
@@ -69,6 +70,27 @@ namespace Sonoma.Core.Generation
 
         public static ErosionParams None => default;
 
+        // m's resolution: the exponent is taken to the nearest 1/1024.
+        public const int ExponentBits = 10;
+
+        // a^m, from square roots alone. The incision step takes A^m at every node of every
+        // iteration inside a Burst job, and Burst's pow is not managed code's to the bit, which is
+        // the continent jobs' trigonometry rule again. A square root is correctly rounded on both,
+        // so m is kept to ExponentBits binary places, m = sum of b_k 2^-k, and a^m is the product of
+        // a^(2^-k) over the bits that are set: the same operations in the same order in both builds.
+        public static double AreaPower(double a, int mBits)
+        {
+            double r = 1.0, root = a;
+            for (int k = 1; k <= ExponentBits; k++)
+            {
+                root = math.sqrt(root);
+                if (((mBits >> (ExponentBits - k)) & 1) != 0) r *= root;
+            }
+            return r;
+        }
+
+        public double AreaPower(double a) => AreaPower(a, AreaExponentBits);
+
         // Resolves the configuration's erosion for this surface, or None if it has none. Erosion
         // needs a macro layer to write into, so the macro parameters must be enabled and made from
         // the same configuration.
@@ -84,16 +106,18 @@ namespace Sonoma.Core.Generation
 
             double quadArea = ContinentParams.SurfaceArea(s) / s.QuadCount;
             double texel    = ContinentParams.TopTexelSpacing(hp.S0, mp.Layout);
+            int    bits     = math.clamp((int)math.round(e.AreaExponent * (1 << ExponentBits)), 1, (1 << ExponentBits) - 1);
 
             return new ErosionParams
             {
-                Enabled      = true,
-                Iterations   = e.Iterations,
-                AreaExponent = e.AreaExponent,
-                BaseLevel    = e.BaseLevel,
-                QuadArea     = quadArea,
-                KDt          = e.IncisionDepth / (e.Iterations * math.pow(quadArea, (double)e.AreaExponent)),
-                DiffusionKDt = e.Diffusion * texel * texel,
+                Enabled          = true,
+                Iterations       = e.Iterations,
+                AreaExponentBits = bits,
+                AreaExponent     = bits / (double)(1 << ExponentBits),
+                BaseLevel        = e.BaseLevel,
+                QuadArea         = quadArea,
+                KDt              = e.IncisionDepth / (e.Iterations * AreaPower(quadArea, bits)),
+                DiffusionKDt     = e.Diffusion * texel * texel,
             };
         }
     }
