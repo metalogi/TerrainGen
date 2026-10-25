@@ -12,11 +12,13 @@ namespace Sonoma.Core.Generation
         public float IncisionDepth;    // metres; see ErosionParams.KDt
         public float AreaExponent;     // m, the drainage area's exponent
         public float Diffusion;        // hillslope kappa dt per step, in top-level texel spacings squared
-        public float BaseLevel;        // metres; nodes at or below it are outlets
+        public float BaseLevel;        // metres; water bodies below it of at least MinOutletArea are outlets
+        public float MinOutletArea;    // in root quads' area; 0 makes every water body an outlet
 
         public static ErosionConfig Default => new ErosionConfig
         {
             Iterations = 30, IncisionDepth = 0f, AreaExponent = 0.45f, Diffusion = 0f, BaseLevel = 0f,
+            MinOutletArea = 0f,
         };
 
         // Everything the erosion pass assumes of its configuration, checked once.
@@ -26,12 +28,12 @@ namespace Sonoma.Core.Generation
                 throw new ArgumentOutOfRangeException(nameof(Iterations),
                     "ErosionConfig: there must be at least one iteration.");
             if (!IsFinite(IncisionDepth) || !IsFinite(AreaExponent) || !IsFinite(Diffusion) ||
-                !IsFinite(BaseLevel))
+                !IsFinite(BaseLevel) || !IsFinite(MinOutletArea))
                 throw new ArgumentOutOfRangeException(nameof(IncisionDepth),
                     "ErosionConfig: every setting must be finite.");
-            if (IncisionDepth < 0f || Diffusion < 0f)
+            if (IncisionDepth < 0f || Diffusion < 0f || MinOutletArea < 0f)
                 throw new ArgumentOutOfRangeException(nameof(IncisionDepth),
-                    "ErosionConfig: the incision depth and the diffusion must not be negative.");
+                    "ErosionConfig: the incision depth, the diffusion and the minimum outlet area must not be negative.");
             // At 0 every channel incises alike whatever drains into it, and at 1 or above the
             // largest rivers cut so much faster than the rest that one step does all the work.
             if (!(AreaExponent > 0f) || !(AreaExponent < 1f))
@@ -52,6 +54,11 @@ namespace Sonoma.Core.Generation
         public double AreaExponent;    // m, as AreaExponentBits gives it
         public double BaseLevel;       // metres
         public double QuadArea;        // one root quad's area: the area IncisionDepth and wetness refer to
+
+        // Square metres. A water body -- nodes at or below BaseLevel, connected -- is an outlet only
+        // if its area is at least this; a smaller one is a hollow the flood fills and routes over, so
+        // rivers run through it to the sea rather than ending in it. 0 makes every body an outlet.
+        public double MinOutletArea;
 
         // K dt, per step, in m^(1 - 2m). The incision step is h_i <- (h_i + F h_r) / (1 + F), with
         // F = KDt A^m / length (E3), which with n = 1 lowers a node at the explicit rate
@@ -122,6 +129,7 @@ namespace Sonoma.Core.Generation
                 AreaExponent     = bits / (double)(1 << ExponentBits),
                 BaseLevel        = e.BaseLevel,
                 QuadArea         = quadArea,
+                MinOutletArea    = e.MinOutletArea * quadArea,
                 KDt              = e.IncisionDepth / (e.Iterations * AreaPower(quadArea, bits)),
                 DiffusionKDt     = e.Diffusion * texel * texel,
             };

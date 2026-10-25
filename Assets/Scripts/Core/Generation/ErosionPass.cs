@@ -43,9 +43,12 @@ namespace Sonoma.Core.Generation
     //      half the sum over neighbours of (h_j - h_i) / length^2, which on a square D8 grid is the
     //      continuous one to second order.
     //
-    // Outlets are every node at or below BaseLevel, and are neither incised nor diffused. On a
-    // surface with no node that low, the lowest node is the outlet, so all the water still leaves.
-    // The cylinders' rims are not outlets (D1). After the iterations the pass floods, routes and
+    // Outlets are the sea: every water body -- nodes at or below BaseLevel, connected -- of at least
+    // MinOutletArea, or the largest if none is (MarkSeas). They are neither incised nor diffused. A
+    // smaller body is a hollow, which the flood fills and routes rivers through, so they reach the
+    // sea rather than ending in it; on the ring, at a threshold of 0, 60% of the land drained into
+    // hollows under 1% of the water. On a surface with no water at all the lowest node is the
+    // outlet, so all the water still leaves. The cylinders' rims are not outlets (D1). After the iterations the pass floods, routes and
     // drains once more, so the drainage it returns is the eroded surface's, and clamps the heights
     // to the range they started in (E1).
     //
@@ -142,16 +145,18 @@ namespace Sonoma.Core.Generation
             for (int i = 0; i < nodeCount; i++)
                 a.State.Set(i, 0);
 
-            // Outlets. Only those beside ground above the base level go in the queue. An outlet whose
-            // neighbours are all outlets would come out of it to find every neighbour visited and push
+            MarkSeas(p, nodeCount, ref a);
+
+            // Outlets. Only those beside ground that is not sea go in the queue. An outlet whose
+            // neighbours are all sea would come out of it to find every neighbour visited and push
             // nothing, so it goes straight onto the stack instead: its own receiver, before any node
             // that could drain to it. Nothing else reads its place in the stack, so the routing, the
             // drainage and the heights are the same bits either way, and the queue is smaller by the
             // sea -- 69% of the terrarium's nodes, about as much of the planets'.
             for (int i = 0; i < nodeCount; i++)
             {
-                if (!(a.Heights.Get(i) <= p.BaseLevel)) continue;
-                if (IsCoastal(p, ref a, i))
+                if (a.State.Get(i) != Sea) continue;
+                if (IsCoastal(ref a, i))
                     Seed(ref a, i, ref size);
                 else
                 {
@@ -212,11 +217,89 @@ namespace Sonoma.Core.Generation
                 // Reached from a node strictly lower, so there is one; were rounding ever to swallow
                 // the epsilon, c would drain itself rather than nowhere.
                 a.Receivers.Set(c, best >= 0 ? best : c);
+                // Under a lake: the flood raised it above its ground. Incise reads the mark.
+                if (a.Filled.Get(c) > a.Heights.Get(c)) a.State.Set(c, Lake);
             }
         }
 
-        // An outlet with a neighbour above the base level, which the flood has to start from.
-        static bool IsCoastal<TI, TF, TD>(in ErosionParams p, ref ErosionArrays<TI, TF, TD> a, int node)
+        // Route's marks in State: unvisited 0, visited by the flood 1, an outlet placed 2, and before
+        // the flood, Sea for a node of a water body that is an outlet and Measuring while its body is
+        // walked. A body too small to be a sea goes back to 0 and the flood fills it like any hollow.
+        const int Sea = 3, Measuring = 4;
+
+        // After the flood, a node the flood raised above its ground: under a lake, or on a flat it
+        // gave an epsilon slope. Incise cuts a river entering one down to its surface, not its floor.
+        const int Lake = 5;
+
+        // Every water body -- nodes at or below BaseLevel, connected -- walked breadth-first with the
+        // heap's array as the queue (the heap is empty before the flood) and its area summed. A body
+        // of at least MinOutletArea is sea. If none is, the largest is, so the water still leaves; a
+        // surface with no water at all falls to Route's lowest-node rule. Bodies are found in node
+        // order and ties go to the first, so the seas are the same in any build. At MinOutletArea 0
+        // every body is sea, the rule before it existed, and the routing is the same bits.
+        static void MarkSeas<TI, TF, TD>(in ErosionParams p, int nodeCount, ref ErosionArrays<TI, TF, TD> a)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            bool   anySea      = false;
+            int    largestSeed = -1;
+            double largestArea = -1.0;
+            for (int i = 0; i < nodeCount; i++)
+            {
+                if (!(a.Heights.Get(i) <= p.BaseLevel) || a.State.Get(i) != 0) continue;
+                double area = WalkBody(p, ref a, i, 0, Measuring, out int count);
+                if (area >= p.MinOutletArea)
+                {
+                    for (int k = 0; k < count; k++) a.State.Set(a.Heap.Get(k), Sea);
+                    anySea = true;
+                }
+                if (area > largestArea)
+                {
+                    largestArea = area;
+                    largestSeed = i;
+                }
+            }
+            if (!anySea && largestSeed >= 0)
+            {
+                WalkBody(p, ref a, largestSeed, Measuring, Sea, out int count);
+                for (int k = 0; k < count; k++) a.State.Set(a.Heap.Get(k), Sea);
+            }
+            for (int i = 0; i < nodeCount; i++)
+                if (a.State.Get(i) == Measuring) a.State.Set(i, 0);
+        }
+
+        // The water body containing seed: every connected node at or below BaseLevel whose State is
+        // from, relabelled to, left in Heap[0 .. count) in walk order. Returns its area.
+        static double WalkBody<TI, TF, TD>(in ErosionParams p, ref ErosionArrays<TI, TF, TD> a, int seed,
+                                          int from, int to, out int count)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            double area = 0.0;
+            int    head = 0;
+            count = 0;
+            a.Heap.Set(count++, seed);
+            a.State.Set(seed, to);
+            while (head < count)
+            {
+                int x = a.Heap.Get(head++);
+                area += a.Areas.Get(x);
+                for (int k = 0; k < MaxNeighbours; k++)
+                {
+                    int m = a.Neighbours.Get(x * MaxNeighbours + k);
+                    if (m < 0 || a.State.Get(m) != from || !(a.Heights.Get(m) <= p.BaseLevel)) continue;
+                    a.State.Set(m, to);
+                    a.Heap.Set(count++, m);
+                }
+            }
+            return area;
+        }
+
+        // An outlet beside a node that is not sea, which the flood has to start from: land, or a
+        // hollow too small to be sea. Outlets already placed are marked 2, the rest Sea.
+        static bool IsCoastal<TI, TF, TD>(ref ErosionArrays<TI, TF, TD> a, int node)
             where TI : struct, IErosionArray<int>
             where TF : struct, IErosionArray<float>
             where TD : struct, IErosionArray<double>
@@ -224,7 +307,9 @@ namespace Sonoma.Core.Generation
             for (int k = 0; k < MaxNeighbours; k++)
             {
                 int m = a.Neighbours.Get(node * MaxNeighbours + k);
-                if (m >= 0 && !(a.Heights.Get(m) <= p.BaseLevel)) return true;
+                if (m < 0) continue;
+                int s = a.State.Get(m);
+                if (s != Sea && s != 2) return true;
             }
             return false;
         }
@@ -256,7 +341,10 @@ namespace Sonoma.Core.Generation
             }
         }
 
-        // Step 4: implicit incision, downstream first, so each receiver is already this step's.
+        // Step 4: implicit incision, downstream first, so each receiver is already this step's. A
+        // river entering a lake is cut towards the lake's surface, the receiver's filled height, never
+        // its floor: on the ring, cutting to the floor of hollows kilometres below sea level took the
+        // deepest cut from 1,226 m to 3,868 m once rivers ran through them.
         static void Incise<TI, TF, TD>(in ErosionParams p, int nodeCount, ref ErosionArrays<TI, TF, TD> a)
             where TI : struct, IErosionArray<int>
             where TF : struct, IErosionArray<float>
@@ -267,7 +355,8 @@ namespace Sonoma.Core.Generation
             {
                 int i = a.Stack.Get(s), r = a.Receivers.Get(i);
                 if (r == i) continue;
-                double hi = a.Heights.Get(i), hr = a.Heights.Get(r);
+                double hi = a.Heights.Get(i);
+                double hr = a.State.Get(r) == Lake ? a.Filled.Get(r) : a.Heights.Get(r);
                 if (!(hi > hr)) continue;
                 double f = p.KDt * p.AreaPower(a.Drainage.Get(i)) / LinkLength(ref a, i, r);
                 a.Heights.Set(i, (hi + f * hr) / (1.0 + f));

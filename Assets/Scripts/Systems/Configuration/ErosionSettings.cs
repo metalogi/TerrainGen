@@ -34,9 +34,14 @@ namespace Sonoma.Systems.Configuration
         public float Diffusion = 0f;
 
         [Header("Outlets")]
-        [Tooltip("Metres. Every node at or below it is an outlet, where the water leaves and nothing is " +
-                 "eroded: the scene's sea level. The cylinders' rims are not outlets.")]
+        [Tooltip("Metres: the scene's sea level. Ground at or below it is water, where rivers end and " +
+                 "nothing is eroded. The cylinders' rims are not outlets.")]
         public float BaseLevel = 0f;
+        [Tooltip("In root quads' area. A connected body of water smaller than this is not a sea but a " +
+                 "hollow: the flood fills it and rivers run on through it to the sea. 0 makes every body " +
+                 "of water a sea. Without one large enough, the largest is the sea.")]
+        [Min(0f)]
+        public float MinOutletArea = 0f;
 
         public ErosionConfig ToConfig() => new ErosionConfig
         {
@@ -45,6 +50,7 @@ namespace Sonoma.Systems.Configuration
             AreaExponent  = AreaExponent,
             Diffusion     = Diffusion,
             BaseLevel     = BaseLevel,
+            MinOutletArea = MinOutletArea,
         };
     }
 }

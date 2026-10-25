@@ -205,8 +205,13 @@ namespace Sonoma.Tests
                              // the median, 159 at the 90th percentile, 294 at the 99th and 1,226 at most,
                              // land falls from 30.1% to 29.6%, and the envelope from 32,150 to 31,269 m.
                              ErosionAsset = "Assets/Settings/RingworldErosion.asset",
+                             // MinOutletArea 0.1 of a quad (2026-10-25): at 0, 60% of the land drained into
+                             // 177 hollows under 1% of the water, each a sea that ended its rivers. Every
+                             // hollow is under about 0.06 of a quad and the smallest sea about 0.27, so at
+                             // 0.1 the hollows fill and rivers run on: the median flow path 8 -> 44 steps,
+                             // land on a river 0.76% -> 1.73%, the deepest cut 1,226 -> 1,632 m.
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 100000f, AreaExponent = 0.45f,
-                                                           Diffusion = 0.002f, BaseLevel = 0f } },
+                                                           Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0.1f } },
             // Continents (D1 crisp, at the ring's shares of HeightScale): land 600 m and ocean
             // 1,800 m, and the macro fBm at 0.3 of M5b's 1,500 m. The plan started it without a
             // cutoff, which left 86% agreement and 28% of the map's land flooded; a 150 km cutoff
@@ -236,8 +241,10 @@ namespace Sonoma.Tests
                              // most; diffusion number 0.059; the envelope 2,593 m -> 2,318 m, since
                              // the stored base height, +-217 m, is under its analytic bound.
                              ErosionAsset = "Assets/Settings/TerrariumErosion.asset",
+                             // MinOutletArea 0.1 of a quad as on the ring, which here changes little: 4.5%
+                             // of the land drained into hollows, and the median flow path is 16 -> 17.
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 4000f, AreaExponent = 0.45f,
-                                                           Diffusion = 0.02f, BaseLevel = 68f } },
+                                                           Diffusion = 0.02f, BaseLevel = 68f, MinOutletArea = 0.1f } },
         };
 
         // A stress scene's continents: K9's defaults with the scene's land fraction, heights and

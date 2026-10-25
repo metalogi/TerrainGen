@@ -1300,6 +1300,11 @@ Pure where possible, as before.
   either as separate geometry or as mountains forced at the rims in the macro base height. If the
   walls are forced mountains, they belong in the base height before erosion runs, so that erosion
   drains them inwards; nothing in M5c-1 has to change for that.
+
+  **Outlets refined (2026-10-25): only seas, not every hollow below the base level.** An outlet is
+  now a water body -- nodes at or below `BaseLevel`, connected -- of at least `MinOutletArea` (in root
+  quads), or the largest if none is. A smaller body is a hollow, which the flood fills and rivers
+  cross to the sea. At 0 every body is an outlet, the rule as first answered. See amendment 6.
 - **D2 — G2 or not.** Built only if G1 in play reads too smooth.
 - **D3 — finer erosion on the planets.** One more level on Earth (20 km texels, 80 km
   wavelengths) takes the main array from 9 to 35 MB and the erosion graph to about 1.6 M nodes. Two
@@ -1375,7 +1380,35 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
    incision cut the land 48 m at the 90th percentile and 100 km 155. At 0.002 diffusion fills at
    most 66 m. As configured, on the managed build: land cut 60 m at the median, 159 at the 90th
    percentile, 294 at the 99th and 1,226 at most; land from 30.1% to 29.6%; the envelope from
-   32,150 to 31,269 m. Not yet run in the Editor.
+   32,150 to 31,269 m. **In the Editor (2026-10-25)** the Burst build agrees: deepest cut 1,226 m,
+   envelope 31.3 km. The macro build took 2,825 ms: continents 488 (stages A 233, B 222, C 33) and
+   erosion 2,081 (graph 214, heights 56, **pass 1,738**, wetness 47, pyramid 26), with no warnings
+   in play.
+6. **Hollows are not seas, and rivers stop at a lake's surface (2026-10-25).** The ring's export
+   showed blotchy cuts and a speckle of short drainage, where the terrarium's showed joined valleys.
+   Measured on the managed build, routing only:
+   - Roughness was not the cause. The ring has three times the terrarium's pits (0.58% of the land
+     against 0.19%), but eroding one octave fewer removes them and barely moves its rivers (land on
+     a river, at least 0.5% of a quad, 0.74% -> 0.82%, against the terrarium's 3.92%).
+   - **The base level was.** Every node at or below it was an outlet, and the detail noise floods
+     dips inside the continents (16.4% of the ring map's land). The ring's water was 181 bodies:
+     two oceans (47% and 43% of the water), a sea (4.9%) and 177 hollows under 1% each, 2.7% of the
+     surface. **60.4% of the ring's land drained into one of those hollows**, against 4.5% of the
+     terrarium's, so its rivers ended a median of 8 steps from their source.
+
+   The fix is `MinOutletArea` (`ErosionSettings`, in root quads): a body smaller than it is a
+   hollow, filled by the flood and crossed (`ErosionPass.MarkSeas`). With rivers running through
+   hollows, incision cut them towards the hollows' floors, kilometres below sea level, and the
+   ring's deepest cut went from 1,226 m to 3,868. So **a river entering a lake is now cut towards
+   the lake's surface, its filled height, not its floor** (the `Lake` mark). That applies at any
+   threshold, so threshold 0 is no longer the earlier bits where a lake lies above the base level.
+
+   Both scenes run 0.1 of a quad. Every ring hollow is under about 0.06 of a quad and its smallest
+   sea about 0.27. On the ring the median flow path goes from 8 steps to 44 (90th percentile 46 ->
+   137), land on a river 0.76% -> 1.73%, wetness over 0.5 1.0% -> 2.05%, and the land cut 45 m at the
+   median, 264 at the 99th percentile and 1,632 at most. On the terrarium the median goes from 16
+   to 17 and nothing else moves by more than hundredths of a percent. Walking the water bodies
+   each iteration costs about 400 ms of the terrarium's managed pass. Not yet run in the Editor.
 
 #### Out of scope for M5c
 
