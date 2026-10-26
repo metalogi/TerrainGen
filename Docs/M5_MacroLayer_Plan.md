@@ -1645,6 +1645,9 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
         It is `LandClearance`, a height in metres, where `EpsilonSlope` (a slope) was used before.
         Every pinned envelope is unchanged.
       - `MarkSeas` no longer relabels the fallback sea twice.
+      - Verified in the Editor: 218 tests pass, 11 skipped, and `BiomesMatchTheManagedReference`
+        passes under Burst. Compare Erosion Builds, with its parts job now in the Editor assembly,
+        still finds every stage identical on the narrow ring.
       The general-path test case now has the shipped biomes and a ruggedness range, so
       `ErodedMapsMatchTheManagedBuild` covers the path that parted. `FloatMode.Strict` stays on
       `ErosionHeightJob`. The chunks' sample jobs run `Biomes` in the default mode; one ULP between
