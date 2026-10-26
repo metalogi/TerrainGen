@@ -1604,6 +1604,20 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       `Condition` sharing `PlaceSeas` and `SeedLowest`, and `Sample` and `SampleDrainage` sharing one
       `Stencil`. Comments corrected: D rises above zero where basins are filled as well as by
       diffusion.
+    - **The Burst build was not the managed one on the stress scenes.** After the fix the Editor's
+      `ErodedEnvelopesMatchTheBuild` found the narrow ring's largest base height one float ULP from
+      the managed build's. `Tools > Sonoma > Compare Erosion Builds`, which compares the open scene
+      stage by stage from the same inputs both ways, put it at T: 89,963 of 660,480 nodes (13.6%)
+      differ, by up to 0.00195 m, one ULP of the float `Height` returns, while the generator, the
+      graph, and the pass and pyramid fed the same T match exactly. So Burst computes `Height`
+      slightly differently in double on the general Fbm path every stress scene takes (band gains,
+      the two-slope spectrum, the cutoff); the bare parameters the tests used take the original path,
+      and matched. The likely cause is Burst fusing multiply-adds, which its default float mode
+      allows and .NET's JIT never does, and which can also vary with the CPU it targets. The fix is
+      `FloatMode.Strict` on `ErosionHeightJob`, and `ErosionBuildTests` gains a case on the general
+      path, so `ErodedMapsMatchTheManagedBuild` covers it. The chunks' sample jobs run `Height` in the
+      default mode too; one ULP between a chunk and `TerrainRoot.HeightAt` is harmless, but it is
+      the same question for a world shared between machines.
 
 #### Out of scope for M5c
 

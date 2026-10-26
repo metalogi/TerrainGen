@@ -30,9 +30,14 @@ namespace Sonoma.Tests
             Iterations = 10, IncisionDepth = depth, AreaExponent = 0.45f, Diffusion = diffusion, BaseLevel = 0f,
         };
 
-        internal static Case Make(string name, in SurfaceDef s, ErosionConfig? e, ContinentConfig? k = null)
+        // general puts the height function on its general Fbm path, as every stress scene is: a
+        // two-slope spectrum and band edges. The bare parameters take the original path, and on those
+        // alone the Burst build matched the managed one while the narrow ring's T, on the general
+        // path, came out an ULP apart at 13.6% of its nodes.
+        internal static Case Make(string name, in SurfaceDef s, ErosionConfig? e, ContinentConfig? k = null, bool general = false)
         {
             var hp = HeightParams.Create(s, 9, 0.0, 12, 2000f, 0.5f, 2f, 42u);
+            if (general) hp = hp.WithBands(150000.0, 5000.0).WithRoughness(0.6f, 5000.0);
             var c  = new MacroConfig
             {
                 LevelCount = 3, Wavelength0 = 0.0, Persistence = 0.5f, BaseHeightScale = 900f,
@@ -53,6 +58,7 @@ namespace Sonoma.Tests
             Make("ring",       SurfaceDef.Cylinder(1592750.0, 1250000.0, 8, 1), e),
             Make("plane",      SurfaceDef.PlaneGrid(100000.0, 2, 2),            e),
             Make("continents", SurfaceDef.CubeSphere(6371000.0),               e, ContinentMapTests.SmallConfig(8, 60, 2)),
+            Make("general path", SurfaceDef.CubeSphere(6371000.0),             e, ContinentMapTests.SmallConfig(8, 60, 2), general: true),
         };
 
         internal static float4[] Build(Case c, out float2[] drainage, out ErosionBuild.Managed erosion, out ErosionStats stats)
