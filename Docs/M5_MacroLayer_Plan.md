@@ -1327,7 +1327,25 @@ Pure where possible, as before.
   change the answer: finer erosion on the planets multiplies their nodes by four or more, and
   caching would then be needed. Take D4 up again with the planets' measured times, or with D3.
   **Measured (2026-10-25):** the macro build with erosion takes 2.0 s on the terrarium (before
-  breaching), 3.7 s on the ring, 2.4 s on the small planet and 2.6 s on Earth, in the Editor.
+  breaching), 3.7 s on the ring, 2.4 s on the small planet, 2.6 s on Earth and 3.5 s on the narrow
+  ring, in the Editor.
+
+  **Deferred, decided by the user (2026-10-26).** Two to four seconds once at startup is acceptable
+  for now. A cache would buy more than startup time, though, and these are what should bring D4
+  back:
+  - **D3, or any heavier erosion.** Finer erosion on the planets multiplies their nodes by four or
+    more, and more iterations or a deposition term add more; a cache moves that cost out of every
+    startup.
+  - **Networking or long-lived saves.** Each machine regenerates the maps and relies on getting the
+    same bits. The tests prove the Burst build equals the managed one on one machine, but erosion
+    amplifies differences: thirty rounds of flooding and routing mean one ULP can flip a tie and send
+    a river down another valley. A different CPU, Burst version or compiler setting could in
+    principle do that. Baked maps would guarantee every player and every save the same rivers, which
+    the design's "same seed, same terrain" (`CLAUDE.md`, Important Design Decisions) needs once more
+    than one machine is involved.
+
+  A cache would not help tuning, since any change to the settings invalidates it, and would not save
+  memory. Its costs are the code, a key covering every setting the maps depend on, and the files.
 
 #### Building M5c-1: amendments (2026-10-24 to 2026-10-25)
 
