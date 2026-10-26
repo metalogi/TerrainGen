@@ -1615,12 +1615,23 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       and matched. `FloatMode.Strict` on `ErosionHeightJob`, which forbids fused multiply-adds, was
       tried first and **changed nothing**: the same 89,963 nodes differ. A test case on the general
       path (`ErosionBuildTests`, a two-slope spectrum and band edges) also matches, so the cause is
-      something it lacks; biomes are the leading suspect, since its band gains are zero and the
-      narrow ring's come from `math.dot` and `math.csum`, which Burst may sum in a different order.
-      The comparison now splits T into the macro read, the biome weights, the band gains and the
-      height (`ErosionHeightPartsJob`) to find the part that differs. Still open. The chunks' sample jobs run `Height` in the
-      default mode too; one ULP between a chunk and `TerrainRoot.HeightAt` is harmless, but it is
-      the same question for a world shared between machines.
+      something it lacks: biomes, since its band gains are zero.
+    - **It was the biome weights.** The comparison split T into its parts (`ErosionHeightPartsJob`):
+      the macro read's base height and climate match exactly, and `Biomes.Classify`'s weights are
+      the first to differ, at 170,023 nodes by up to 1.19e-7, an ULP near one; the band gains follow
+      from them (331,402 nodes, up to 7.15e-7). `Classify` was the first chain of float arithmetic
+      on the way to T; everything before it is computed in double. No transcendental is involved,
+      and Unity.Mathematics sums `csum` and `dot` in the order written, so which operation Burst
+      rounds differently was not pinned down. `Classify` and `BandGain` now compute in double and
+      narrow to float once. Under .NET 8 the narrow ring's largest base height moved to
+      3,250.10205078125 m, the value Burst gave before, and the other four scenes' are unchanged to
+      the bit. Re-measured on the narrow ring, its combined relief (0.536 at its roughest, pinned
+      0.8046), C_m (54.9, pinned 82) and skirt share (0.788, `SkirtFraction` 1.2) are as they were.
+      The general-path test case now has the shipped biomes and a ruggedness range, so
+      `ErodedMapsMatchTheManagedBuild` covers the path that parted. `FloatMode.Strict` stays on
+      `ErosionHeightJob`. The chunks' sample jobs run `Biomes` in the default mode; one ULP between
+      a chunk and `TerrainRoot.HeightAt` is harmless, but it is the same question for a world
+      shared between machines.
 
 #### Out of scope for M5c
 

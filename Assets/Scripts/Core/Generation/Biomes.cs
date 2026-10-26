@@ -12,10 +12,16 @@ namespace Sonoma.Core.Generation
     // integer sharpness and normalised to sum to one. A nearest-biome rule, or any kernel with
     // finite support and a fallback, would draw a hard edge where the envelopes stop overlapping.
     //
-    // Pure, and float: the inputs are a macro sample that is bit-identical across a shared
-    // root-quad edge, so the weights and gains are too, and two chunks sharing a vertex agree
-    // on its height and its colour. No transcendental functions, so Burst and managed code
-    // produce the same bits.
+    // Pure: the inputs are a macro sample that is bit-identical across a shared root-quad edge,
+    // so the weights and gains are too, and two chunks sharing a vertex agree on its height and
+    // its colour.
+    //
+    // Computed in double and narrowed to float once, at the end, because the float form was not
+    // the same bits in Burst and in managed code. No transcendental function was involved, and
+    // FloatMode.Strict changed nothing: on the narrow ring a quarter of the top-level nodes got
+    // weights an ULP apart, which moved the eroded terrain (Tools > Sonoma > Compare Erosion
+    // Builds, stage 2b, amendment 12 of the M5 plan). Every other float stage before the height
+    // is computed in double and matched; this chain of float arithmetic was the first to part.
     public static class Biomes
     {
         // The vertex carries the weights as four bytes, COLOR (C6).
@@ -35,17 +41,17 @@ namespace Sonoma.Core.Generation
         {
             if (p.BiomeCount == 0) return 0f;
 
-            float4 dt = (m.Temperature - p.BiomeTemperature) * p.InverseTemperatureScale;
-            float4 dm = (m.Moisture    - p.BiomeMoisture)    * p.InverseMoistureScale;
-            float4 d2 = dt * dt + dm * dm + DistanceFloor;
+            double4 dt = (m.Temperature - (double4)p.BiomeTemperature) * p.InverseTemperatureScale;
+            double4 dm = (m.Moisture    - (double4)p.BiomeMoisture)    * p.InverseMoistureScale;
+            double4 d2 = dt * dt + dm * dm + DistanceFloor;
 
-            bool4  used    = new bool4(p.BiomeCount > 0, p.BiomeCount > 1, p.BiomeCount > 2, p.BiomeCount > 3);
-            float  nearest = math.cmin(math.select(float.MaxValue, d2, used));
-            float4 ratio   = math.select(0f, nearest / d2, used);
+            bool4   used    = new bool4(p.BiomeCount > 0, p.BiomeCount > 1, p.BiomeCount > 2, p.BiomeCount > 3);
+            double  nearest = math.cmin(math.select(double.MaxValue, d2, used));
+            double4 ratio   = math.select(0.0, nearest / d2, used);
 
-            float4 w = ratio;
+            double4 w = ratio;
             for (int k = 1; k < p.BiomeSharpness; k++) w *= ratio;
-            return w / math.csum(w);
+            return (float4)(w / math.csum(w));
         }
 
         // The detail noise's band gains here, relative to one (C5): the biomes' gains blended by
@@ -59,12 +65,13 @@ namespace Sonoma.Core.Generation
         // the M5a height to the bit.
         public static float3 BandGain(float4 weights, float ruggedness, in MacroParams p)
         {
-            float3 amplitude = 1f + new float3(math.dot(weights, p.BiomeLowGain),
-                                               math.dot(weights, p.BiomeMidGain),
-                                               math.dot(weights, p.BiomeHighGain));
-            float rugged = 1f + math.lerp(p.RuggednessGainMin, p.RuggednessGainMax, math.saturate(ruggedness));
+            double4 w = weights;
+            double3 amplitude = 1.0 + new double3(math.dot(w, p.BiomeLowGain),
+                                                  math.dot(w, p.BiomeMidGain),
+                                                  math.dot(w, p.BiomeHighGain));
+            double rugged = 1.0 + math.lerp((double)p.RuggednessGainMin, p.RuggednessGainMax, math.saturate((double)ruggedness));
             amplitude.y *= rugged;
-            return amplitude - 1f;
+            return (float3)(amplitude - 1.0);
         }
 
         // Classifies a macro sample and folds its band gains into it: what the sample jobs and
