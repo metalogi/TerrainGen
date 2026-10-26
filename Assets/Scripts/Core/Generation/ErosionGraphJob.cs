@@ -49,8 +49,9 @@ namespace Sonoma.Core.Generation
 
         public void Execute()
         {
-            ErosionGraph.Fill(Surface, Cells, NodeCount, new Ints(NodeOf), new Ints(NodeTexel), new Points3(Points),
-                              new Ints(Neighbours), new Floats(Lengths), new Doubles(Areas));
+            ErosionGraph.Fill(Surface, Cells, NodeCount, new NativeInts(NodeOf), new NativeInts(NodeTexel),
+                              new NativeDouble3s(Points), new NativeInts(Neighbours), new NativeFloats(Lengths),
+                              new NativeDoubles(Areas));
         }
 
         // Builds the graph and waits. Everything it returns is the caller's to dispose.
@@ -84,40 +85,6 @@ namespace Sonoma.Core.Generation
                 throw;
             }
             return graph;
-        }
-
-        // Read-only arrays are never written through these: Fill writes only the neighbours,
-        // lengths and areas.
-        struct Ints : IErosionArray<int>
-        {
-            NativeArray<int> _a;
-            public Ints(NativeArray<int> a) { _a = a; }
-            public int  Get(int index)            => _a[index];
-            public void Set(int index, int value) => _a[index] = value;
-        }
-
-        struct Floats : IErosionArray<float>
-        {
-            NativeArray<float> _a;
-            public Floats(NativeArray<float> a) { _a = a; }
-            public float Get(int index)              => _a[index];
-            public void  Set(int index, float value) => _a[index] = value;
-        }
-
-        struct Doubles : IErosionArray<double>
-        {
-            NativeArray<double> _a;
-            public Doubles(NativeArray<double> a) { _a = a; }
-            public double Get(int index)               => _a[index];
-            public void   Set(int index, double value) => _a[index] = value;
-        }
-
-        struct Points3 : IErosionArray<double3>
-        {
-            NativeArray<double3> _a;
-            public Points3(NativeArray<double3> a) { _a = a; }
-            public double3 Get(int index)                => _a[index];
-            public void    Set(int index, double3 value) => _a[index] = value;
         }
     }
 }

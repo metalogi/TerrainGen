@@ -246,7 +246,7 @@ namespace Sonoma.Tests
                              // incision; 0.002 fills at most 66 m. As configured the land is cut 60 m at
                              // the median, 159 at the 90th percentile, 294 at the 99th and 1,226 at most,
                              // land falls from 30.1% to 29.6%, and the envelope from 32,150 to 31,269 m.
-                             ErosionAsset = "Assets/Settings/RingworldErosion.asset", ErodedMaxAbsBaseHeight = 4829.265625,
+                             ErosionAsset = "Assets/Settings/RingworldErosion.asset", ErodedMaxAbsBaseHeight = 4783.34912109375,
                              // E5: 0.4131 of the node at its roughest (depth 16).
                              ErodedCombinedRelief = 0.6197,
                              // BreachDepth 2,000 m with every water body a sea (2026-10-25, amendment 7): a
@@ -282,12 +282,12 @@ namespace Sonoma.Tests
                              // 1,000 m breach filled basins by up to 1.1 km. On the managed build: under a lake
                              // 1.0%, at most 120 m filled, land cut 38 m at the median and 361 at the 99th
                              // percentile, rivers 2.6x the median, and land 30.1% -> 29.5%.
-                             // E5: the largest base height is 3,279 m, over its analytic bound, since the
+                             // E5: the largest base height is 3,250 m, over its analytic bound, since the
                              // breach carves gorges up to 1.9 km into a base relief of 600 m land and 1,800
-                             // m ocean: the envelope grows, 27.9 -> 28.8 km, the only scene where it does.
-                             // Combined relief 0.540 of the node at its roughest (depth 14).
-                             ErosionAsset = "Assets/Settings/NarrowRingErosion.asset", ErodedMaxAbsBaseHeight = 3278.505859375,
-                             ErodedCombinedRelief = 0.8098,
+                             // m ocean: the envelope grows, 27.9 -> 28.7 km, the only scene where it does.
+                             // Combined relief 0.536 of the node at its roughest (depth 14).
+                             ErosionAsset = "Assets/Settings/NarrowRingErosion.asset", ErodedMaxAbsBaseHeight = 3250.102294921875,
+                             ErodedCombinedRelief = 0.8046,
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 30000f, AreaExponent = 0.45f,
                                                            Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,
                                                            BreachDepth = 2000f } },
@@ -307,9 +307,9 @@ namespace Sonoma.Tests
                              // most; diffusion number 0.059; the envelope 2,593 m -> 2,318 m, since
                              // the stored base height, +-217 m, is under its analytic bound.
                              ErosionAsset = "Assets/Settings/TerrariumErosion.asset", ErodedMaxAbsBaseHeight = 217.47821044921875,
-                             // E5: 1.0207 of the node at its roughest (depth 8): flattened 0.3062, which its 0.39
+                             // E5: 1.0196 of the node at its roughest (depth 8): flattened 0.3059, which its 0.39
                              // allowance clears by 1.27x against the 1.25 asked, so deeper erosion here needs room first.
-                             ErodedCombinedRelief = 1.5310,
+                             ErodedCombinedRelief = 1.5295,
                              // BreachDepth 50 m (amendment 7): under 1% of the land lay in basins, and at 50 m
                              // none does, with 3 m of fill at most and the cut unchanged.
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 4000f, AreaExponent = 0.45f,

@@ -453,6 +453,19 @@ namespace Sonoma.Tests
             readonly MacroParams  _mp;
             readonly LazyTexels   _texels;
 
+            // Heights over maps already built whole with these macro parameters: the Editor's Burst
+            // build of an eroded scene (MacroMapsTests.SkirtsCoverTheErodedTransientGap), seconds where
+            // the managed build takes a minute under the Editor's Mono.
+            public SceneHeights(string scene, in SurfaceDef s, in HeightParams rough, float4[] built, in MacroParams macro)
+            {
+                var m = MacroTests.For(scene);
+                _s      = s;
+                _roots  = SurfaceMath.BuildRoots(s);
+                _hp     = MacroTests.SceneParams(m, rough);
+                _mp     = macro;
+                _texels = new LazyTexels(built);
+            }
+
             // eroded reads the scene's eroded maps (MacroTests.ErodedBuild), built whole once, seconds a
             // scene: for the measuring tools, since erosion is not local and no texel can be made alone.
             public SceneHeights(string scene, in SurfaceDef s, in HeightParams rough, bool smooth = false, bool eroded = false)
@@ -568,7 +581,8 @@ namespace Sonoma.Tests
             readonly LazyTexels _t;
             public TexelReader(LazyTexels t) { _t = t; }
             public float4 Texel(int index) => _t.Texel(index);
-            // No stress scene erodes yet, so nothing reads it.
+            // Heights never read the drainage maps (MacroSampler.Read leaves Wetness alone), so nothing
+            // reads this; an eroded scene's texels come built whole, D already in the base height.
             public float2 Drainage(int index) => default;
         }
 
@@ -755,6 +769,8 @@ namespace Sonoma.Tests
             Assert.AreEqual(ChunkMeshLayout.SkirtDepthGap, roots, $"{name}: a coarse side at the root, for each depth gap");
         }
 
+        // On each scene's uneroded heights, which build lazily here; the eroded ones need whole maps,
+        // and MacroMapsTests.SkirtsCoverTheErodedTransientGap checks them from the Editor's Burst build.
         [Test]
         public void SkirtCoversTheTransientGap()
         {

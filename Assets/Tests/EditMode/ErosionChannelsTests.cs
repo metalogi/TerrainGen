@@ -78,8 +78,9 @@ namespace Sonoma.Tests
             }
         }
 
-        // Without erosion the read never touches the drainage maps; with it, wetness is the stored
+        // Without erosion ReadWetness never touches the drainage maps; with it, wetness is the stored
         // texel exactly on one, and saturated to 0..1 between them, where the bicubic read overshoots.
+        // The sample jobs' Read never reads it, erosion or not: nothing uses it before M5c-2.
         [Test]
         public void ReadTakesWetnessOnlyWithErosion()
         {
@@ -97,9 +98,10 @@ namespace Sonoma.Tests
 
             Assert.AreEqual(0f, MacroSample.Zero.Wetness, "a default sample has no erosion data");
             Assert.IsFalse(p.HasErosion);
-            Assert.AreEqual(0f, MacroSampler.Read(maps, p, 2, 1, 0.3, 0.6).Wetness, "read without erosion");
+            Assert.AreEqual(0f, MacroSampler.ReadWetness(maps, p, 2, 1, 0.3, 0.6), "read without erosion");
 
             p.HasErosion = true;
+            Assert.AreEqual(0f, MacroSampler.Read(maps, p, 2, 1, 0.3, 0.6).Wetness, "the sample jobs' read took wetness");
             for (int level = 0; level < p.Layout.LevelCount; level++)
             {
                 int n = p.Layout.Cells(level);
@@ -107,16 +109,16 @@ namespace Sonoma.Tests
                 for (int k = 0; k < 40; k++)
                 {
                     int i = rng.NextInt(0, n + 1), j = rng.NextInt(0, n + 1);
-                    float got = MacroSampler.Read(maps, p, q, level, i / (double)n, j / (double)n).Wetness;
+                    float got = MacroSampler.ReadWetness(maps, p, q, level, i / (double)n, j / (double)n);
                     Assert.AreEqual(drainage[p.Layout.Index(q, level, i, j)].x, got, $"on texel ({q}, {level}, {i}, {j})");
 
-                    float between = MacroSampler.Read(maps, p, q, level, rng.NextDouble(), rng.NextDouble()).Wetness;
+                    float between = MacroSampler.ReadWetness(maps, p, q, level, rng.NextDouble(), rng.NextDouble());
                     Assert.That(between, Is.InRange(0f, 1f), "between texels");
                 }
             }
 
             p.Enabled = false;
-            Assert.AreEqual(0f, MacroSampler.Read(maps, p, 0, 0, 0.5, 0.5).Wetness, "no macro layer at all");
+            Assert.AreEqual(0f, MacroSampler.ReadWetness(maps, p, 0, 0, 0.5, 0.5), "no macro layer at all");
         }
     }
 }

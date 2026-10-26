@@ -40,7 +40,8 @@ using Sonoma.Core.Surface;
 // and two more images show what the pass did:
 //
 //   <scene>_erosion.png      D, the correction: white where nothing changed, through orange to dark
-//                            red where ground was cut, and to blue where diffusion raised it, on a
+//                            red where ground was cut, and to blue where it was raised -- diffusion,
+//                            or a basin the breach could not drain, filled -- on a
 //                            square-root scale symmetric about zero to the largest |D|, so shallow
 //                            cuts show beside the deep ones; valleys that join should read as lines
 //   <scene>_wetness.png      wetness, 0 to 1: dark ground through blue to white, ridges dark and
@@ -235,16 +236,6 @@ static class MacroMapExport
 
     // ── Biomes ───────────────────────────────────────────────────────────────
 
-    readonly struct ArrayTexels : IMacroTexels
-    {
-        readonly float4[] _texels;
-        public ArrayTexels(float4[] texels) { _texels = texels; }
-        public float4 Texel(int index) => _texels[index];
-        // The poles' log reads climate only, which wetness does not change; the wetness image reads
-        // the drainage maps directly.
-        public float2 Drainage(int index) => default;
-    }
-
     // <scene>_biomes.png: what Biomes.Classify makes of each texel's climate, the weights
     // blending the BiomeDefinitions' colours as the shader does, unlit. The same maps and the same
     // classifier the sample jobs use, so a colour here that differs from the scene's is a
@@ -294,7 +285,8 @@ static class MacroMapExport
         }
 
         if (s.Type != SurfaceType.CubeSphere) return;
-        var reader = new ArrayTexels(texels);
+        // The poles' log reads climate only, never the drainage maps.
+        var reader = new ArrayMacroTexels(texels, null);
         foreach (var (label, dir) in new[] { ("north pole (+Y)", new double3(0, 1, 0)), ("south pole (-Y)", new double3(0, -1, 0)) })
         {
             SurfaceMath.Locate(s, dir * s.Radius, out int q, out double u, out double v);
@@ -548,7 +540,7 @@ static class MacroMapExport
     }
 
     // u in -1..1: dark red through orange to white at zero, cuts below; white to blue above, where
-    // diffusion filled ground in.
+    // ground was raised, by diffusion or by filling a basin the breach could not drain.
     static float3 Diverging(double u)
     {
         float t = (float)math.clamp(u, -1.0, 1.0);

@@ -47,7 +47,8 @@ namespace Sonoma.Core.Generation
         // Writes (wetness, D) for every node into every top-level texel in [0, n] that stores it,
         // copies included, so the shared edge rows hold the owner's bits on both sides; the border
         // past [0, n] is the pyramid's halo (MacroPyramidTop.Fill). D is the eroded height less the
-        // uneroded, which erosion and its clamp keep at or below zero wherever diffusion is off.
+        // uneroded: below zero where incision or diffusion cut, above it where diffusion filled or
+        // the breach-and-fill step raised a basin it could not drain (ErosionPass.Condition).
         public static void WriteTop<TI, TD, TC>(in MacroLayout layout, int cells, int texelsInGraph, double quadArea,
                                                 TI nodeOf, TD areas, TD drainage, TD before, TD after, TC channel)
             where TI : struct, IErosionArray<int>

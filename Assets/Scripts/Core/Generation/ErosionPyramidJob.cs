@@ -23,8 +23,8 @@ namespace Sonoma.Core.Generation
 
         public void Execute()
         {
-            ErosionPyramid.Run(new Float2s(Drainage), new Float4s(Texels), Texels.Length, Layout,
-                               new Pairs(Halo), new Pairs(Copies), new Pairs(Ranges));
+            ErosionPyramid.Run(new NativeFloat2s(Drainage), new NativeFloat4s(Texels), Texels.Length, Layout,
+                               new NativeIntPairs(Halo), new NativeIntPairs(Copies), new NativeIntPairs(Ranges));
         }
 
         // Derives the drainage levels and folds D into the base height, and waits: checked as the
@@ -56,29 +56,6 @@ namespace Sonoma.Core.Generation
                 copies.Dispose();
                 ranges.Dispose();
             }
-        }
-
-        struct Float2s : IErosionArray<float2>
-        {
-            NativeArray<float2> _a;
-            public Float2s(NativeArray<float2> a) { _a = a; }
-            public float2 Get(int index)               => _a[index];
-            public void   Set(int index, float2 value) => _a[index] = value;
-        }
-
-        struct Float4s : IErosionArray<float4>
-        {
-            NativeArray<float4> _a;
-            public Float4s(NativeArray<float4> a) { _a = a; }
-            public float4 Get(int index)               => _a[index];
-            public void   Set(int index, float4 value) => _a[index] = value;
-        }
-
-        readonly struct Pairs : IMacroPairs
-        {
-            [ReadOnly] readonly NativeArray<int2> _a;
-            public Pairs(NativeArray<int2> a) { _a = a; }
-            public int2 Get(int k) => _a[k];
         }
     }
 }

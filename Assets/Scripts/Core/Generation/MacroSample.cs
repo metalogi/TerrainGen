@@ -40,8 +40,9 @@ namespace Sonoma.Core.Generation
         public float3 BandGain;
 
         // How much water passes here, 0..1 (M5c, E4): 0 a ridge, 1 a river draining a root quad's
-        // area. Read from the drainage maps only where erosion is on. Its default 0 means "no
-        // erosion data" and must leave everything it drives at its identity (C5).
+        // area. Set from MacroSampler.ReadWetness by whatever uses it -- M5c-2's gully term -- and
+        // left 0 by MacroSampler.Read, so the sample jobs pay nothing for it until then. Its default
+        // 0 means "no erosion data" and must leave everything it drives at its identity (C5).
         public float Wetness;
 
         public static MacroSample Zero => default;

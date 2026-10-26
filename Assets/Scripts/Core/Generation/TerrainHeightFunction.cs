@@ -97,8 +97,15 @@ namespace Sonoma.Core.Generation
         // extremes, since the octaves rarely all peak at one point -- on Earth at HeightScale
         // 20,000, 84 km -- and that costs only finer LOD than needed for a camera between the real
         // peaks and it, and skirts longer than they need to be at the coarsest depths.
+        //
+        // Not for eroded maps, which it refuses: erosion writes the base height channel, and the
+        // analytic bound no longer holds for it. The overload below takes the measured largest.
         public static double MaxAbsHeight(in HeightParams p, in MacroParams macro)
         {
+            if (macro.Enabled && macro.HasErosion)
+                throw new System.ArgumentException(
+                    "TerrainHeightFunction.MaxAbsHeight: eroded maps need the measured bound, the overload taking the " +
+                    "largest base height (MacroMaps.MaxAbsHeight); the analytic one does not bound them.");
             double baseHeight = 0.0;
             if (macro.Enabled)
             {
@@ -132,6 +139,9 @@ namespace Sonoma.Core.Generation
         public static double MaxAbsHeight(in HeightParams p, in MacroParams macro, double maxAbsBaseHeight)
         {
             if (!macro.Enabled || !macro.HasErosion) return MaxAbsHeight(p, macro);
+            if (!(maxAbsBaseHeight >= 0.0) || double.IsInfinity(maxAbsBaseHeight))
+                throw new System.ArgumentOutOfRangeException(nameof(maxAbsBaseHeight),
+                    "TerrainHeightFunction.MaxAbsHeight: the measured largest base height must be finite and not negative.");
             return DetailBound(p, macro) + maxAbsBaseHeight * MacroSampler.MaxOvershoot;
         }
 
