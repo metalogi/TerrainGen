@@ -1612,10 +1612,13 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       graph, and the pass and pyramid fed the same T match exactly. So Burst computes `Height`
       slightly differently in double on the general Fbm path every stress scene takes (band gains,
       the two-slope spectrum, the cutoff); the bare parameters the tests used take the original path,
-      and matched. The likely cause is Burst fusing multiply-adds, which its default float mode
-      allows and .NET's JIT never does, and which can also vary with the CPU it targets. The fix is
-      `FloatMode.Strict` on `ErosionHeightJob`, and `ErosionBuildTests` gains a case on the general
-      path, so `ErodedMapsMatchTheManagedBuild` covers it. The chunks' sample jobs run `Height` in the
+      and matched. `FloatMode.Strict` on `ErosionHeightJob`, which forbids fused multiply-adds, was
+      tried first and **changed nothing**: the same 89,963 nodes differ. A test case on the general
+      path (`ErosionBuildTests`, a two-slope spectrum and band edges) also matches, so the cause is
+      something it lacks; biomes are the leading suspect, since its band gains are zero and the
+      narrow ring's come from `math.dot` and `math.csum`, which Burst may sum in a different order.
+      The comparison now splits T into the macro read, the biome weights, the band gains and the
+      height (`ErosionHeightPartsJob`) to find the part that differs. Still open. The chunks' sample jobs run `Height` in the
       default mode too; one ULP between a chunk and `TerrainRoot.HeightAt` is harmless, but it is
       the same question for a world shared between machines.
 
