@@ -1326,6 +1326,8 @@ Pure where possible, as before.
   every setting the maps depend on, which is what the tuning still to come will change. D3 would
   change the answer: finer erosion on the planets multiplies their nodes by four or more, and
   caching would then be needed. Take D4 up again with the planets' measured times, or with D3.
+  **Measured (2026-10-25):** the macro build with erosion takes 2.0 s on the terrarium (before
+  breaching), 3.7 s on the ring, 2.4 s on the small planet and 2.6 s on Earth, in the Editor.
 
 #### Building M5c-1: amendments (2026-10-24 to 2026-10-25)
 
@@ -1470,7 +1472,18 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
    Both planets drain far more readily than the ring, and their rivers stand out 5.7 and 8 times
    above the land's median cut, against the ring's 3.7 and the terrarium's 2.5. Earth breaches at
    4,000 m, which carves the basins a 2,000 m breach had to fill by up to 533 m; the small planet's
-   2,000 m loses nothing to 4,000. Land falls by under a point on both. Not yet run in the Editor.
+   2,000 m loses nothing to 4,000. Land falls by under a point on both. **In the Editor
+   (2026-10-25)** both Burst builds agree with the probe (deepest cuts 1,484 m and 2,270 m):
+
+   | | macro build | erosion | graph | heights | pass | wetness | pyramid | envelope | peak working set |
+   |---|---|---|---|---|---|---|---|---|---|
+   | small planet | 2,420 ms | 1,756 | 159 | 41 | 1,500 | 36 | 20 | 23.2 -> 22.4 km | 5,970 of 8,300 |
+   | Earth | 2,609 ms | 1,877 | 157 | 44 | 1,614 | 42 | 21 | 36.6 -> 35.5 km | 6,990 of 9,400 |
+
+   Neither play session warned. Enlarged, Earth's images show branching networks and incised,
+   joined valleys like the ring's; its wetness reaches only 0.66, because it is measured against a
+   root quad's area and Earth's quads dwarf its continents. Every scene with erosion now builds its
+   macro layer in 2.4 to 3.7 s in the Editor, which is D4's condition for taking it up again.
 
 #### Out of scope for M5c
 
