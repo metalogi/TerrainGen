@@ -1572,6 +1572,13 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
     peak working set of 4,108 under its 4,900 budget. All 226 tests: 215 pass, 11 measuring tools
     skip. Enlarged, its images are the clearest of the scenes: long trunk rivers fed by branching
     networks, wetness reaching 0.95, and the same rivers incised as joined channels.
+11. **Played since breaching, and the first player build (2026-10-25).** The terrarium (macro build
+    2,149 ms, peak working set 2,856 of 4,400) and the ring (2,974 ms, 4,660 of 5,600) played
+    without warnings. A Windows player build of Earth built its macro layer in 2,381 ms, erosion
+    1,720, against the Editor's 2,609 and 1,877: about 9% faster, since the erosion job's safety
+    checks are off in both. Its peak working set was 6,522 of 9,400, and its slowest rebase 2.80 ms
+    over 6,522 chunks, which puts the Editor's 8.5 ms down to the Editor. The terrarium has not been
+    re-exported since breaching was added.
 
 #### Out of scope for M5c
 
