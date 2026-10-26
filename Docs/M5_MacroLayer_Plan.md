@@ -1527,6 +1527,28 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
      gives each test a real NUnit result, and they pass.
    - **In the Editor (2026-10-26)** all 215 tests pass and the 11 measuring tools skip, in 58 s;
      `ErodedEnvelopesMatchTheBuild` holds all four pinned base heights to the Burst build in 9.8 s.
+10. **The narrow ring's erosion, with its E5 figures (2026-10-26).** `NarrowRingErosion.asset`: the
+    other scenes' 21 texels of incision on its 1.5 km texels, 30 km, diffusion 0.002, a 2,000 m
+    breach, `BaseLevel` 0, every body of water a sea. Probed on the managed build:
+
+    | incision | breach | under a lake | raised (most) | cut median / p99 | rivers ÷ slopes | deepest |
+    |---|---|---|---|---|---|---|
+    | 15 km | 2,000 m | 1.4% | 0.9% (121 m) | 18 / 211 m | 3.3x | 1,878 m |
+    | **31 km** | **2,000 m** | 1.0% | 0.4% (120 m) | 38 / 361 m | **2.6x** | 1,889 m |
+    | 59 km | 2,000 m | 0.7% | 0.1% (120 m) | 73 / 603 m | 2.1x | 2,638 m |
+    | 31 km | 1,000 m | 1.1% | 0.4% (1,093 m) | 38 / 349 m | 2.6x | 1,576 m |
+    | 31 km | none | 7.4% | 5.6% (48 m) | 28 / 302 m | 0.9x | 1,571 m |
+
+    Land falls from 30.1% to 29.5%. Its E5 figures, by amendment 9's method:
+    - **The envelope grows, the only scene where it does: 27.9 -> 28.8 km.** The largest stored base
+      height is 3,279 m, over the analytic bound for its base height, because the breach carves
+      gorges up to 1.9 km deep into a base relief of 600 m of land and 1,800 m of ocean. The working
+      set at its pinned camera stays 4,320, under its budget of 4,900.
+    - **Combined relief** 0.540 of the node at its roughest (depth 14), pinned at 0.810; flattened,
+      0.162, well inside its allowance. C_m rises from 37 to 82.
+    - **Skirts:** its worst share is 0.788, so half again over is 1.2, its `SkirtFraction` already.
+
+    Every continent scene now erodes. Not yet run in the Editor.
 
 #### Out of scope for M5c
 
