@@ -115,6 +115,117 @@ namespace Sonoma.Tests
             }
         }
 
+        // ── Erosion (Docs/M5_MacroLayer_Plan.md, E5) ──
+        //
+        // The same measurements on each eroding scene's built eroded maps (MacroTests.ErodedBuild,
+        // seconds a scene), since erosion is not local and the lazy texels the others read cannot
+        // carry it.
+
+        // The stress scenes with erosion, SONOMA_SCENES limiting them as for MeasuredScenes.
+        static IEnumerable<MacroTests.SceneMacro> ErodedScenes()
+        {
+            string only = Environment.GetEnvironmentVariable("SONOMA_SCENES");
+            var    names = string.IsNullOrWhiteSpace(only) ? null : new HashSet<string>(only.Split(','));
+            foreach (var m in MacroTests.StressMacros)
+                if (m.Erosion.HasValue && (names == null || names.Contains(m.Scene))) yield return m;
+        }
+
+        // The largest |BaseHeight'| each eroded build stores, to pin as SceneMacro.ErodedMaxAbsBaseHeight
+        // (printed to the bit), and the envelope it gives against the analytic one.
+        [Test]
+        public void ErodedMaps()
+        {
+            foreach (var m in ErodedScenes())
+            {
+                var    built    = MacroTests.ErodedBuild(m);
+                double analytic = TerrainHeightFunction.MaxAbsHeight(built.Height, m.Params);
+                double eroded   = TerrainHeightFunction.MaxAbsHeight(built.Height, built.Macro, built.Stats.MaxAbsBaseHeight);
+                TestContext.WriteLine($"{m.Scene}: largest |BaseHeight'| {built.Stats.MaxAbsBaseHeight:R} m; envelope " +
+                                      $"{analytic:F0} m analytic, {eroded:F0} m eroded; deepest cut {built.Stats.MaxCut:F0} m");
+            }
+        }
+
+        // C_m on the eroded maps, in the same units as the pinned one: (ContinentBound +
+        // BaseHeightScale) / S0, BaseHeightScale alone without continents.
+        [Test]
+        public void ErodedMacroReliefFactor()
+        {
+            foreach (var m in ErodedScenes())
+            {
+                var built = MacroTests.ErodedBuild(m);
+                var maps  = new ArrayMacroTexels(built.Texels, built.Drainage);
+                var mp    = built.Macro;
+                double s0 = built.Height.S0, scale = mp.ContinentBound + mp.BaseHeightScale;
+                double worst = 0.0; int worstDepth = 0;
+                for (int d = 0; d <= m.MaxDepth; d++)
+                {
+                    int level = mp.Layout.MacroLevel(d);
+                    double c = MaxOverNodes(m.Surface, d, 20000, (uint)(d + 1) * 104729u, (q, n) =>
+                    {
+                        Relief(m.Surface, q, n, (_, u, v) => MacroSampler.Read(maps, mp, n.Quad, level, u, v).BaseHeight,
+                               out double lo, out double hi);
+                        return 0.5 * (hi - lo) / (LodMath.NominalSize(s0, n.Depth) * scale / s0);
+                    });
+                    TestContext.WriteLine($"{m.Scene} eroded depth {d}: roughest C_m {c:F2}");
+                    if (c > worst) { worst = c; worstDepth = d; }
+                }
+                TestContext.WriteLine($"{m.Scene} eroded: roughest C_m {worst:F2} at depth {worstDepth}; pinned half again over, " +
+                                      $"{1.5 * worst:F1}; pinned uneroded {m.ReliefFactor}");
+            }
+        }
+
+        // The relief the LOD boundary has to cover on an eroded scene, measured whole: detail and
+        // eroded base height together, as ChunkMeshJob measures a chunk, 20,000 random nodes per depth,
+        // the largest half-relief as a fraction of the node. Erosion couples the two -- its correction
+        // was computed from the detail octaves, and the steepest channels lie where detail was cut
+        // away -- so summing each one's roughest node (MacroTests.Demand) overstates it: 0.556 of a
+        // node on the terrarium against a measured 0.25 of its allowance. Unflattened; the tests scale
+        // it by LodVerticalScale. Pinned half again over the roughest as ErodedCombinedRelief.
+        [Test]
+        public void ErodedCombinedRelief()
+        {
+            foreach (var m in ErodedScenes())
+            {
+                var w = new StressSceneTests.SceneHeights(m.Scene, m.Surface, MacroTests.RoughParams(m.Scene), eroded: true)
+                        { ReliefStride = 1 };
+                double worst = 0.0; int worstDepth = 0;
+                for (int d = 0; d <= m.MaxDepth; d++)
+                {
+                    double size = LodMath.NominalSize(w.S0, d);
+                    double c = MaxOverNodes(m.Surface, d, 20000, (uint)(d + 1) * 15485863u, (_, n) => 0.5 * w.Relief(n) / size);
+                    TestContext.WriteLine($"{m.Scene} eroded depth {d}: roughest half-relief {c:F5} of the node");
+                    if (c > worst) { worst = c; worstDepth = d; }
+                }
+                TestContext.WriteLine($"{m.Scene} eroded: roughest combined half-relief {worst:F5} of the node at depth " +
+                                      $"{worstDepth}; pinned half again over, {1.5 * worst:F4}");
+            }
+        }
+
+        // The skirt shares on the eroded heights, as SkirtShares measures them on the uneroded.
+        [Test]
+        public void ErodedSkirtShares()
+        {
+            foreach (var m in ErodedScenes())
+            {
+                var w = new StressSceneTests.SceneHeights(m.Scene, m.Surface, MacroTests.RoughParams(m.Scene), eroded: true)
+                        { ReliefStride = 1 };
+                var worst = new double[ChunkMeshLayout.SkirtDepthGap + 1];
+                foreach (var e in StressSceneTests.TransientEdges(w, m.MaxDepth, 400, 0x5C1A7u))
+                {
+                    worst[e.Gap] = math.max(worst[e.Gap], Share(w, e.Depth, e.GapFine, e.ReliefFine));
+                    worst[e.Gap] = math.max(worst[e.Gap], Share(w, e.Depth - e.Gap, e.GapCoarse, e.ReliefCoarse));
+                }
+                double all = 0.0;
+                for (int g = 1; g < worst.Length; g++)
+                {
+                    TestContext.WriteLine($"{m.Scene} eroded, depth gap {g}: the worst side needs {worst[g]:F3} of its relief");
+                    all = math.max(all, worst[g]);
+                }
+                TestContext.WriteLine($"{m.Scene} eroded: worst share {all:F3}; SkirtFraction half again over, rounded up, " +
+                                      $"{math.ceil(15.0 * all) / 10.0:F1}");
+            }
+        }
+
         static double Share(StressSceneTests.SceneHeights w, int depth, double gap, double relief)
         {
             double sag = ChunkMeshLayout.SkirtChordSag(w.Surface, 1f, LodMath.NominalSize(w.S0, depth), Resolution);
@@ -164,7 +275,9 @@ namespace Sonoma.Tests
         [Test]
         public void WorkingSets()
         {
-            foreach (var m in ContinentTests.MeasuredScenes())
+            var scenes = new List<MacroTests.SceneMacro>(ContinentTests.MeasuredScenes());
+            foreach (var e in ErodedScenes()) if (!scenes.Contains(e)) scenes.Add(e);
+            foreach (var m in scenes)
             {
                 if (m.Scene == "EarthStress")
                 {

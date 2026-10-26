@@ -153,11 +153,14 @@ namespace Sonoma.Tests
             // at the deepest level and applied to all of them, which is conservative everywhere
             // above it. It was measured at the mountain belts' band amplitudes (C7), which
             // DetailDemand holds EarthMacro to; and with EarthMacro's base height added, which with
-            // continents carries the coasts: 0.0004 of a node before them, 0.0108 now.
+            // continents carries the coasts: 0.0004 of a node before them and 0.0108 with them, so
+            // 0.2699 in all. With erosion the demand is the combined relief measured whole instead
+            // (MacroTests.Demand, E5): 0.7495 of a node at the roughest of 20,000 a depth, pinned half
+            // again over and flattened, 0.2249.
             double demand   = MacroTests.DetailDemand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0, LodVerticalScale);
             double combined = MacroTests.Demand(EarthReliefFactor, EarthReliefMeasuredAt, HeightScale, "EarthStress", p.S0, LodVerticalScale);
             Assert.AreEqual(0.2591, demand,   1e-4, "Earth's flattened relief demand in the mountain belts, as a fraction of node size");
-            Assert.AreEqual(0.2699, combined, 1e-4, "Earth's flattened relief demand with EarthMacro, as a fraction of node size");
+            Assert.AreEqual(0.2249, combined, 1e-4, "Earth's flattened relief demand with EarthMacro, as a fraction of node size");
             for (int d = 0; d <= MaxDepth; d++)
             {
                 double allowance = lod.MaxHalfRelief(d) / lod.NominalSize(d);

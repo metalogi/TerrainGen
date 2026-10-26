@@ -112,10 +112,26 @@ namespace Sonoma.Tests
             public string         ErosionAsset;
             public ErosionConfig? Erosion;
 
+            // The largest |BaseHeight'| the eroded build stores, every level (E5): the measured term
+            // TerrainRoot's height envelope takes in place of the analytic base-height bound
+            // (MacroMaps.MaxAbsHeight). Pinned from ReliefMeasurements.ErodedMaps, and held to the
+            // Burst build by MacroMapsTests.ErodedEnvelopesMatchTheBuild, since building eroded maps
+            // in a pure test costs seconds a scene.
+            public double         ErodedMaxAbsBaseHeight;
+
+            // The relief the LOD boundary has to cover with erosion, measured whole (E5): the largest
+            // half-relief of detail and eroded base together over 20,000 random nodes per depth, as a
+            // fraction of the node, unflattened, half again over (ReliefMeasurements.ErodedCombinedRelief).
+            // Demand returns it, flattened, for an eroded scene in place of the sum of C and C_m.
+            public double         ErodedCombinedRelief;
+
             public MacroConfig ErodedConfig
             {
                 get { var c = Config; c.Erosion = Erosion; return c; }
             }
+
+            public MacroParams ErodedParams =>
+                MacroParams.Create(Surface, HeightParams.Create(Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), ErodedConfig);
 
             public MacroConfig Config => new MacroConfig
             {
@@ -165,7 +181,9 @@ namespace Sonoma.Tests
                              Asset = "Assets/Settings/EarthMacro.asset", Surface = EarthScaleTests.Earth, MaxDepth = EarthScaleTests.MaxDepth,
                              Levels = 4, BaseHeightScale = 900f, EquatorTemperature = 30f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f, ReliefFactor = 81.0,
+                             // Eroded (E5, 2026-10-25): C_m 63.7 at its roughest (depth 12), the channels
+                             // steepening the base height, so 96 from 81 (ReliefMeasurements.ErodedMacroReliefFactor).
+                             RuggednessCentre = 0.2f, ReliefFactor = 96.0,
                              ContinentAsset = "Assets/Settings/EarthContinents.asset",
                              Continents = SceneContinentConfig(landFraction: 0.322f, land: 2000f, ocean: 6000f, cutoff: 1000000.0),
                              // Erosion (2026-10-25, amendment 8): the ring's 21 texels of incision on 28.7 km
@@ -173,7 +191,9 @@ namespace Sonoma.Tests
                              // at 4,000 m by 58. On the managed build: under a lake 1.1% of the land, land
                              // cut 89 m at the median and 547 at the 99th percentile, rivers 8.1x the
                              // median, 2,270 m at most, and land 30.6% -> 30.2%.
-                             ErosionAsset = "Assets/Settings/EarthErosion.asset",
+                             ErosionAsset = "Assets/Settings/EarthErosion.asset", ErodedMaxAbsBaseHeight = 7042.6650390625,
+                             // E5: 0.7495 of the node at its roughest (depth 19), 20,000 nodes a depth.
+                             ErodedCombinedRelief = 1.1243,
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 600000f, AreaExponent = 0.45f,
                                                            Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,
                                                            BreachDepth = 4000f } },
@@ -187,7 +207,8 @@ namespace Sonoma.Tests
                              Asset = "Assets/Settings/SmallPlanetMacro.asset", Surface = StressSceneTests.SmallPlanet.Surface, MaxDepth = StressSceneTests.SmallPlanet.MaxDepth,
                              Levels = 4, BaseHeightScale = 600f, EquatorTemperature = 30f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f, ReliefFactor = 77.0,
+                             // Eroded (E5): C_m 72.8 at its roughest (depth 16), so 109 from 77.
+                             RuggednessCentre = 0.2f, ReliefFactor = 109.0,
                              ContinentAsset = "Assets/Settings/SmallPlanetContinents.asset",
                              Continents = SceneContinentConfig(landFraction: 0.312f, land: 1000f, ocean: 3000f, cutoff: 250000.0),
                              // Erosion (2026-10-25, amendment 8): the ring's 21 texels of incision on 7.2 km
@@ -195,7 +216,9 @@ namespace Sonoma.Tests
                              // build: under a lake 0.9% of the land, at most 65 m filled, land cut 38 m at the
                              // median and 266 at the 99th percentile, rivers 5.7x the median, 1,484 m at
                              // most, and land 30.2% -> 29.7%.
-                             ErosionAsset = "Assets/Settings/SmallPlanetErosion.asset",
+                             ErosionAsset = "Assets/Settings/SmallPlanetErosion.asset", ErodedMaxAbsBaseHeight = 3695.10986328125,
+                             // E5: 0.6695 of the node at its roughest (depth 14).
+                             ErodedCombinedRelief = 1.0042,
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 150000f, AreaExponent = 0.45f,
                                                            Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,
                                                            BreachDepth = 2000f } },
@@ -210,7 +233,8 @@ namespace Sonoma.Tests
                              Asset = "Assets/Settings/RingworldMacro.asset", Surface = StressSceneTests.Ringworld.Surface, MaxDepth = StressSceneTests.Ringworld.MaxDepth,
                              Levels = 4, BaseHeightScale = 450f, EquatorTemperature = 18f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f, ReliefFactor = 73.0,
+                             // Eroded (E5): C_m 52.4 at its roughest (depth 10), so 79 from 73.
+                             RuggednessCentre = 0.2f, ReliefFactor = 79.0,
                              ContinentAsset = "Assets/Settings/RingworldContinents.asset",
                              Continents = SceneContinentConfig(landFraction: 0.351f, land: 1500f, ocean: 4500f, cutoff: 250000.0),
                              // M5c-1's second erosion, to tune with the export. Outlets at sea level, 0,
@@ -222,7 +246,9 @@ namespace Sonoma.Tests
                              // incision; 0.002 fills at most 66 m. As configured the land is cut 60 m at
                              // the median, 159 at the 90th percentile, 294 at the 99th and 1,226 at most,
                              // land falls from 30.1% to 29.6%, and the envelope from 32,150 to 31,269 m.
-                             ErosionAsset = "Assets/Settings/RingworldErosion.asset",
+                             ErosionAsset = "Assets/Settings/RingworldErosion.asset", ErodedMaxAbsBaseHeight = 4829.265625,
+                             // E5: 0.4131 of the node at its roughest (depth 16).
+                             ErodedCombinedRelief = 0.6197,
                              // BreachDepth 2,000 m with every water body a sea (2026-10-25, amendment 7): a
                              // fifth of the ring's land lay in closed basins walled by its mountain band,
                              // lakes its rivers crossed uncut. Breached, under a lake 5.5% -> 0.8%, rivers cut
@@ -252,6 +278,10 @@ namespace Sonoma.Tests
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
+                             // Eroded (E5): the base height now carries the erosion correction, channels
+                             // up to 258 m deep across 59 m texels, against the 200 m fBm C_m is priced
+                             // in. C_m 69.2 at its roughest (depth 9), so 104 from MacroReliefFactor's 7.
+                             ReliefFactor = 104.0,
                              LowBandEdge = 2000.0, MidBandEdge = 50.0, RuggednessMin = 0.5f, RuggednessMax = 1f,
                              RuggednessCentre = 0.5f,
                              // M5c-1's first erosion, a starting point to tune with the export. Outlets
@@ -260,7 +290,10 @@ namespace Sonoma.Tests
                              // the median, 30 at the 90th percentile and 69 at the 99th, 258 m at
                              // most; diffusion number 0.059; the envelope 2,593 m -> 2,318 m, since
                              // the stored base height, +-217 m, is under its analytic bound.
-                             ErosionAsset = "Assets/Settings/TerrariumErosion.asset",
+                             ErosionAsset = "Assets/Settings/TerrariumErosion.asset", ErodedMaxAbsBaseHeight = 217.47821044921875,
+                             // E5: 1.0207 of the node at its roughest (depth 8): flattened 0.3062, which its 0.39
+                             // allowance clears by 1.27x against the 1.25 asked, so deeper erosion here needs room first.
+                             ErodedCombinedRelief = 1.5310,
                              // BreachDepth 50 m (amendment 7): under 1% of the land lay in basins, and at 50 m
                              // none does, with 3 m of fill at most and the cut unchanged.
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 4000f, AreaExponent = 0.45f,
@@ -323,12 +356,23 @@ namespace Sonoma.Tests
         // continents' bound (0 without continents, which leaves the term's bits as they were): with
         // continents most of the base height's relief is the coasts', which BaseHeightScale alone
         // would leave out.
+        //
+        // With erosion the sum no longer bounds sensibly: the correction is computed from the detail
+        // octaves, so the steepest channels lie where detail was cut away, and on the terrarium the sum
+        // came to 0.556 of a node against a measured 0.25 of its 0.39 allowance. An eroded scene's
+        // demand is its combined relief measured whole, ErodedCombinedRelief, flattened (E5). The
+        // detail check still runs, so raising a band amplitude still fails until C is re-measured.
         internal static double Demand(double reliefFactor, float3 measuredAt, float heightScale, string scene, double s0,
                                       double verticalScale = 1.0)
         {
-            var m = For(scene);
-            return DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0, verticalScale)
-                 + verticalScale * m.ReliefFactor * (m.Params.ContinentBound + m.BaseHeightScale) / s0;
+            var    m      = For(scene);
+            double detail = DetailDemand(reliefFactor, measuredAt, heightScale, scene, s0, verticalScale);
+            if (m.Erosion.HasValue)
+            {
+                Assert.Greater(m.ErodedCombinedRelief, 0.0, $"{scene} erodes but has no ErodedCombinedRelief pinned");
+                return verticalScale * m.ErodedCombinedRelief;
+            }
+            return detail + verticalScale * m.ReliefFactor * (m.Params.ContinentBound + m.BaseHeightScale) / s0;
         }
 
         // A stress scene's height parameters, as TerrainRoot.Start builds them from its spectrum:
@@ -356,11 +400,47 @@ namespace Sonoma.Tests
         }
 
         // A stress scene's height bound, as TerrainRoot and GenerationScheduler take it: its
-        // spectrum with its bands and cutoff, and its macro layer.
+        // spectrum with its bands and cutoff, and its macro layer. With erosion it is the measured
+        // bound, MacroMaps.MaxAbsHeight's, from the scene's pinned largest base height (E5).
         internal static double MaxAbsHeight(string scene, in HeightParams rough)
         {
-            var m = For(scene);
-            return TerrainHeightFunction.MaxAbsHeight(SceneParams(m, rough), m.Params);
+            var m  = For(scene);
+            var hp = SceneParams(m, rough);
+            return m.Erosion.HasValue
+                ? TerrainHeightFunction.MaxAbsHeight(hp, m.ErodedParams, m.ErodedMaxAbsBaseHeight)
+                : TerrainHeightFunction.MaxAbsHeight(hp, m.Params);
+        }
+
+        // A scene's eroded macro maps, built once per domain by the managed builder TerrainRoot's
+        // Burst build is held to: about 7 s a scene under .NET 8, so the measuring tools use it and
+        // the pinned tests use the constants it produced.
+        internal sealed class SceneErosion
+        {
+            public HeightParams Height;
+            public MacroParams  Macro;
+            public float4[]     Texels;
+            public float2[]     Drainage;
+            public ErosionStats Stats;
+        }
+
+        static readonly Dictionary<string, SceneErosion> _sceneErosion = new Dictionary<string, SceneErosion>();
+
+        internal static SceneErosion ErodedBuild(SceneMacro m)
+        {
+            Assert.IsTrue(m.Erosion.HasValue, $"{m.Scene} has no erosion");
+            lock (_sceneErosion)
+            {
+                if (_sceneErosion.TryGetValue(m.Scene, out var built)) return built;
+                var hp = SceneParams(m, RoughParams(m.Scene));
+                var c  = m.ErodedConfig;
+                var mp = MacroParams.Create(m.Surface, hp, c);
+                var ep = ErosionParams.Create(m.Surface, hp, mp, c);
+                built = new SceneErosion { Height = hp, Macro = mp };
+                built.Texels = MacroGenerator.Build(m.Surface, SurfaceMath.BuildRoots(m.Surface), mp, ContinentParams.Create(m.Surface, mp, c),
+                                                    hp, ep, out _, out built.Drainage, out _, out built.Stats);
+                _sceneErosion.Add(m.Scene, built);
+                return built;
+            }
         }
 
         // A scene's continents, built once per domain in managed code -- about a second a scene
@@ -433,8 +513,10 @@ namespace Sonoma.Tests
                 bool cut   = m.Continents.HasValue;
                 Assert.AreEqual(cut, hp.FirstOctave > 0, $"{m.Scene}: the cutoff");
                 Assert.AreEqual(cut, m.Params.HasContinents, $"{m.Scene}: the macro parameters' continents");
-                Assert.AreEqual(TerrainHeightFunction.MaxAbsHeight(hp, m.Params), MaxAbsHeight(m.Scene, rough),
-                    $"{m.Scene}: MaxAbsHeight is not built from SceneParams");
+                Assert.AreEqual(m.Erosion.HasValue
+                                    ? TerrainHeightFunction.MaxAbsHeight(hp, m.ErodedParams, m.ErodedMaxAbsBaseHeight)
+                                    : TerrainHeightFunction.MaxAbsHeight(hp, m.Params),
+                                MaxAbsHeight(m.Scene, rough), $"{m.Scene}: MaxAbsHeight is not built from SceneParams");
                 if (!cut) continue;
                 var w = new StressSceneTests.SceneHeights(m.Scene, m.Surface, rough);
                 Assert.AreEqual(hp.FirstOctave, w.Height.FirstOctave, $"{m.Scene}: SceneHeights' cutoff");

@@ -170,7 +170,11 @@ namespace Sonoma.Tests
             MaxDepth = 9, OctaveCount = 14, Budget = 4400, HeightScale = 1000f, SkirtFraction = 1f,
             RoughnessCrossover = 100.0, FinePersistence = 0.55f, TenMetreFeature = 1.430, TenMetreOnOneSlope = 0.9766,
             ReliefFactor = 9.0,
-            WorstQuad = 1, WorstU = 59.0 / 512.0, WorstV = 493.0 / 512.0, Worst = 3880,
+            // Eroded (E5, 2026-10-25): the measured envelope is 2.3 km against the analytic 2.6, so the
+            // anchor moves less and the world shrinks less. Re-scanned as before, rim and interior
+            // quads 33 x 33 then the 1/512 lattice: 3,792 at (21/512, 427/512) on root 1, the rim's
+            // worst 3,648, and 3,748 at the old camera.
+            WorstQuad = 1, WorstU = 21.0 / 512.0, WorstV = 427.0 / 512.0, Worst = 3792,
         };
 
         // A ring of three quarters the ring's radius, 1,194.56 km, and 0.15 of its width,
@@ -240,7 +244,9 @@ namespace Sonoma.Tests
         // EarthScaleTests asks of Earth, and with each scene's macro layer added
         // (MacroTests.Demand) it is under the allowance by MacroTests.CombinedMargin. So raising
         // a macro asset's BaseHeightScale -- through its copy in MacroTests.StressMacros, which
-        // MacroMapsTests holds to the asset -- fails here before it overruns at runtime. A
+        // MacroMapsTests holds to the asset -- fails here before it overruns at runtime. On an
+        // eroded scene the demand with the macro layer is the combined relief measured whole
+        // (SceneMacro.ErodedCombinedRelief, E5), which a retune of its erosion has to re-measure. A
         // cylinder's allowance is three times a cube sphere's at the same LOD settings (0.39
         // against 0.1146), because its node sizes spread by 1.02 rather than pi/2 -- which is what
         // lets the terrarium carry a HeightScale of a fiftieth of its root node's size at
@@ -447,7 +453,9 @@ namespace Sonoma.Tests
             readonly MacroParams  _mp;
             readonly LazyTexels   _texels;
 
-            public SceneHeights(string scene, in SurfaceDef s, in HeightParams rough, bool smooth = false)
+            // eroded reads the scene's eroded maps (MacroTests.ErodedBuild), built whole once, seconds a
+            // scene: for the measuring tools, since erosion is not local and no texel can be made alone.
+            public SceneHeights(string scene, in SurfaceDef s, in HeightParams rough, bool smooth = false, bool eroded = false)
             {
                 var m = MacroTests.For(scene);
                 _s     = s;
@@ -455,6 +463,13 @@ namespace Sonoma.Tests
                 _hp    = MacroTests.SceneParams(m, rough);
                 _mp    = m.Params;
                 float[] continent = null;
+                if (eroded)
+                {
+                    var built = MacroTests.ErodedBuild(m);
+                    _mp     = built.Macro;
+                    _texels = new LazyTexels(built.Texels);
+                    return;
+                }
                 if (smooth)
                 {
                     // No terrain at all: the surface's own curvature is the whole gap.
@@ -530,9 +545,14 @@ namespace Sonoma.Tests
                 _s = s; _roots = roots; _p = p; _continent = continent;
             }
 
+            // Maps already built whole, eroded ones: every texel is read from them.
+            readonly float4[] _built;
+            public LazyTexels(float4[] built) { _built = built; }
+
             // What MacroGenerator.Build stores there: the texel, or the one it is a copy of.
             public float4 Texel(int index)
             {
+                if (_built != null) return _built[index];
                 if (_made.TryGetValue(index, out float4 t)) return t;
                 _p.Layout.Decode(index, out int q, out int l, out int i, out int j);
                 _p.Layout.EdgeSource(_s, q, l, i, j, out int sq, out int si, out int sj);
