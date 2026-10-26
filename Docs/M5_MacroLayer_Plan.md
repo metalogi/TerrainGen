@@ -1577,8 +1577,9 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
     without warnings. A Windows player build of Earth built its macro layer in 2,381 ms, erosion
     1,720, against the Editor's 2,609 and 1,877: about 9% faster, since the erosion job's safety
     checks are off in both. Its peak working set was 6,522 of 9,400, and its slowest rebase 2.80 ms
-    over 6,522 chunks, which puts the Editor's 8.5 ms down to the Editor. The terrarium has not been
-    re-exported since breaching was added.
+    over 6,522 chunks, which puts the Editor's 8.5 ms down to the Editor. Re-exported since breaching,
+    the terrarium looks as before: D from -258 to +2.9 m, the breach filling at most 3 m as probed,
+    wetness up to 0.94, and the same joined, incised valleys; that build took 2,357 ms.
 
 #### Out of scope for M5c
 
