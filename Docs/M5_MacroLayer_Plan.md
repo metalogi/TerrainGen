@@ -1445,7 +1445,13 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
    | terrarium, breach 50 m | 0.0% | 0.0% (3 m) | 2.5x | 258 m |
 
    The ring's rivers stay short: half its land is within 8 steps of water, the continents'
-   coastline. The lake-surface rule from amendment 6 stays. Not yet run in the Editor.
+   coastline. The lake-surface rule from amendment 6 stays. **In the Editor (2026-10-25)** the
+   Burst build agrees with the managed probe (deepest cut 1,761 m, most fill 52 m). The macro build
+   took 3,665 ms, erosion 2,742 (graph 234, heights 69, **pass 2,357**, wetness 54, pyramid 29):
+   breaching adds about 450 ms to the pass. The fans are gone, and enlarged the images show branching
+   river networks with incised, joined valleys, as the terrarium's do. At full size the ring's
+   export, eight quads in a row 257 pixels tall, is shrunk by any viewer until its valleys are a
+   pixel wide, which is much of why it read as mottled.
 
 #### Out of scope for M5c
 
