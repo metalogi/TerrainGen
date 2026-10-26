@@ -288,6 +288,31 @@ namespace Sonoma.Tests
             }
         }
 
+        // E5: each eroding scene's pinned largest base height (MacroTests.SceneMacro.ErodedMaxAbsBaseHeight),
+        // which the pure tests' height envelopes are built from, is the one the scene's Burst build
+        // measures, to the bit. A retune of the scene's erosion fails here until it is re-pinned.
+        [Test]
+        public void ErodedEnvelopesMatchTheBuild()
+        {
+            int scenes = 0;
+            foreach (var m in MacroTests.StressMacros)
+            {
+                if (!m.Erosion.HasValue) continue;
+                scenes++;
+                var hp = MacroTests.SceneParams(m, MacroTests.RoughParams(m.Scene));
+                var c  = m.ErodedConfig;
+                var p  = MacroParams.Create(m.Surface, hp, c);
+                var ep = ErosionParams.Create(m.Surface, hp, p, c);
+                using var maps = MacroMaps.Build(m.Surface, SurfaceMath.BuildRoots(m.Surface), p,
+                                                 ContinentParams.Create(m.Surface, p, c), hp, ep);
+                Assert.AreEqual(m.ErodedMaxAbsBaseHeight, maps.Erosion.MaxAbsBaseHeight,
+                    $"{m.Scene}: the pinned largest base height is not the build's; re-run ReliefMeasurements.ErodedMaps");
+                Assert.AreEqual(MacroTests.MaxAbsHeight(m.Scene, MacroTests.RoughParams(m.Scene)), maps.MaxAbsHeight(hp),
+                    $"{m.Scene}: the tests' height envelope is not the runtime's");
+            }
+            Assert.Greater(scenes, 0, "no stress scene erodes");
+        }
+
         // The whole erosion build (M5c-1, task 6): MacroMaps.Build's Burst graph, heights, pass and
         // pyramid against the managed builder's, with and without continents, to the bit.
         [Test]

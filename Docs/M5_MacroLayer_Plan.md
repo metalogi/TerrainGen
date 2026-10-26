@@ -1484,6 +1484,47 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
    joined valleys like the ring's; its wetness reaches only 0.66, because it is measured against a
    root quad's area and Earth's quads dwarf its continents. Every scene with erosion now builds its
    macro layer in 2.4 to 3.7 s in the Editor, which is D4's condition for taking it up again.
+9. **E5, the pinned figures re-measured under erosion (2026-10-25).** Building eroded maps takes
+   about 7 s a scene in managed code, so the measuring tools (`ReliefMeasurements.ErodedMaps`,
+   `ErodedMacroReliefFactor`, `ErodedSkirtShares`, `ErodedCombinedRelief`, and `WorkingSets` over the
+   terrarium too) read whole eroded maps built once (`MacroTests.ErodedBuild`), and the pure tests
+   read the constants they produced. Per scene:
+
+   | | Earth | small planet | ring | terrarium |
+   |---|---|---|---|---|
+   | largest base height, pinned to the bit | 7,042.7 m | 3,695.1 m | 4,829.3 m | 217.5 m |
+   | envelope, analytic -> eroded | 36.6 -> 35.5 km | 23.2 -> 22.4 km | 32.2 -> 31.3 km | 2.6 -> 2.3 km |
+   | C_m, uneroded -> eroded | 81 -> 96 | 77 -> 109 | 73 -> 79 | 7 -> 104 |
+   | combined relief, roughest / pinned | 0.750 / 1.124 | 0.669 / 1.004 | 0.413 / 0.620 | 1.021 / 1.531 |
+   | flattened against the allowance | 0.225 of 0.615 | 0.201 of 0.535 | 0.124 of 0.420 | 0.306 of 0.390 |
+   | worst working set | 8,222 (held) | 7,302 | 4,980 | 3,880 -> 3,792 |
+   | worst skirt share (`SkirtFraction`) | 0.590 (1) | 0.622 (1) | 0.774 (1.2) | 0.616 (1) |
+
+   - **Envelopes.** `MacroTests.MaxAbsHeight` takes an eroded scene's envelope as the runtime does,
+     from its pinned largest base height (`SceneMacro.ErodedMaxAbsBaseHeight`), and
+     `MacroMapsTests.ErodedEnvelopesMatchTheBuild` holds each constant to the Burst build. Every
+     envelope shrinks, because the measured base height is under its analytic bound, so the
+     `LodVertical` anchor moves less and the working sets shrink or stay.
+   - **The relief allowance is now tested on the combined relief measured whole.** E5 asked for
+     C_m re-measured and `CombinedMargin` re-run on the sum. The sum failed on the terrarium, 0.556
+     of a node against its 0.390: its C_m, priced in units of a 200 m fBm, went from 7 to 104 once
+     the base height carried channels up to 258 m deep across 59 m texels. But the sum stacks the
+     detail noise's roughest node on the macro layer's, and erosion couples the two: the correction
+     is computed from the detail octaves, so the steepest channels lie where detail was cut away.
+     Measured whole, detail and eroded base together, 20,000 random nodes a depth, the terrarium's
+     roughest node is 1.021 of its size; half again over and flattened, 0.306, which its allowance
+     clears by 1.27x against the 1.25 asked. So for an eroded scene `MacroTests.Demand` returns that
+     measured figure (`SceneMacro.ErodedCombinedRelief`) in place of the sum; the detail check still
+     runs. The C_m values are pinned for the record. **The terrarium has little room left:** deeper
+     erosion there needs a lever first (`MorphStartFraction`, or less incision).
+   - **Skirts.** Every `SkirtFraction` covers the eroded shares half again over, so none changed. The
+     skirt unit tests still build uneroded heights lazily; eroded maps would cost minutes a run in
+     the Editor. A retune that roughens the terrain should rerun `ErodedSkirtShares`.
+   - **The terrarium's working set** was re-scanned as before: 3,792 at (21/512, 427/512) on root 1,
+     against the pinned camera's 3,748 and the rim's 3,648, under its 4,400 budget. The others did not
+     move by 1%.
+   - Without `TestContext`, the harness's own runner had reported nine tests failing all along; it now
+     gives each test a real NUnit result, and they pass.
 
 #### Out of scope for M5c
 
