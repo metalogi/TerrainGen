@@ -233,9 +233,9 @@ namespace Sonoma.Core.Generation
 
                 clock.Restart();
                 ErosionChannels.WriteTop(p.Layout, graph.Cells, graph.NodeOf.Length, ep.QuadArea,
-                                         new ErosionJob.Ints(graph.NodeOf), new ErosionJob.Doubles(graph.Areas),
-                                         new ErosionJob.Doubles(routing.Drainage), new ErosionJob.Doubles(before),
-                                         new ErosionJob.Doubles(heights), new ErosionJob.Float2s(drainage));
+                                         new NativeInts(graph.NodeOf), new NativeDoubles(graph.Areas),
+                                         new NativeDoubles(routing.Drainage), new NativeDoubles(before),
+                                         new NativeDoubles(heights), new NativeFloat2s(drainage));
                 double cut = 0.0;
                 for (int i = 0; i < graph.NodeCount; i++) cut = math.max(cut, before[i] - heights[i]);
                 stats.MaxCut            = cut;
@@ -243,7 +243,7 @@ namespace Sonoma.Core.Generation
 
                 clock.Restart();
                 ErosionPyramidJob.Run(texels, drainage, p.Layout, plan);
-                stats.MaxAbsBaseHeight    = ErosionBuild.MaxAbsBaseHeight(new ErosionJob.Float4s(texels), texels.Length);
+                stats.MaxAbsBaseHeight    = ErosionBuild.MaxAbsBaseHeight(new NativeFloat4s(texels), texels.Length);
                 stats.PyramidMilliseconds = clock.Elapsed.TotalMilliseconds;
             }
             finally

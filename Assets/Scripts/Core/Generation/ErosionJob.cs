@@ -51,12 +51,12 @@ namespace Sonoma.Core.Generation
 
         public void Execute()
         {
-            var a = new ErosionArrays<Ints, Floats, Doubles>
+            var a = new ErosionArrays<NativeInts, NativeFloats, NativeDoubles>
             {
-                Neighbours = new Ints(Neighbours), Lengths = new Floats(Lengths), Areas = new Doubles(Areas),
-                Heights = new Doubles(Heights), Filled = new Doubles(Filled), Drainage = new Doubles(Drainage),
-                Receivers = new Ints(Receivers), Stack = new Ints(Stack), Heap = new Ints(Heap),
-                HeapKeys = new Doubles(HeapKeys), State = new Ints(State), Scratch = new Doubles(Scratch),
+                Neighbours = new NativeInts(Neighbours), Lengths = new NativeFloats(Lengths), Areas = new NativeDoubles(Areas),
+                Heights = new NativeDoubles(Heights), Filled = new NativeDoubles(Filled), Drainage = new NativeDoubles(Drainage),
+                Receivers = new NativeInts(Receivers), Stack = new NativeInts(Stack), Heap = new NativeInts(Heap),
+                HeapKeys = new NativeDoubles(HeapKeys), State = new NativeInts(State), Scratch = new NativeDoubles(Scratch),
             };
             ErosionPass.Run(Params, NodeCount, ref a);
         }
@@ -68,7 +68,7 @@ namespace Sonoma.Core.Generation
         {
             if (!heights.IsCreated || heights.Length != g.NodeCount)
                 throw new ArgumentException("ErosionJob: one height per node of the graph.", nameof(heights));
-            ErosionPass.Validate(p, g.NodeCount, new Floats(g.Lengths));
+            ErosionPass.Validate(p, g.NodeCount, new NativeFloats(g.Lengths));
 
             int n = g.NodeCount;
             var routing = new NativeErosionRouting
@@ -106,49 +106,6 @@ namespace Sonoma.Core.Generation
                 scratch.Dispose();
             }
             return routing;
-        }
-
-        // NativeArrays as the erosion code's arrays, inside the jobs and, for MacroMaps.Build's
-        // managed steps, on the main thread. The graph's arrays are read-only to the job and never
-        // written through these: the pass writes only its own.
-        public struct Ints : IErosionArray<int>
-        {
-            NativeArray<int> _a;
-            public Ints(NativeArray<int> a) { _a = a; }
-            public int  Get(int index)            => _a[index];
-            public void Set(int index, int value) => _a[index] = value;
-        }
-
-        public struct Floats : IErosionArray<float>
-        {
-            NativeArray<float> _a;
-            public Floats(NativeArray<float> a) { _a = a; }
-            public float Get(int index)              => _a[index];
-            public void  Set(int index, float value) => _a[index] = value;
-        }
-
-        public struct Doubles : IErosionArray<double>
-        {
-            NativeArray<double> _a;
-            public Doubles(NativeArray<double> a) { _a = a; }
-            public double Get(int index)               => _a[index];
-            public void   Set(int index, double value) => _a[index] = value;
-        }
-
-        public struct Float2s : IErosionArray<float2>
-        {
-            NativeArray<float2> _a;
-            public Float2s(NativeArray<float2> a) { _a = a; }
-            public float2 Get(int index)               => _a[index];
-            public void   Set(int index, float2 value) => _a[index] = value;
-        }
-
-        public struct Float4s : IErosionArray<float4>
-        {
-            NativeArray<float4> _a;
-            public Float4s(NativeArray<float4> a) { _a = a; }
-            public float4 Get(int index)               => _a[index];
-            public void   Set(int index, float4 value) => _a[index] = value;
         }
     }
 

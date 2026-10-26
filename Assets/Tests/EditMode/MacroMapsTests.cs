@@ -313,6 +313,42 @@ namespace Sonoma.Tests
             Assert.Greater(scenes, 0, "no stress scene erodes");
         }
 
+        // Every eroding scene's skirts cover its transient gaps on the eroded heights, as
+        // StressSceneTests.SkirtCoversTheTransientGap checks the uneroded: the same edges and the same
+        // check, over the maps the Editor's Burst build makes in seconds. The pure tests cannot afford
+        // eroded maps, a minute a scene under the Editor's Mono.
+        [Test]
+        public void SkirtsCoverTheErodedTransientGap()
+        {
+            int scenes = 0;
+            foreach (var m in MacroTests.StressMacros)
+            {
+                if (!m.Erosion.HasValue) continue;
+                scenes++;
+                var rough = MacroTests.RoughParams(m.Scene);
+                var hp    = MacroTests.SceneParams(m, rough);
+                var c     = m.ErodedConfig;
+                var p     = MacroParams.Create(m.Surface, hp, c);
+                var ep    = ErosionParams.Create(m.Surface, hp, p, c);
+                float4[] texels;
+                using (var maps = MacroMaps.Build(m.Surface, SurfaceMath.BuildRoots(m.Surface), p,
+                                                  ContinentParams.Create(m.Surface, p, c), hp, ep))
+                    texels = maps.Texels.ToArray();
+
+                int   maxDepth;
+                float fraction;
+                if (m.Scene == "EarthStress") { maxDepth = EarthScaleTests.MaxDepth; fraction = EarthScaleTests.SkirtFraction; }
+                else
+                {
+                    var sc = Array.Find(StressSceneTests.All, x => x.Name == m.Scene);
+                    maxDepth = sc.MaxDepth; fraction = sc.SkirtFraction;
+                }
+                StressSceneTests.AssertSkirtsCover($"{m.Scene} eroded",
+                    new StressSceneTests.SceneHeights(m.Scene, m.Surface, rough, texels, p), maxDepth, fraction);
+            }
+            Assert.Greater(scenes, 0, "no stress scene erodes");
+        }
+
         // The whole erosion build (M5c-1, task 6): MacroMaps.Build's Burst graph, heights, pass and
         // pyramid against the managed builder's, with and without continents, to the bit.
         [Test]

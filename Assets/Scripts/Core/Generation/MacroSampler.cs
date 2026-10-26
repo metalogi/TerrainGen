@@ -77,18 +77,33 @@ namespace Sonoma.Core.Generation
             => (w.x * p0 + w.w * p3) + (w.y * p1 + w.z * p2);
 
         // The read every caller makes: MacroSample.Zero, reading nothing, when there is no macro
-        // layer, and wetness only where there is erosion. The sample jobs, MacroMaps.Sample and
-        // TerrainHeightFunction.HeightAtPoint all come through here, so none can forget a check or
-        // apply it differently.
+        // layer. The sample jobs, MacroMaps.Sample and TerrainHeightFunction.HeightAtPoint all come
+        // through here, so none can forget the check or apply it differently. It leaves Wetness at 0:
+        // nothing reads it until M5c-2's gully term, and reading it here cost every chunk vertex of an
+        // eroded scene a second bicubic read for nothing. ReadWetness is the read for that term.
         public static MacroSample Read<T>(T texels, in MacroParams p, int quad, int level, double u, double v)
             where T : struct, IMacroTexels
+            => p.Enabled ? Sample(texels, p.Layout, quad, level, u, v) : MacroSample.Zero;
+
+        // Wetness at (u, v), 0..1: 0 without erosion, reading nothing, and saturated, because the
+        // bicubic read overshoots between texels and wetness means nothing outside 0..1.
+        public static float ReadWetness<T>(T texels, in MacroParams p, int quad, int level, double u, double v)
+            where T : struct, IMacroTexels
+            => p.Enabled && p.HasErosion
+                ? math.saturate((float)SampleDrainage(texels, p.Layout, quad, level, u, v).x)
+                : 0f;
+
+        // Where a read at (u, v) on this quad and level falls: the flat index of its stencil's first
+        // texel, the level's row width, and the weights on each axis. The one placement both arrays'
+        // reads share, since it is what makes them exact on texels and the same across a shared edge.
+        static int Stencil(in MacroLayout layout, int quad, int level, double u, double v,
+                           out int w, out double4 wu, out double4 wv)
         {
-            if (!p.Enabled) return MacroSample.Zero;
-            var m = Sample(texels, p.Layout, quad, level, u, v);
-            // Saturated, because the bicubic read overshoots between texels, and wetness means
-            // nothing outside 0..1.
-            if (p.HasErosion) m.Wetness = math.saturate((float)SampleDrainage(texels, p.Layout, quad, level, u, v).x);
-            return m;
+            int n = layout.Cells(level);
+            Weights(u * n, n, out int ci, out wu);
+            Weights(v * n, n, out int cj, out wv);
+            w = layout.Width(level);
+            return layout.Index(quad, level, ci - 1, cj - 1);
         }
 
         // The macro sample at (u, v) on this quad and level.
@@ -96,12 +111,7 @@ namespace Sonoma.Core.Generation
                                             double u, double v)
             where T : struct, IMacroTexels
         {
-            int n = layout.Cells(level);
-            Weights(u * n, n, out int ci, out double4 wu);
-            Weights(v * n, n, out int cj, out double4 wv);
-
-            int w   = layout.Width(level);
-            int at  = layout.Index(quad, level, ci - 1, cj - 1);
+            int at = Stencil(layout, quad, level, u, v, out int w, out double4 wu, out double4 wv);
 
             double4 r0 = Row(texels, at,         wu);
             double4 r1 = Row(texels, at + w,     wu);
@@ -121,18 +131,13 @@ namespace Sonoma.Core.Generation
         static double4 Row<T>(T texels, int at, double4 w) where T : struct, IMacroTexels
             => Combine(w, texels.Texel(at), texels.Texel(at + 1), texels.Texel(at + 2), texels.Texel(at + 3));
 
-        // The drainage maps at (u, v): the same cells, weights and order as Sample, so a read is
-        // exact on texels and bit-identical across a shared edge, as the main maps' is.
+        // The drainage maps at (u, v): Sample's stencil and order, so a read is exact on texels and
+        // bit-identical across a shared edge, as the main maps' is.
         public static double2 SampleDrainage<T>(T texels, in MacroLayout layout, int quad, int level,
                                                 double u, double v)
             where T : struct, IMacroTexels
         {
-            int n = layout.Cells(level);
-            Weights(u * n, n, out int ci, out double4 wu);
-            Weights(v * n, n, out int cj, out double4 wv);
-
-            int w  = layout.Width(level);
-            int at = layout.Index(quad, level, ci - 1, cj - 1);
+            int at = Stencil(layout, quad, level, u, v, out int w, out double4 wu, out double4 wv);
 
             double2 r0 = DrainageRow(texels, at,         wu);
             double2 r1 = DrainageRow(texels, at + w,     wu);

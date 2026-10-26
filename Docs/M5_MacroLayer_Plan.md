@@ -1580,6 +1580,30 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
     over 6,522 chunks, which puts the Editor's 8.5 ms down to the Editor. Re-exported since breaching,
     the terrarium looks as before: D from -258 to +2.9 m, the breach filling at most 3 m as probed,
     wetness up to 0.94, and the same joined, incised valleys; that build took 2,357 ms.
+12. **From the PR's code review (2026-10-26).**
+    - **Land was eroded under the sea.** `Incise` aimed a land node at its receiver's own height, and
+      a river mouth beside deep water was dragged below `BaseLevel` and became sea; diffusion beside a
+      deep seabed did the same. Measured, it took 1.4% (Earth) to 3.3% (the terrarium) of each scene's
+      land, a fringe at most three texels deep and up to 38 m below sea level, not the fjords working
+      upstream the review feared. Land is now cut and diffused towards the base level at the lowest,
+      since that is what a river erodes to, and never reaches it (`LandStaysAboveTheBaseLevel`, which
+      fails with either guard removed). Re-measured, only the coastal figures move: the ring's largest
+      base height 4,829 -> 4,783 m (envelope 31.3 -> 31.2 km), the narrow ring's 3,279 -> 3,250 m
+      (28.8 -> 28.7 km) and its combined relief 0.810 -> 0.805, the terrarium's combined relief
+      1.531 -> 1.530 and its skirt share 0.616 -> 0.620. Every working set, C_m and `SkirtFraction`
+      stands.
+    - **Wetness is no longer read per vertex.** Nothing reads it before M5c-2, so `MacroSampler.Read`
+      leaves it 0 and costs one bicubic read again; `MacroSampler.ReadWetness` is the read for the
+      gully term.
+    - **The analytic `MaxAbsHeight` refuses eroded maps**, which it does not bound, rather than
+      returning a bound the terrain can exceed.
+    - **Eroded skirts are tested**, not only measured: `MacroMapsTests.SkirtsCoverTheErodedTransientGap`
+      runs the skirt check on each eroding scene's Burst-built maps in the Editor.
+    - Cleanups, results unchanged to the byte on a 16 MB snapshot of the pass and both reads: one set
+      of `NativeArray` wrappers (`NativeErosionArrays`), the export on `ArrayMacroTexels`, `Route` and
+      `Condition` sharing `PlaceSeas` and `SeedLowest`, and `Sample` and `SampleDrainage` sharing one
+      `Stencil`. Comments corrected: D rises above zero where basins are filled as well as by
+      diffusion.
 
 #### Out of scope for M5c
 

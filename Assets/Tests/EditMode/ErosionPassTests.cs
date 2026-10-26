@@ -397,6 +397,30 @@ namespace Sonoma.Tests
                 if (pit[i]) Assert.Greater(r.Filled[i], r.Heights[i], $"pit node {i} is not under a lake");
         }
 
+        // Land is eroded to the sea's surface, never below it: neither incision towards a deep sea
+        // receiver nor diffusion beside a deep seabed takes a node that started above the base level
+        // to it or under it. Pitted ground beside sea at -2,000 m, cut hard and diffused.
+        [Test]
+        public void LandStaysAboveTheBaseLevel()
+        {
+            foreach (var c in ErosionGraphTests.Cases())
+            {
+                var g = c.Graph;
+                var h = PittedHeights(c);
+                for (int i = 0; i < h.Length; i++) if (h[i] <= 0.0) h[i] = -2000.0;
+                double u = ErosionPass.DiffusionNumber(1.0, g.NodeCount, new ErosionGraph.Floats(g.Lengths));
+                var r = ErosionPass.Run(Params(iterations: 10, kdt: 1e9, kappa: 0.9 / u), g, h);
+                int land = 0;
+                for (int i = 0; i < h.Length; i++)
+                {
+                    if (!(h[i] > 0.0)) continue;
+                    land++;
+                    Assert.Greater(r.Heights[i], 0.0, $"{c.Name}: land node {i} went under the base level");
+                }
+                Assert.Greater(land, 0, c.Name);
+            }
+        }
+
         [Test]
         public void TwoRunsAreIdentical()
         {

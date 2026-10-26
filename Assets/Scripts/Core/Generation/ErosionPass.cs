@@ -162,31 +162,14 @@ namespace Sonoma.Core.Generation
             }
             MarkSeas(p, nodeCount, ref a);
 
-            int size = 0, done = 0;
-            for (int i = 0; i < nodeCount; i++)
-            {
-                if (a.State.Get(i) != Sea) continue;
-                done++;
-                if (IsCoastal(ref a, i)) Seed(ref a, i, ref size);
-                else
-                {
-                    a.Filled.Set(i, a.Heights.Get(i));
-                    a.Receivers.Set(i, i);
-                    a.State.Set(i, 2);
-                }
-            }
+            int size = 0;
+            int done = PlaceSeas(nodeCount, ref a, ref size, out int queued) + queued;
 
             while (done < nodeCount)
             {
-                // As in Route: a surface with no sea, or ground the seas do not reach, drains to its
-                // lowest node left.
                 if (size == 0)
                 {
-                    int lowest = -1;
-                    for (int i = 0; i < nodeCount; i++)
-                        if (a.State.Get(i) == 0 && (lowest < 0 || a.Heights.Get(i) < a.Heights.Get(lowest)))
-                            lowest = i;
-                    Seed(ref a, lowest, ref size);
+                    SeedLowest(nodeCount, ref a, ref size);
                     done++;
                 }
 
@@ -275,40 +258,11 @@ namespace Sonoma.Core.Generation
                 a.State.Set(i, 0);
 
             MarkSeas(p, nodeCount, ref a);
-
-            // Outlets. Only those beside ground that is not sea go in the queue. An outlet whose
-            // neighbours are all sea would come out of it to find every neighbour visited and push
-            // nothing, so it goes straight onto the stack instead: its own receiver, before any node
-            // that could drain to it. Nothing else reads its place in the stack, so the routing, the
-            // drainage and the heights are the same bits either way, and the queue is smaller by the
-            // sea -- 69% of the terrarium's nodes, about as much of the planets'.
-            for (int i = 0; i < nodeCount; i++)
-            {
-                if (a.State.Get(i) != Sea) continue;
-                if (IsCoastal(ref a, i))
-                    Seed(ref a, i, ref size);
-                else
-                {
-                    a.Filled.Set(i, a.Heights.Get(i));
-                    a.Receivers.Set(i, i);
-                    a.State.Set(i, 2);
-                    a.Stack.Set(popped++, i);
-                }
-            }
+            popped = PlaceSeas(nodeCount, ref a, ref size, out _);
 
             while (popped < nodeCount)
             {
-                // No outlet yet, or ground the outlets do not reach: the lowest node left unvisited
-                // drains it. Every surface the terrain has is connected, so past the first flood
-                // this is only for a surface with nothing at or below BaseLevel.
-                if (size == 0)
-                {
-                    int lowest = -1;
-                    for (int i = 0; i < nodeCount; i++)
-                        if (a.State.Get(i) == 0 && (lowest < 0 || a.Heights.Get(i) < a.Heights.Get(lowest)))
-                            lowest = i;
-                    Seed(ref a, lowest, ref size);
-                }
+                if (size == 0) SeedLowest(nodeCount, ref a, ref size);
 
                 int c = Pop(ref a, ref size);
                 a.Stack.Set(popped++, c);
@@ -443,6 +397,54 @@ namespace Sonoma.Core.Generation
             return false;
         }
 
+        // The seas MarkSeas found, as outlets, for Route and Condition both. Only those beside ground
+        // that is not sea go in the queue. One whose neighbours are all sea would come out of it to
+        // find every neighbour visited and push nothing, so it goes straight onto the stack instead:
+        // its own receiver, before any node that could drain to it. Nothing else reads its place in
+        // the stack, so the routing, the drainage and the heights are the same bits either way, and
+        // the queue is smaller by the sea -- 69% of the terrarium's nodes, about as much of the
+        // planets'. Returns how many it placed on the stack, and how many it queued.
+        static int PlaceSeas<TI, TF, TD>(int nodeCount, ref ErosionArrays<TI, TF, TD> a, ref int size, out int queued)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            int placed = 0;
+            queued = 0;
+            for (int i = 0; i < nodeCount; i++)
+            {
+                if (a.State.Get(i) != Sea) continue;
+                if (IsCoastal(ref a, i))
+                {
+                    Seed(ref a, i, ref size);
+                    queued++;
+                }
+                else
+                {
+                    a.Filled.Set(i, a.Heights.Get(i));
+                    a.Receivers.Set(i, i);
+                    a.State.Set(i, 2);
+                    a.Stack.Set(placed++, i);
+                }
+            }
+            return placed;
+        }
+
+        // No outlet yet, or ground the outlets do not reach: the lowest node left unvisited drains
+        // it, ties to the lower index. Every surface the terrain has is connected, so past the first
+        // flood this is only for a surface with no sea at all.
+        static void SeedLowest<TI, TF, TD>(int nodeCount, ref ErosionArrays<TI, TF, TD> a, ref int size)
+            where TI : struct, IErosionArray<int>
+            where TF : struct, IErosionArray<float>
+            where TD : struct, IErosionArray<double>
+        {
+            int lowest = -1;
+            for (int i = 0; i < nodeCount; i++)
+                if (a.State.Get(i) == 0 && (lowest < 0 || a.Heights.Get(i) < a.Heights.Get(lowest)))
+                    lowest = i;
+            Seed(ref a, lowest, ref size);
+        }
+
         // An outlet: filled at its own height, its own receiver, and marked 2 so Route leaves it so.
         static void Seed<TI, TF, TD>(ref ErosionArrays<TI, TF, TD> a, int node, ref int size)
             where TI : struct, IErosionArray<int>
@@ -486,9 +488,15 @@ namespace Sonoma.Core.Generation
                 if (r == i) continue;
                 double hi = a.Heights.Get(i);
                 double hr = a.State.Get(r) == Lake ? a.Filled.Get(r) : a.Heights.Get(r);
+                // Land is cut towards the sea's surface, never its floor: the base level is what a
+                // river erodes to. Aimed at a sea node's own height, a river mouth beside deep water
+                // was dragged under the base level and became sea, 1.4 to 3.3% of each scene's land.
+                bool land = hi > p.BaseLevel;
+                if (land) hr = math.max(hr, p.BaseLevel);
                 if (!(hi > hr)) continue;
                 double f = p.KDt * p.AreaPower(a.Drainage.Get(i)) / LinkLength(ref a, i, r);
-                a.Heights.Set(i, (hi + f * hr) / (1.0 + f));
+                double h = (hi + f * hr) / (1.0 + f);
+                a.Heights.Set(i, land ? math.max(h, p.BaseLevel + EpsilonSlope) : h);
             }
         }
 
@@ -525,7 +533,10 @@ namespace Sonoma.Core.Generation
                     double len = a.Lengths.Get(i * MaxNeighbours + k);
                     sum += (a.Heights.Get(m) - h) / (len * len);
                 }
-                a.Scratch.Set(i, h + 0.5 * p.DiffusionKDt * sum);
+                // Land is not diffused under the base level either, which a coast beside a deep
+                // seabed would otherwise be.
+                double next = h + 0.5 * p.DiffusionKDt * sum;
+                a.Scratch.Set(i, h > p.BaseLevel ? math.max(next, p.BaseLevel + EpsilonSlope) : next);
             }
             for (int i = 0; i < nodeCount; i++)
                 a.Heights.Set(i, a.Scratch.Get(i));

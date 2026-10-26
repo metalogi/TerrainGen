@@ -147,6 +147,10 @@ namespace Sonoma.Tests
                     Assert.LessOrEqual(math.abs((double)h), bound, $"{c.Name}: point {k}");
                 }
 
+                // The analytic bound refuses eroded maps, which it does not bound.
+                Assert.Throws<ArgumentException>(() => TerrainHeightFunction.MaxAbsHeight(c.Height, c.Macro),
+                                                 $"{c.Name}: the analytic bound accepted eroded maps");
+
                 var plain = c.Macro;
                 plain.HasErosion = false;
                 Assert.AreEqual(math.asulong(TerrainHeightFunction.MaxAbsHeight(c.Height, plain)),
