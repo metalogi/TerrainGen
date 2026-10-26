@@ -37,3 +37,4 @@ MonoBehaviour:
   RuggednessMin: 0.3
   RuggednessMax: 3.3
   Continents: {fileID: 11400000, guid: 896ec0650e44447f9961b70b5b0a2177, type: 2}
+  Erosion: {fileID: 11400000, guid: 2b8f4d6e9a3c4170b5e1d7c2a9f04e36, type: 2}

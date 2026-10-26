@@ -272,9 +272,25 @@ namespace Sonoma.Tests
                              Asset = "Assets/Settings/NarrowRingMacro.asset", Surface = StressSceneTests.NarrowRing.Surface, MaxDepth = StressSceneTests.NarrowRing.MaxDepth,
                              Levels = 3, BaseHeightScale = 450f, EquatorTemperature = 18f,
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
-                             RuggednessCentre = 0.2f, ReliefFactor = 37.0,
+                             // Eroded (E5): C_m 54.9 at its roughest (depth 11), so 82 from 37.
+                             RuggednessCentre = 0.2f, ReliefFactor = 82.0,
                              ContinentAsset = "Assets/Settings/NarrowRingContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.300f, land: 600f, ocean: 1800f, cutoff: 150000.0, coastWidth: 0.8f) },
+                             Continents = SceneContinentConfig(landFraction: 0.300f, land: 600f, ocean: 1800f, cutoff: 150000.0, coastWidth: 0.8f),
+                             // Erosion (2026-10-26, amendment 10): the other scenes' 21 texels of incision on
+                             // 1.5 km texels, 30 km, with diffusion 0.002 and a 2,000 m breach. Without
+                             // breaching 7.4% of the land lay under a lake and rivers cut 0.9x the median; a
+                             // 1,000 m breach filled basins by up to 1.1 km. On the managed build: under a lake
+                             // 1.0%, at most 120 m filled, land cut 38 m at the median and 361 at the 99th
+                             // percentile, rivers 2.6x the median, and land 30.1% -> 29.5%.
+                             // E5: the largest base height is 3,279 m, over its analytic bound, since the
+                             // breach carves gorges up to 1.9 km into a base relief of 600 m land and 1,800
+                             // m ocean: the envelope grows, 27.9 -> 28.8 km, the only scene where it does.
+                             // Combined relief 0.540 of the node at its roughest (depth 14).
+                             ErosionAsset = "Assets/Settings/NarrowRingErosion.asset", ErodedMaxAbsBaseHeight = 3278.505859375,
+                             ErodedCombinedRelief = 0.8098,
+                             Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 30000f, AreaExponent = 0.45f,
+                                                           Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,
+                                                           BreachDepth = 2000f } },
             new SceneMacro { Scene = "TerrariumStress", Settings = StressSceneTests.Terrarium.Asset,
                              Asset = "Assets/Settings/TerrariumMacro.asset", Surface = StressSceneTests.Terrarium.Surface, MaxDepth = StressSceneTests.Terrarium.MaxDepth,
                              Levels = 3, BaseHeightScale = 200f, EquatorTemperature = 18f,
