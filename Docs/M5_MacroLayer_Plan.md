@@ -1548,7 +1548,12 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       0.162, well inside its allowance. C_m rises from 37 to 82.
     - **Skirts:** its worst share is 0.788, so half again over is 1.2, its `SkirtFraction` already.
 
-    Every continent scene now erodes. Not yet run in the Editor.
+    Every continent scene now erodes. **In the Editor (2026-10-25)** the Burst build agrees with the
+    probe (deepest cut 1,889 m, envelope 28.8 km). The macro build took 3,472 ms, erosion 2,635
+    (graph 235, heights 74, **pass 2,237**, wetness 57, pyramid 32). Play logged no warnings, with a
+    peak working set of 4,108 under its 4,900 budget. All 226 tests: 215 pass, 11 measuring tools
+    skip. Enlarged, its images are the clearest of the scenes: long trunk rivers fed by branching
+    networks, wetness reaching 0.95, and the same rivers incised as joined channels.
 
 #### Out of scope for M5c
 
