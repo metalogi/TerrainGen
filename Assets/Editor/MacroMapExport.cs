@@ -87,19 +87,26 @@ static class MacroMapExport
         }
     }
 
-    static void Write(TerrainRoot root, Sonoma.Systems.Configuration.TerrainSettings t)
+    // The open scene's surface, roots, height parameters and macro configuration, as TerrainRoot.Start
+    // builds them, so what the tools build is what the terrain does. ErosionBuildCompare uses it too.
+    internal static void SceneSetup(TerrainRoot root, Sonoma.Systems.Configuration.TerrainSettings t, out SurfaceDef s,
+                                    out RootQuad[] roots, out HeightParams hp, out MacroConfig config)
     {
-        SurfaceDef s     = root.BuildSurface();
-        RootQuad[] roots = SurfaceMath.BuildRoots(s);
-        // As TerrainRoot.Start builds them, so the detail image carries the octaves the terrain does.
-        var hp = HeightParams.Create(s, t.ChunkResolution, t.OctaveWavelength0, t.OctaveCount,
-                                     t.HeightScale, t.Persistence, t.Lacunarity, t.Seed)
-                             .WithBands(t.Macro.LowBandEdge, t.Macro.MidBandEdge);
+        s     = root.BuildSurface();
+        roots = SurfaceMath.BuildRoots(s);
+        hp    = HeightParams.Create(s, t.ChunkResolution, t.OctaveWavelength0, t.OctaveCount,
+                                    t.HeightScale, t.Persistence, t.Lacunarity, t.Seed)
+                            .WithBands(t.Macro.LowBandEdge, t.Macro.MidBandEdge);
         if (t.RoughnessCrossover > 0.0)
             hp = hp.WithRoughness(t.FinePersistence, t.RoughnessCrossover);
         if (t.Macro.Continents != null)
             hp = hp.WithContinentalCutoff(t.Macro.Continents.DetailCutoff, t.Macro.Continents.CoarseOctaveAmplitude);
-        MacroConfig config = t.Macro.ToConfig();
+        config = t.Macro.ToConfig();
+    }
+
+    static void Write(TerrainRoot root, Sonoma.Systems.Configuration.TerrainSettings t)
+    {
+        SceneSetup(root, t, out SurfaceDef s, out RootQuad[] roots, out HeightParams hp, out MacroConfig config);
         var mp = MacroParams.Create(s, hp, config);
         var cp = ContinentParams.Create(s, mp, config);
         var ep = ErosionParams.Create(s, hp, mp, config);
