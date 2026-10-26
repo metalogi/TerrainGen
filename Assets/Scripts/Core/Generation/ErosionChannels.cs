@@ -31,8 +31,8 @@ namespace Sonoma.Core.Generation
         }
 
         // UnerodedHeight with its intermediates: the macro sample as modulated, band gains folded in,
-        // and the biome weights. ErosionHeightPartsJob and Tools > Sonoma > Compare Erosion Builds read
-        // them to find where Burst and the managed reference part.
+        // and the biome weights. Tools > Sonoma > Compare Erosion Builds reads them, managed and in
+        // its ErosionHeightPartsJob, to find where Burst and the managed reference part.
         public static void UnerodedHeightParts<T>(in HeightParams hp, in MacroParams p, T texels,
                                                   double3 point, int quad, int i, int j,
                                                   out MacroSample macro, out float4 weights, out float height)

@@ -109,42 +109,6 @@ namespace Sonoma.Core.Generation
         }
     }
 
-    // ErosionHeightJob's computation with every intermediate kept: the macro read, the biome
-    // weights, the band gains and the height. A diagnostic for Tools > Sonoma > Compare Erosion
-    // Builds, which compares each against the managed reference to find the first that differs;
-    // nothing else uses it. Compiled as ErosionHeightJob is, so it sees what that job does.
-    [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
-    public struct ErosionHeightPartsJob : IJobParallelFor
-    {
-        public HeightParams Height;
-        public MacroParams  Macro;
-        public int          Cells;
-
-        [ReadOnly] public NativeArray<float4>  Texels;
-        [ReadOnly] public NativeArray<float2>  Drainage;
-        [ReadOnly] public NativeArray<int>     NodeTexel;
-        [ReadOnly] public NativeArray<double3> Points;
-
-        [WriteOnly] public NativeArray<double> BaseHeight;
-        [WriteOnly] public NativeArray<float4> Climate;    // temperature, moisture, ruggedness, 0
-        [WriteOnly] public NativeArray<float4> Weights;
-        [WriteOnly] public NativeArray<float4> BandGain;   // low, mid, high, 0
-        [WriteOnly] public NativeArray<float>  Heights;
-
-        public void Execute(int node)
-        {
-            int texel = NodeTexel[node];
-            ErosionGraph.Coords(Cells, texel, out int q, out int i, out int j);
-            ErosionChannels.UnerodedHeightParts(Height, Macro, new MacroMapReader(Texels, Drainage), Points[texel], q, i, j,
-                                                out MacroSample read, out float4 weights, out float height);
-            BaseHeight[node] = read.BaseHeight;
-            Climate[node]    = new float4(read.Temperature, read.Moisture, read.Ruggedness, 0f);
-            Weights[node]    = weights;
-            BandGain[node]   = new float4(read.BandGain, 0f);
-            Heights[node]    = height;
-        }
-    }
-
     // T at every node of the graph (E1), in parallel: ErosionChannels.UnerodedHeight, the managed
     // reference's own function, at the node's managed point, reading the generated maps on its
     // texel.
@@ -154,10 +118,13 @@ namespace Sonoma.Core.Generation
     // the nodes once came out an ULP apart (Tools > Sonoma > Compare Erosion Builds). The cause was
     // the biome weights' float arithmetic, now in double (Biomes); FloatMode.Strict, tried first,
     // changed nothing. It stays, so no contraction or reordering the default mode may allow can part
-    // the two again.
-    [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
+    // the two again. The mode is a constant so the Editor's ErosionHeightPartsJob, which has to be
+    // compiled as this job is to diagnose it, takes it from here rather than from a copy.
+    [BurstCompile(CompileSynchronously = true, FloatMode = Mode)]
     public struct ErosionHeightJob : IJobParallelFor
     {
+        public const FloatMode Mode = FloatMode.Strict;
+
         public HeightParams Height;
         public MacroParams  Macro;
         public int          Cells;

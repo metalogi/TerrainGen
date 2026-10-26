@@ -3,7 +3,8 @@
     "rootNamespace": "Sonoma.Editor",
     "references": [
         "Sonoma.Core",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Unity.Burst"
     ],
     "includePlatforms": [
         "Editor"

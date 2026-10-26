@@ -62,6 +62,10 @@ namespace Sonoma.Core.Generation
         // node it was reached from, in double, at any height the maps hold.
         public const double EpsilonSlope = 1e-7;
 
+        // How far above the base level land is kept, in metres: a node at the base level counts as
+        // water, so a breach chain, a cut or a diffusion step that reached it would turn land into sea.
+        public const double LandClearance = 1e-7;
+
         const int MaxNeighbours = ErosionGraph.MaxNeighbours;
 
         // KappaDt x the graph laplacian's largest diagonal, max over nodes of
@@ -214,9 +218,9 @@ namespace Sonoma.Core.Generation
             where TD : struct, IErosionArray<double>
         {
             // The chain descends by the flood's epsilon slope, never to the base level itself, where a
-            // node would count as water and the channel would join the sea: it runs out level just
-            // above it instead, a flat the flood gives its slope.
-            double lowest = p.BaseLevel + EpsilonSlope;
+            // node would count as water and the channel would join the sea: it runs out level
+            // LandClearance above it instead, a flat the flood gives its slope.
+            double lowest = p.BaseLevel + LandClearance;
             for (int pass = 0; pass < 2; pass++)
             {
                 int    x = c;
@@ -344,10 +348,7 @@ namespace Sonoma.Core.Generation
                 }
             }
             if (!anySea && largestSeed >= 0)
-            {
-                WalkBody(p, ref a, largestSeed, Measuring, Sea, out int count);
-                for (int k = 0; k < count; k++) a.State.Set(a.Heap.Get(k), Sea);
-            }
+                WalkBody(p, ref a, largestSeed, Measuring, Sea, out _);
             for (int i = 0; i < nodeCount; i++)
                 if (a.State.Get(i) == Measuring) a.State.Set(i, 0);
         }
@@ -496,7 +497,8 @@ namespace Sonoma.Core.Generation
                 if (!(hi > hr)) continue;
                 double f = p.KDt * p.AreaPower(a.Drainage.Get(i)) / LinkLength(ref a, i, r);
                 double h = (hi + f * hr) / (1.0 + f);
-                a.Heights.Set(i, land ? math.max(h, p.BaseLevel + EpsilonSlope) : h);
+                // The floor never lifts a node already below it: incision only ever lowers.
+                a.Heights.Set(i, land ? math.max(h, math.min(hi, p.BaseLevel + LandClearance)) : h);
             }
         }
 
@@ -536,7 +538,7 @@ namespace Sonoma.Core.Generation
                 // Land is not diffused under the base level either, which a coast beside a deep
                 // seabed would otherwise be.
                 double next = h + 0.5 * p.DiffusionKDt * sum;
-                a.Scratch.Set(i, h > p.BaseLevel ? math.max(next, p.BaseLevel + EpsilonSlope) : next);
+                a.Scratch.Set(i, h > p.BaseLevel ? math.max(next, math.min(h, p.BaseLevel + LandClearance)) : next);
             }
             for (int i = 0; i < nodeCount; i++)
                 a.Heights.Set(i, a.Scratch.Get(i));

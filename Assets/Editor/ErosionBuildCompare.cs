@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -215,6 +216,41 @@ static class ErosionBuildCompare
             worst = math.max(worst, math.abs((double)a[i] - b[i]));
         }
         Log(scene, stage, differ, a.Length, worst, first);
+    }
+
+    // ErosionHeightJob's computation with every intermediate kept: the macro read, the biome
+    // weights, the band gains and the height. Here rather than in Sonoma.Core so no player build
+    // carries it, and compiled with ErosionHeightJob's own float mode, so it sees what that job does.
+    [BurstCompile(CompileSynchronously = true, FloatMode = ErosionHeightJob.Mode)]
+    struct ErosionHeightPartsJob : IJobParallelFor
+    {
+        public HeightParams Height;
+        public MacroParams  Macro;
+        public int          Cells;
+
+        [ReadOnly] public NativeArray<float4>  Texels;
+        [ReadOnly] public NativeArray<float2>  Drainage;
+        [ReadOnly] public NativeArray<int>     NodeTexel;
+        [ReadOnly] public NativeArray<double3> Points;
+
+        [WriteOnly] public NativeArray<double> BaseHeight;
+        [WriteOnly] public NativeArray<float4> Climate;    // temperature, moisture, ruggedness, 0
+        [WriteOnly] public NativeArray<float4> Weights;
+        [WriteOnly] public NativeArray<float4> BandGain;   // low, mid, high, 0
+        [WriteOnly] public NativeArray<float>  Heights;
+
+        public void Execute(int node)
+        {
+            int texel = NodeTexel[node];
+            ErosionGraph.Coords(Cells, texel, out int q, out int i, out int j);
+            ErosionChannels.UnerodedHeightParts(Height, Macro, new MacroMapReader(Texels, Drainage), Points[texel], q, i, j,
+                                                out MacroSample read, out float4 weights, out float height);
+            BaseHeight[node] = read.BaseHeight;
+            Climate[node]    = new float4(read.Temperature, read.Moisture, read.Ruggedness, 0f);
+            Weights[node]    = weights;
+            BandGain[node]   = new float4(read.BandGain, 0f);
+            Heights[node]    = height;
+        }
     }
 
     static void Report(string scene, string stage, int[] a, NativeArray<int> b)

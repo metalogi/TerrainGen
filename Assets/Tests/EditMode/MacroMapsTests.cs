@@ -1,6 +1,8 @@
 using System;
 using NUnit.Framework;
+using Unity.Burst;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
@@ -348,6 +350,106 @@ namespace Sonoma.Tests
             }
             Assert.Greater(scenes, 0, "no stress scene erodes");
         }
+
+        // Biomes.Classify and BandGain in Burst against managed code, to the bit, over random
+        // climates: the default float mode the chunk sample jobs run in, and ErosionHeightJob's.
+        // Their float form parted by an ULP at a quarter of the narrow ring's nodes, and which
+        // operation Burst rounded differently was never found (amendment 12 of the M5 plan), so this
+        // holds the double form to it directly, far outside every biome's climate and on their
+        // centres too, at each stress scene's configuration and a higher sharpness.
+        [Test]
+        public void BiomesMatchTheManagedReference()
+        {
+            const int count = 1 << 16;
+            var rng = new Unity.Mathematics.Random(0x5EED5u);
+            var climate = new NativeArray<float3>(count, Allocator.TempJob);
+            var weights = new NativeArray<float4>(count, Allocator.TempJob);
+            var gains   = new NativeArray<float3>(count, Allocator.TempJob);
+            var burst   = new NativeArray<int>(1, Allocator.TempJob);
+            try
+            {
+                for (int i = 0; i < count; i++)
+                    climate[i] = new float3(rng.NextFloat(-60f, 80f), rng.NextFloat(-0.5f, 1.5f), rng.NextFloat(-0.5f, 1.5f));
+                for (int b = 0; b < MacroTests.BiomeConfigs.Length; b++)
+                    climate[b] = new float3(MacroTests.BiomeConfigs[b].Temperature, MacroTests.BiomeConfigs[b].Moisture, 0.5f);
+
+                int checkedConfigs = 0;
+                foreach (var m in MacroTests.StressMacros)
+                foreach (int sharpness in new[] { 0, 4 })
+                {
+                    var c = m.Config;
+                    if (sharpness > 0) c.BiomeSharpness = sharpness;
+                    var p = MacroParams.Create(m.Surface, HeightParams.Create(m.Surface, 33, 0.0, 20, 1f, 0.5f, 2f, 42u), c);
+                    Assert.Greater(p.BiomeCount, 0, $"{m.Scene} has no biomes");
+
+                    for (int mode = 0; mode < 2; mode++)
+                    {
+                        burst[0] = 1;
+                        if (mode == 0) new BiomeJob       { Macro = p, Climate = climate, Weights = weights, Gains = gains, Burst = burst }.Schedule(count, 256).Complete();
+                        else           new StrictBiomeJob { Macro = p, Climate = climate, Weights = weights, Gains = gains, Burst = burst }.Schedule(count, 256).Complete();
+                        if (burst[0] == 0) Assert.Ignore("The biome jobs ran managed: Burst compilation is off, so there is nothing to compare.");
+
+                        int differ = 0, first = -1;
+                        for (int i = 0; i < count; i++)
+                        {
+                            var s = new MacroSample { Temperature = climate[i].x, Moisture = climate[i].y, Ruggedness = climate[i].z };
+                            float4 w = Biomes.Classify(s, p);
+                            float3 g = Biomes.BandGain(w, s.Ruggedness, p);
+                            if (math.all(math.asuint(w) == math.asuint(weights[i])) && math.all(math.asuint(g) == math.asuint(gains[i]))) continue;
+                            if (first < 0) first = i;
+                            differ++;
+                        }
+                        string where = first < 0 ? "" : $"; the first at {climate[first]}: managed {Biomes.Classify(new MacroSample { Temperature = climate[first].x, Moisture = climate[first].y }, p)}, Burst {weights[first]}";
+                        Assert.AreEqual(0, differ, $"{m.Scene}, sharpness {p.BiomeSharpness}, {(mode == 0 ? "default" : "strict")} mode: " +
+                                                   $"{differ} of {count} climates differ{where}");
+                        checkedConfigs++;
+                    }
+                }
+                Assert.Greater(checkedConfigs, 0, "no stress scene has biomes");
+            }
+            finally
+            {
+                climate.Dispose(); weights.Dispose(); gains.Dispose(); burst.Dispose();
+            }
+        }
+
+        [BurstCompile(CompileSynchronously = true)]
+        struct BiomeJob : IJobParallelFor
+        {
+            public MacroParams Macro;
+            [ReadOnly]  public NativeArray<float3> Climate;
+            [WriteOnly] public NativeArray<float4> Weights;
+            [WriteOnly] public NativeArray<float3> Gains;
+            [NativeDisableParallelForRestriction] public NativeArray<int> Burst;
+
+            public void Execute(int i) => BiomeKernel(Macro, Climate, Weights, Gains, Burst, i);
+        }
+
+        [BurstCompile(CompileSynchronously = true, FloatMode = ErosionHeightJob.Mode)]
+        struct StrictBiomeJob : IJobParallelFor
+        {
+            public MacroParams Macro;
+            [ReadOnly]  public NativeArray<float3> Climate;
+            [WriteOnly] public NativeArray<float4> Weights;
+            [WriteOnly] public NativeArray<float3> Gains;
+            [NativeDisableParallelForRestriction] public NativeArray<int> Burst;
+
+            public void Execute(int i) => BiomeKernel(Macro, Climate, Weights, Gains, Burst, i);
+        }
+
+        static void BiomeKernel(in MacroParams p, NativeArray<float3> climate, NativeArray<float4> weights,
+                                NativeArray<float3> gains, NativeArray<int> burst, int i)
+        {
+            if (i == 0) ClearIfManaged(burst);
+            var s = new MacroSample { Temperature = climate[i].x, Moisture = climate[i].y, Ruggedness = climate[i].z };
+            float4 w = Biomes.Classify(s, p);
+            weights[i] = w;
+            gains[i]   = Biomes.BandGain(w, s.Ruggedness, p);
+        }
+
+        // Burst deletes calls to [BurstDiscard] methods, so this runs only when a job ran managed.
+        [BurstDiscard]
+        static void ClearIfManaged(NativeArray<int> burst) => burst[0] = 0;
 
         // The whole erosion build (M5c-1, task 6): MacroMaps.Build's Burst graph, heights, pass and
         // pyramid against the managed builder's, with and without continents, to the bit.
