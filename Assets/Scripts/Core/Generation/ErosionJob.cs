@@ -112,7 +112,14 @@ namespace Sonoma.Core.Generation
     // T at every node of the graph (E1), in parallel: ErosionChannels.UnerodedHeight, the managed
     // reference's own function, at the node's managed point, reading the generated maps on its
     // texel.
-    [BurstCompile(CompileSynchronously = true)]
+    //
+    // FloatMode.Strict, because T has to be the managed reference's to the bit and Burst's default
+    // mode does not keep it so: on the narrow ring 13.6% of the nodes came out one float ULP apart
+    // (Tools > Sonoma > Compare Erosion Builds, 2026-10-26), on the general Fbm path the stress scenes
+    // take, while the pass and the pyramid fed the same T matched exactly. Erosion amplifies such a
+    // difference -- an ULP can flip a routing tie -- and the default mode's arithmetic can also vary
+    // with the target CPU, so a world built on two machines would not have the same rivers.
+    [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
     public struct ErosionHeightJob : IJobParallelFor
     {
         public HeightParams Height;
