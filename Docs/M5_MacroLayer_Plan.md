@@ -1525,6 +1525,8 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
      move by 1%.
    - Without `TestContext`, the harness's own runner had reported nine tests failing all along; it now
      gives each test a real NUnit result, and they pass.
+   - **In the Editor (2026-10-26)** all 215 tests pass and the 11 measuring tools skip, in 58 s;
+     `ErodedEnvelopesMatchTheBuild` holds all four pinned base heights to the Burst build in 9.8 s.
 
 #### Out of scope for M5c
 
