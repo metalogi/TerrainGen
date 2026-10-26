@@ -1627,6 +1627,9 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       3,250.10205078125 m, the value Burst gave before, and the other four scenes' are unchanged to
       the bit. Re-measured on the narrow ring, its combined relief (0.536 at its roughest, pinned
       0.8046), C_m (54.9, pinned 82) and skirt share (0.788, `SkirtFraction` 1.2) are as they were.
+      Verified in the Editor (2026-10-26): Compare Erosion Builds on the narrow ring finds every
+      stage identical, the biome weights included, and the suite passes, 217 tests with 11 skipped,
+      `ErodedEnvelopesMatchTheBuild` among them.
       The general-path test case now has the shipped biomes and a ruggedness range, so
       `ErodedMapsMatchTheManagedBuild` covers the path that parted. `FloatMode.Strict` stays on
       `ErosionHeightJob`. The chunks' sample jobs run `Biomes` in the default mode; one ULP between
