@@ -243,9 +243,10 @@ namespace Sonoma.Tests
                              // cut the land 48 m at the 90th percentile and 100 km 155. Diffusion is
                              // scale-free per texel, and at the terrarium's 0.02 it filled up to 564 m
                              // against the coasts' kilometres-per-texel slopes and swamped the
-                             // incision; 0.002 fills at most 66 m. As configured the land is cut 60 m at
-                             // the median, 159 at the 90th percentile, 294 at the 99th and 1,226 at most,
-                             // land falls from 30.1% to 29.6%, and the envelope from 32,150 to 31,269 m.
+                             // incision; 0.002 fills at most 66 m. Before breaching and the base-level
+                             // floor, the land was cut 60 m at the median, 159 at the 90th percentile and
+                             // 294 at the 99th. As built now the deepest cut is 1,761 m and the envelope
+                             // falls from 32,150 to 31,198 m (ReliefMeasurements.ErodedMaps).
                              ErosionAsset = "Assets/Settings/RingworldErosion.asset", ErodedMaxAbsBaseHeight = 4783.34912109375,
                              // E5: 0.4131 of the node at its roughest (depth 16).
                              ErodedCombinedRelief = 0.6197,

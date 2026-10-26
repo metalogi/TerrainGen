@@ -1630,6 +1630,21 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       Verified in the Editor (2026-10-26): Compare Erosion Builds on the narrow ring finds every
       stage identical, the biome weights included, and the suite passes, 217 tests with 11 skipped,
       `ErodedEnvelopesMatchTheBuild` among them.
+    - **The second review (2026-10-26).**
+      - `MacroMapsTests.BiomesMatchTheManagedReference` holds `Classify` and `BandGain` to managed
+        code directly. It covers 65,536 random climates, far outside every biome's climate and on
+        their centres. It runs at each stress scene's configuration and at sharpness 4, in the
+        default float mode and in `ErosionHeightJob`'s. The cause was never found, so this guards
+        the fix beyond the five scenes.
+      - The double maths costs about 30 ns more per vertex than the float form did, measured
+        managed under .NET 8. Against about 3,200 ns for `Height` that is under 1%, on the worker
+        threads. It stays.
+      - `ErosionHeightPartsJob` moved to the Editor's Compare Erosion Builds, so no player build
+        carries it. It takes its float mode from `ErosionHeightJob.Mode`, not from a copy.
+      - The land floor in `Incise` and `Diffuse` no longer lifts a node that is already below it.
+        It is `LandClearance`, a height in metres, where `EpsilonSlope` (a slope) was used before.
+        Every pinned envelope is unchanged.
+      - `MarkSeas` no longer relabels the fallback sea twice.
       The general-path test case now has the shipped biomes and a ruggedness range, so
       `ErodedMapsMatchTheManagedBuild` covers the path that parted. `FloatMode.Strict` stays on
       `ErosionHeightJob`. The chunks' sample jobs run `Biomes` in the default mode; one ULP between
