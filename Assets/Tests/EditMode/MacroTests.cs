@@ -286,7 +286,7 @@ namespace Sonoma.Tests
                              // breach carves gorges up to 1.9 km into a base relief of 600 m land and 1,800
                              // m ocean: the envelope grows, 27.9 -> 28.7 km, the only scene where it does.
                              // Combined relief 0.536 of the node at its roughest (depth 14).
-                             ErosionAsset = "Assets/Settings/NarrowRingErosion.asset", ErodedMaxAbsBaseHeight = 3250.102294921875,
+                             ErosionAsset = "Assets/Settings/NarrowRingErosion.asset", ErodedMaxAbsBaseHeight = 3250.10205078125,
                              ErodedCombinedRelief = 0.8046,
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 30000f, AreaExponent = 0.45f,
                                                            Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,

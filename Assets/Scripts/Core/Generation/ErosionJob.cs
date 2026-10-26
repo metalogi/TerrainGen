@@ -109,16 +109,6 @@ namespace Sonoma.Core.Generation
         }
     }
 
-    // T at every node of the graph (E1), in parallel: ErosionChannels.UnerodedHeight, the managed
-    // reference's own function, at the node's managed point, reading the generated maps on its
-    // texel.
-    //
-    // FloatMode.Strict, because T has to be the managed reference's to the bit and Burst's default
-    // mode does not keep it so: on the narrow ring 13.6% of the nodes came out one float ULP apart
-    // (Tools > Sonoma > Compare Erosion Builds, 2026-10-26), on the general Fbm path the stress scenes
-    // take, while the pass and the pyramid fed the same T matched exactly. Erosion amplifies such a
-    // difference -- an ULP can flip a routing tie -- and the default mode's arithmetic can also vary
-    // with the target CPU, so a world built on two machines would not have the same rivers.
     // ErosionHeightJob's computation with every intermediate kept: the macro read, the biome
     // weights, the band gains and the height. A diagnostic for Tools > Sonoma > Compare Erosion
     // Builds, which compares each against the managed reference to find the first that differs;
@@ -155,6 +145,16 @@ namespace Sonoma.Core.Generation
         }
     }
 
+    // T at every node of the graph (E1), in parallel: ErosionChannels.UnerodedHeight, the managed
+    // reference's own function, at the node's managed point, reading the generated maps on its
+    // texel.
+    //
+    // T has to be the managed reference's to the bit: erosion amplifies an ULP, which can flip a
+    // routing tie, so a world built twice would not have the same rivers. On the narrow ring 13.6% of
+    // the nodes once came out an ULP apart (Tools > Sonoma > Compare Erosion Builds). The cause was
+    // the biome weights' float arithmetic, now in double (Biomes); FloatMode.Strict, tried first,
+    // changed nothing. It stays, so no contraction or reordering the default mode may allow can part
+    // the two again.
     [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
     public struct ErosionHeightJob : IJobParallelFor
     {

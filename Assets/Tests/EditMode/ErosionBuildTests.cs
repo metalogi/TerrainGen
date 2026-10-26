@@ -31,9 +31,11 @@ namespace Sonoma.Tests
         };
 
         // general puts the height function on its general Fbm path, as every stress scene is: a
-        // two-slope spectrum and band edges. The bare parameters take the original path, and on those
-        // alone the Burst build matched the managed one while the narrow ring's T, on the general
-        // path, came out an ULP apart at 13.6% of its nodes.
+        // two-slope spectrum, band edges, the shipped biomes and a ruggedness range. The bare
+        // parameters take the original path, and on those alone the Burst build matched the managed
+        // one while the narrow ring's T came out an ULP apart at 13.6% of its nodes. The biome
+        // weights were where they parted (amendment 12 of the M5 plan); without biomes this case
+        // matched too.
         internal static Case Make(string name, in SurfaceDef s, ErosionConfig? e, ContinentConfig? k = null, bool general = false)
         {
             var hp = HeightParams.Create(s, 9, 0.0, 12, 2000f, 0.5f, 2f, 42u);
@@ -44,6 +46,12 @@ namespace Sonoma.Tests
                 EquatorTemperature = 30f, PoleTemperature = -30f, LapseRate = 6.5f, TemperatureNoise = 5f,
                 MoistureNoise = 1.5f, RuggednessNoise = 1.5f, Seed = 7u, Continents = k, Erosion = e,
             };
+            if (general)
+            {
+                c.Biomes = MacroTests.BiomeConfigs; c.BiomeSharpness = MacroTests.BiomeSharpness;
+                c.TemperatureScale = MacroTests.TemperatureScale; c.MoistureScale = MacroTests.MoistureScale;
+                c.RuggednessGainMin = -0.7f; c.RuggednessGainMax = 2.3f;
+            }
             var p = MacroParams.Create(s, hp, c);
             return new Case
             {
