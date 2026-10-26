@@ -1452,6 +1452,25 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
    river networks with incised, joined valleys, as the terrarium's do. At full size the ring's
    export, eight quads in a row 257 pixels tall, is shrunk by any viewer until its valleys are a
    pixel wide, which is much of why it read as mottled.
+8. **The planets' first erosion (2026-10-25).** The ring's settings carried over by texel: its
+   100 km of incision is 21 of its 4.8 km texels, so the small planet (7.2 km texels) runs 150 km
+   and Earth (28.7 km texels, not E4's estimated 40) 600 km, both with diffusion 0.002, `BaseLevel`
+   0 and every body of water a sea. Probed on the managed build at 10, 21 and 40 texels:
+
+   | | incision | under a lake | raised (most) | land cut median / p99 | rivers ÷ slopes | deepest |
+   |---|---|---|---|---|---|---|
+   | small planet | 72 km | 1.1% | 2.4% (68 m) | 19 / 181 m | 9.7x | 1,475 m |
+   | | **150 km** | 0.9% | 1.0% (65 m) | 38 / 266 m | **5.7x** | 1,484 m |
+   | | 287 km | 0.7% | 0.5% (60 m) | 71 / 411 m | 3.7x | 1,561 m |
+   | Earth | 287 km | 1.4% | 3.9% (534 m) | 46 / 466 m | 14.2x | 1,805 m |
+   | | 600 km, breach 2,000 m | 1.1% | 1.6% (533 m) | 89 / 545 m | 7.9x | 1,885 m |
+   | | **600 km, breach 4,000 m** | 1.1% | 1.6% (58 m) | 89 / 547 m | **8.1x** | 2,270 m |
+   | | 1,149 km | 0.8% | 0.8% (532 m) | 162 / 718 m | 4.8x | 2,130 m |
+
+   Both planets drain far more readily than the ring, and their rivers stand out 5.7 and 8 times
+   above the land's median cut, against the ring's 3.7 and the terrarium's 2.5. Earth breaches at
+   4,000 m, which carves the basins a 2,000 m breach had to fill by up to 533 m; the small planet's
+   2,000 m loses nothing to 4,000. Land falls by under a point on both. Not yet run in the Editor.
 
 #### Out of scope for M5c
 

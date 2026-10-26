@@ -167,7 +167,16 @@ namespace Sonoma.Tests
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
                              RuggednessCentre = 0.2f, ReliefFactor = 81.0,
                              ContinentAsset = "Assets/Settings/EarthContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.322f, land: 2000f, ocean: 6000f, cutoff: 1000000.0) },
+                             Continents = SceneContinentConfig(landFraction: 0.322f, land: 2000f, ocean: 6000f, cutoff: 1000000.0),
+                             // Erosion (2026-10-25, amendment 8): the ring's 21 texels of incision on 28.7 km
+                             // texels, 600 km. Breaching at 2,000 m left basins it filled by up to 533 m;
+                             // at 4,000 m by 58. On the managed build: under a lake 1.1% of the land, land
+                             // cut 89 m at the median and 547 at the 99th percentile, rivers 8.1x the
+                             // median, 2,270 m at most, and land 30.6% -> 30.2%.
+                             ErosionAsset = "Assets/Settings/EarthErosion.asset",
+                             Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 600000f, AreaExponent = 0.45f,
+                                                           Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,
+                                                           BreachDepth = 4000f } },
             // Continents (D1 crisp, at Earth's shares of HeightScale): land 1,000 m and ocean
             // 3,000 m, a 250 km cutoff dropping detail octaves 0-2, and the macro fBm at 0.3 of M5b's
             // 2,000 m. C_m was 51.4 at its roughest (depth 14) in units of (3,000 + 600) / S0, and 77
@@ -180,7 +189,16 @@ namespace Sonoma.Tests
                              LowBandEdge = 150000.0, MidBandEdge = 5000.0, RuggednessMin = 0.3f, RuggednessMax = 3.3f,
                              RuggednessCentre = 0.2f, ReliefFactor = 77.0,
                              ContinentAsset = "Assets/Settings/SmallPlanetContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.312f, land: 1000f, ocean: 3000f, cutoff: 250000.0) },
+                             Continents = SceneContinentConfig(landFraction: 0.312f, land: 1000f, ocean: 3000f, cutoff: 250000.0),
+                             // Erosion (2026-10-25, amendment 8): the ring's 21 texels of incision on 7.2 km
+                             // texels, 150 km; breaching at 4,000 m changed nothing over 2,000. On the managed
+                             // build: under a lake 0.9% of the land, at most 65 m filled, land cut 38 m at the
+                             // median and 266 at the 99th percentile, rivers 5.7x the median, 1,484 m at
+                             // most, and land 30.2% -> 29.7%.
+                             ErosionAsset = "Assets/Settings/SmallPlanetErosion.asset",
+                             Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 150000f, AreaExponent = 0.45f,
+                                                           Diffusion = 0.002f, BaseLevel = 0f, MinOutletArea = 0f,
+                                                           BreachDepth = 2000f } },
             // Continents (D1 crisp): land 1,500 m and ocean 4,500 m, a 250 km cutoff dropping detail
             // octaves 0-2, and the macro fBm at 0.3 of M5b's 1,500 m. C_m was 48.7 at its roughest
             // (depth 10) in units of (4,500 + 450) / S0, and 73 is half again over it. LandFraction
