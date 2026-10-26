@@ -92,6 +92,45 @@ static class ErosionBuildCompare
             Report(scene, "2 T", t, heights);
         }
 
+        // 2a-2d. T's parts, both from the managed texels, to find which one first differs.
+        Progress("the parts of T", 0.45f);
+        var baseM = new double[g.NodeCount];
+        var climM = new float4[g.NodeCount];
+        var wM    = new float4[g.NodeCount];
+        var gainM = new float4[g.NodeCount];
+        var hM    = new float[g.NodeCount];
+        for (int node = 0; node < g.NodeCount; node++)
+        {
+            int tx = g.NodeTexel[node];
+            ErosionGraph.Coords(g.Cells, tx, out int q, out int i, out int j);
+            ErosionChannels.UnerodedHeightParts(hp, mp, reader, g.Points[tx], q, i, j, out MacroSample m, out float4 w, out float h);
+            baseM[node] = m.BaseHeight;
+            climM[node] = new float4(m.Temperature, m.Moisture, m.Ruggedness, 0f);
+            wM[node]    = w;
+            gainM[node] = new float4(m.BandGain, 0f);
+            hM[node]    = h;
+        }
+        using (var nativeTexels = new NativeArray<float4>(texels, Allocator.TempJob))
+        using (var nativeDrainage = new NativeArray<float2>(texels.Length, Allocator.TempJob))
+        using (var baseB = new NativeArray<double>(g.NodeCount, Allocator.TempJob))
+        using (var climB = new NativeArray<float4>(g.NodeCount, Allocator.TempJob))
+        using (var wB    = new NativeArray<float4>(g.NodeCount, Allocator.TempJob))
+        using (var gainB = new NativeArray<float4>(g.NodeCount, Allocator.TempJob))
+        using (var hB    = new NativeArray<float>(g.NodeCount, Allocator.TempJob))
+        {
+            new ErosionHeightPartsJob
+            {
+                Height = hp, Macro = mp, Cells = ng.Cells, Texels = nativeTexels, Drainage = nativeDrainage,
+                NodeTexel = ng.NodeTexel, Points = ng.Points,
+                BaseHeight = baseB, Climate = climB, Weights = wB, BandGain = gainB, Heights = hB,
+            }.Schedule(g.NodeCount, 256).Complete();
+            Report(scene, "2a macro read: base height", baseM, baseB);
+            Report(scene, "2a macro read: climate", climM, climB);
+            Report(scene, "2b biome weights", wM, wB);
+            Report(scene, "2c band gains", gainM, gainB);
+            Report(scene, "2d height", hM, hB);
+        }
+
         // 3. The pass, both from the managed T.
         Progress("the pass", 0.55f);
         var r = ErosionPass.Run(ep, g, t);

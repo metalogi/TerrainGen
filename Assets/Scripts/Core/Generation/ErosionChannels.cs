@@ -26,10 +26,22 @@ namespace Sonoma.Core.Generation
                                                double3 point, int quad, int i, int j)
             where T : struct, IMacroTexels
         {
+            UnerodedHeightParts(hp, p, texels, point, quad, i, j, out _, out _, out float height);
+            return height;
+        }
+
+        // UnerodedHeight with its intermediates: the macro sample as modulated, band gains folded in,
+        // and the biome weights. ErosionHeightPartsJob and Tools > Sonoma > Compare Erosion Builds read
+        // them to find where Burst and the managed reference part.
+        public static void UnerodedHeightParts<T>(in HeightParams hp, in MacroParams p, T texels,
+                                                  double3 point, int quad, int i, int j,
+                                                  out MacroSample macro, out float4 weights, out float height)
+            where T : struct, IMacroTexels
+        {
             int    top   = p.Layout.LevelCount - 1;
             double cells = p.Layout.Cells(top);
-            var macro = Biomes.Modulate(MacroSampler.Read(texels, p, quad, top, i / cells, j / cells), p, out _);
-            return TerrainHeightFunction.Height(point, ErodedOctave(hp, p), macro, hp);
+            macro  = Biomes.Modulate(MacroSampler.Read(texels, p, quad, top, i / cells, j / cells), p, out weights);
+            height = TerrainHeightFunction.Height(point, ErodedOctave(hp, p), macro, hp);
         }
 
         // log(A / a) / log(Q / a), saturated to 0..1, where A is the node's drainage area, a its own

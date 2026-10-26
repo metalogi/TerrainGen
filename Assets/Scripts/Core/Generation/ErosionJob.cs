@@ -119,6 +119,42 @@ namespace Sonoma.Core.Generation
     // take, while the pass and the pyramid fed the same T matched exactly. Erosion amplifies such a
     // difference -- an ULP can flip a routing tie -- and the default mode's arithmetic can also vary
     // with the target CPU, so a world built on two machines would not have the same rivers.
+    // ErosionHeightJob's computation with every intermediate kept: the macro read, the biome
+    // weights, the band gains and the height. A diagnostic for Tools > Sonoma > Compare Erosion
+    // Builds, which compares each against the managed reference to find the first that differs;
+    // nothing else uses it. Compiled as ErosionHeightJob is, so it sees what that job does.
+    [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
+    public struct ErosionHeightPartsJob : IJobParallelFor
+    {
+        public HeightParams Height;
+        public MacroParams  Macro;
+        public int          Cells;
+
+        [ReadOnly] public NativeArray<float4>  Texels;
+        [ReadOnly] public NativeArray<float2>  Drainage;
+        [ReadOnly] public NativeArray<int>     NodeTexel;
+        [ReadOnly] public NativeArray<double3> Points;
+
+        [WriteOnly] public NativeArray<double> BaseHeight;
+        [WriteOnly] public NativeArray<float4> Climate;    // temperature, moisture, ruggedness, 0
+        [WriteOnly] public NativeArray<float4> Weights;
+        [WriteOnly] public NativeArray<float4> BandGain;   // low, mid, high, 0
+        [WriteOnly] public NativeArray<float>  Heights;
+
+        public void Execute(int node)
+        {
+            int texel = NodeTexel[node];
+            ErosionGraph.Coords(Cells, texel, out int q, out int i, out int j);
+            ErosionChannels.UnerodedHeightParts(Height, Macro, new MacroMapReader(Texels, Drainage), Points[texel], q, i, j,
+                                                out MacroSample read, out float4 weights, out float height);
+            BaseHeight[node] = read.BaseHeight;
+            Climate[node]    = new float4(read.Temperature, read.Moisture, read.Ruggedness, 0f);
+            Weights[node]    = weights;
+            BandGain[node]   = new float4(read.BandGain, 0f);
+            Heights[node]    = height;
+        }
+    }
+
     [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
     public struct ErosionHeightJob : IJobParallelFor
     {
