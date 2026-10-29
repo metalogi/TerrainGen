@@ -629,3 +629,19 @@ measurements, and anything the Editor said that this plan did not.
      it. `ShaderMorphsInEveryPass` found `SonomaMorphFactor`'s end by eight spaces of indentation,
      which the include's top-level function does not have; it now matches braces. All 228 EditMode
      tests pass in the Editor, with the eleven `[Explicit]` tools skipped.
+5. **Step 2 (2026-10-29): the settings and their checks, unused.** `TerrainSettings` has `Ocean`,
+   `SeaLevel` and `OceanTerrainOverlap`, `TerrainRoot` has `OceanMaterial`, and `OceanParams.Create`
+   refuses what the plan lists. `ChunkMeshLayout.MaxResolutionWithOcean` came forward from Step 3,
+   since `Create` needs it. Three things differ from the plan.
+   - **`Ocean` stays off in the assets until Step 6.** `TerrainRoot` refuses an `Ocean` scene with no
+     `OceanMaterial`, and the scenes get theirs in Step 6. Turned on now, every stress scene would stop
+     generating for four commits. The assets carry their sea levels already: 0, and 68 in the terrarium.
+   - **The two refusals come before the macro build.** `OceanParams.CheckSeaLevel`, A3's check, is
+     public and runs first, as is the missing-material check, so neither waits seconds of erosion to
+     fail. `Create` repeats the sea-level check, so a caller cannot skip it. The sea level and the
+     float base level are compared as floats.
+   - **`OceanParams`' tests are in this step.** `OceanLayoutTests` has
+     `DefaultOceanParamsMeanNoOcean`, `SeaLevelOutsideTheEnvelopeIsRefused`,
+     `SeaLevelMustBeTheErosionBaseLevel` and `OceanCapsTheResolution`'s `OceanParams` half; Step 3 adds
+     the layout's. `StressSceneAssetTests.SeaLevelIsTheErosionBaseLevel` holds the five stress assets'
+     sea levels to their erosion and `SampleScene` to none. 233 EditMode tests pass in the Editor.

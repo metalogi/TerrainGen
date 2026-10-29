@@ -47,6 +47,11 @@ namespace Sonoma.Core.Generation
         // R <= 181, which is where triangles reach 65,520 and constrains nothing.
         public const int MaxResolutionFor16BitIndices = 253;
 
+        // With an ocean, a Coast chunk holds its terrain and its water, 2(R^2 + 4R) vertices, so
+        // R^2 + 4R <= 32,768: 32,757 at R = 179, and 33,485 at the next odd resolution, 181.
+        // OceanParams.Create refuses more; HeightParams.Create cannot see the ocean.
+        public const int MaxResolutionWithOcean = 179;
+
         // The top vertex of skirt post k on the given edge.
         //
         // The four edges are walked anticlockwise around the chunk as seen from outside --
