@@ -45,6 +45,9 @@ namespace Sonoma.Tests
             Assert.AreEqual(Seed,          s.Seed,               "Seed");
             Assert.AreEqual(RoughnessCrossover, s.RoughnessCrossover, "RoughnessCrossover");
             Assert.AreEqual(FinePersistence,    s.FinePersistence,    "FinePersistence");
+            Assert.AreEqual(GullyDamping,         s.GullyDamping,         "GullyDamping");
+            Assert.AreEqual(GullyStartWavelength, s.GullyStartWavelength, "GullyStartWavelength");
+            Assert.AreEqual(WetFloorDamping,      s.WetFloorDamping,      "WetFloorDamping");
         }
 
         // And the stress scene runs that asset, on the sphere the constants describe. Without

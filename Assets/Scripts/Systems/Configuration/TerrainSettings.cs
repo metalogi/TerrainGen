@@ -130,6 +130,23 @@ namespace Sonoma.Systems.Configuration
                  "allowance: size it against the relief tests' measured C, not by eye alone.")]
         public float FinePersistence = 0.5f;
 
+        [Header("Gullies")]
+        [Tooltip("Slope damping (M5c, G1): each octave no longer than GullyStartWavelength is " +
+                 "divided by 1 + GullyDamping x slope^2, the slope of the coarser detail octaves in " +
+                 "metres per metre. Steep ground loses fine detail, crests and flats keep it. 0 turns " +
+                 "it off, bit for bit as before.")]
+        [Min(0f)]
+        public float GullyDamping = 0f;
+        [Tooltip("Wavelength in metres: octaves no longer than this are damped. In a scene with " +
+                 "erosion it must be shorter than the octaves erosion carries.")]
+        [Min(0f)]
+        public double GullyStartWavelength = 1000.0;
+        [Tooltip("Raises the damping on wet ground, by 1 + WetFloorDamping x wetness from the macro " +
+                 "layer's erosion, so valley floors read smooth. 0 is off; without erosion wetness is " +
+                 "0 and it does nothing.")]
+        [Min(0f)]
+        public float WetFloorDamping = 0f;
+
         [Header("Macro Layer")]
         [Tooltip("Persistent per-root-quad maps of base height and climate, built at startup and " +
                  "read by every chunk. None means no macro layer: the terrain is the detail noise " +

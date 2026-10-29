@@ -310,7 +310,9 @@ namespace Sonoma.Tests
                              ErosionAsset = "Assets/Settings/TerrariumErosion.asset", ErodedMaxAbsBaseHeight = 217.47821044921875,
                              // E5: 1.0196 of the node at its roughest (depth 8): flattened 0.3059, which its 0.39
                              // allowance clears by 1.27x against the 1.25 asked, so deeper erosion here needs room first.
-                             ErodedCombinedRelief = 1.5295,
+                             // With M5c-2's gullies (2026-10-28): 1.0277 at its roughest (depth 9), the one scene whose
+                             // roughest node rose rather than fell, so 1.5416, flattened 0.3083, clearing by 1.26x.
+                             ErodedCombinedRelief = 1.5416,
                              // BreachDepth 50 m (amendment 7): under 1% of the land lay in basins, and at 50 m
                              // none does, with 3 m of fill at most and the cut unchanged.
                              Erosion = new ErosionConfig { Iterations = 30, IncisionDepth = 4000f, AreaExponent = 0.45f,

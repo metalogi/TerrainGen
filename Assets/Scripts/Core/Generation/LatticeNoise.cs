@@ -120,6 +120,68 @@ namespace Sonoma.Core.Generation
             return math.dot(g, new double3(f.x - i, f.y - j, f.z - k));
         }
 
+        // Gradient3D and its analytic derivative with respect to p, for the gully term's slope
+        // damping (M5c, E6). The value is computed by exactly Gradient3D's operations, in its
+        // order, so it is Gradient3D's bits: a sum may take an octave's value from either and stay
+        // the same sum, which is what lets the last octave of a damped sum skip the derivative.
+        // LatticeNoiseTests holds both halves -- the value to the bit and the derivative against
+        // central differences.
+        //
+        // The derivative is the product rule over the trilinear blend: the corner gradients blended
+        // by the faded weights, plus each axis's fade derivative 30 f^2 (f - 1)^2 times the blend's
+        // own difference along that axis. Only + - * appear, which IEEE rounds the same in Burst and
+        // managed code, so the derivative is as reproducible as the value.
+        public static double Gradient3DD(double3 p, uint seed, out double3 derivative)
+        {
+            double3 fl = math.floor(p);
+            int3    c  = (int3)fl;
+            double3 f  = p - fl;
+
+            double3 t  = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);   // quintic fade
+            double3 dt = 30.0 * f * f * (f * (f - 2.0) + 1.0);        // its derivative
+
+            double3 g000 = CornerGradient(c, 0, 0, 0, seed);
+            double3 g100 = CornerGradient(c, 1, 0, 0, seed);
+            double3 g010 = CornerGradient(c, 0, 1, 0, seed);
+            double3 g110 = CornerGradient(c, 1, 1, 0, seed);
+            double3 g001 = CornerGradient(c, 0, 0, 1, seed);
+            double3 g101 = CornerGradient(c, 1, 0, 1, seed);
+            double3 g011 = CornerGradient(c, 0, 1, 1, seed);
+            double3 g111 = CornerGradient(c, 1, 1, 1, seed);
+
+            // Corner's dot, written out so the value is Gradient3D's to the bit.
+            double n000 = math.dot(g000, new double3(f.x,       f.y,       f.z));
+            double n100 = math.dot(g100, new double3(f.x - 1.0, f.y,       f.z));
+            double n010 = math.dot(g010, new double3(f.x,       f.y - 1.0, f.z));
+            double n110 = math.dot(g110, new double3(f.x - 1.0, f.y - 1.0, f.z));
+            double n001 = math.dot(g001, new double3(f.x,       f.y,       f.z - 1.0));
+            double n101 = math.dot(g101, new double3(f.x - 1.0, f.y,       f.z - 1.0));
+            double n011 = math.dot(g011, new double3(f.x,       f.y - 1.0, f.z - 1.0));
+            double n111 = math.dot(g111, new double3(f.x - 1.0, f.y - 1.0, f.z - 1.0));
+
+            double x00 = math.lerp(n000, n100, t.x);
+            double x10 = math.lerp(n010, n110, t.x);
+            double x01 = math.lerp(n001, n101, t.x);
+            double x11 = math.lerp(n011, n111, t.x);
+            double y0  = math.lerp(x00, x10, t.y);
+            double y1  = math.lerp(x01, x11, t.y);
+
+            // The blend's differences along each axis, at the faded weights of the other two.
+            double ddx = math.lerp(math.lerp(n100 - n000, n110 - n010, t.y),
+                                   math.lerp(n101 - n001, n111 - n011, t.y), t.z);
+            double ddy = math.lerp(x10 - x00, x11 - x01, t.z);
+            double ddz = y1 - y0;
+
+            double3 blend = math.lerp(math.lerp(math.lerp(g000, g100, t.x), math.lerp(g010, g110, t.x), t.y),
+                                      math.lerp(math.lerp(g001, g101, t.x), math.lerp(g011, g111, t.x), t.y), t.z);
+
+            derivative = blend + dt * new double3(ddx, ddy, ddz);
+            return math.lerp(y0, y1, t.z);
+        }
+
+        static double3 CornerGradient(int3 c, int i, int j, int k, uint seed)
+            => Gradient(Hash(new int3(c.x + i, c.y + j, c.z + k), seed));
+
         // Summed octaves. octaveCount comes from HeightParams.MaxOctave(depth) + 1.
         //
         // The sum runs from octave 0 upwards and accumulates in a fixed order, so a coarse
@@ -202,6 +264,75 @@ namespace Sonoma.Core.Generation
                     sum += amp * (1.0 + gain) * (1.0 + coarseGain) * Gradient3D(q, seed + (uint)k);
                 amp *= k + 1 < crossoverOctave ? persistence : finePersistence;
                 q   *= lac;
+            }
+
+            return sum;
+        }
+
+        // The same, with the gully term's slope damping (M5c, E6, G1): every octave from
+        // gullyStartOctave on is divided by 1 + damping |g|^2, where g is the slope of the octaves
+        // before it in metres per metre, projected onto the tangent plane. Steep ground loses its
+        // fine detail and crests and flats keep theirs, which reads as weathered slopes.
+        //
+        // slopeScale turns a derivative in these noise coordinates into metres per metre:
+        // HeightScale / OctaveWavelength0, since p is the surface position over the octave-0
+        // wavelength. up is any vector along the surface normal at p, not necessarily unit (the
+        // radial vector on a sphere or cylinder): the projection divides by its length squared
+        // rather than normalising, so no square root enters and Burst rounds it as managed code does.
+        //
+        // g accumulates each octave's derivative as it entered the sum, damped by its own factor
+        // held constant -- the factor's own variation is left out, so g is the slope of the sum to
+        // first order in the damping. Octave k's factor depends only on octaves 0 .. k-1, so the sum
+        // is still a strict prefix of itself and a fully morphed child is still its parent. Before
+        // gullyStartOctave every term is the general sum's to the bit (Gradient3DD's value is
+        // Gradient3D's), and with damping 0 TerrainHeightFunction does not call this at all.
+        //
+        // The factor is at most 1 for damping >= 0, so no octave exceeds its undamped amplitude and
+        // TerrainHeightFunction.MaxAbsHeight still bounds the sum.
+        public static double Fbm(double3 p, int octaveCount, float persistence, float lacunarity, uint seed,
+                                 float3 bandGain, int lowBandEnd, int midBandEnd,
+                                 float finePersistence, int crossoverOctave,
+                                 int firstOctave, float coarseGain,
+                                 int gullyStartOctave, double damping, double slopeScale, double3 up)
+        {
+            double  lac   = lacunarity;
+            double3 q     = p;
+            double  sum   = 0.0;
+            double  amp   = 1.0;
+            double  scale = 1.0;            // lac^k: d q / d p
+            double3 slope = double3.zero;   // d sum / d p
+            double  upLen2 = math.dot(up, up);
+
+            for (int k = 0; k < octaveCount; k++)
+            {
+                float  gain = k < lowBandEnd ? bandGain.x : k < midBandEnd ? bandGain.y : bandGain.z;
+                double a;
+                if (k >= firstOctave)    a = amp * (1.0 + gain);
+                else if (coarseGain != -1f) a = amp * (1.0 + gain) * (1.0 + coarseGain);
+                else                     a = 0.0;
+
+                if (a != 0.0)
+                {
+                    if (k >= gullyStartOctave)
+                    {
+                        double3 t  = slope - up * (math.dot(slope, up) / upLen2);
+                        double  g2 = slopeScale * slopeScale * math.dot(t, t);
+                        a /= 1.0 + damping * g2;
+                    }
+
+                    // The last octave's derivative would never be read.
+                    if (k + 1 < octaveCount)
+                    {
+                        sum   += a * Gradient3DD(q, seed + (uint)k, out double3 d);
+                        slope += a * scale * d;
+                    }
+                    else
+                        sum += a * Gradient3D(q, seed + (uint)k);
+                }
+
+                amp   *= k + 1 < crossoverOctave ? persistence : finePersistence;
+                q     *= lac;
+                scale *= lac;
             }
 
             return sum;

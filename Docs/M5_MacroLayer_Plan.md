@@ -1654,6 +1654,53 @@ Built on the branch `m5c-macro-erosion`, tasks 1 to 8, with erosion on the terra
       a chunk and `TerrainRoot.HeightAt` is harmless, but it is the same question for a world
       shared between machines.
 
+#### Building M5c-2: amendments (2026-10-28)
+
+Branch `m5c-gullies`, G1 only: D2 waits on the user's judgement of G1 in play.
+
+1. **What was built.** `LatticeNoise.Gradient3DD` (value and analytic derivative), a gully overload
+   of `LatticeNoise.Fbm`, `HeightParams.WithGullies` (`GullyStartOctave`, `GullyDamping`,
+   `WetFloorDamping`, and `Topology` for the tangent projection), its own path in
+   `TerrainHeightFunction.Height`, the wetness read in both sample jobs and in `HeightAtPoint`, and
+   `TerrainSettings`' Gullies fields. G2's fields (`GullyAmplitude`, `GullyWavelength`, `GullySlope`)
+   and `WetGullyFade` are not added until D2 asks for G2.
+2. **Exact choices.** `Gradient3DD`'s value is `Gradient3D`'s bits by the same operations, so the
+   last octave of a sum calls `Gradient3D` and the sum is unchanged. The projection divides by the
+   up vector's length squared instead of normalising (no `sqrt`). `g` accumulates each octave's
+   derivative times its own damping factor held constant: the factor's own variation is left out,
+   which keeps octave k's damping a function of octaves below k (the prefix). The start counts
+   octaves strictly longer than the wavelength, by exponent and mantissa, so an octave exactly at
+   it is damped.
+3. **The gully term stays out of the eroded octaves.** E1 builds T through `Height` before there is
+   any wetness, so wet-floor damping inside octaves 0 … `Oe` would make T differ from what the
+   chunks draw. `ErosionParams.Create` refuses a gully start at or below `Oe`. Because of that the
+   eroded maps, their envelopes and every erosion pin are unchanged.
+4. **Tuning.** Probed slopes of the octaves before each candidate start, 1,500 points a scene: in the
+   belts (mid gain 2.3) about 0.33 at the median, 0.58 at p90 and 0.85 at p99 at kilometre scales;
+   on plains 0.1–0.2. Every stress scene runs `GullyDamping` 8 (a half at the belts' median, a
+   quarter at p90) and `WetFloorDamping` 2. The start is 3 km on the planets and rings: octave 12
+   (2.5 km) on Earth, 10 on the small planet and the ring, 7 on the narrow ring. In the terrarium it
+   is 100 m, octave 7. Erosion carries octaves to 6 on the planets and the ring and to 5 on the
+   narrow ring and the terrarium. These are starting values for the user to judge in play.
+5. **Re-measured (task 5, managed, 2026-10-28, 37 min).** C, the roughest of 20,000 nodes per depth
+   with the cutoff: Earth 369.6, small planet 180.1, ring 96.6, narrow ring 36.5, all under the
+   figures their pins came from, so the pins stand. The eroded combined half-relief: Earth 0.601,
+   small planet 0.616, ring 0.382, narrow ring 0.497, all lower than before. The terrarium rose,
+   1.0196 to 1.0277, and its pin went from 1.5295 to 1.5416; it still clears its allowance by 1.26×
+   against the 1.25 asked. The eroded skirt shares: Earth 0.590, small planet 0.625, ring 0.774,
+   narrow ring 0.790, terrarium 0.614, all within their `SkirtFraction`s. The measurements sample
+   wetness at 0, so the wet-floor damping is left out, which is the rougher side. Working sets do
+   not move, since the envelopes do not.
+6. **Tests.** `LatticeNoiseTests.AnalyticDerivativeMatchesTheNoise`; `GullyTests` (off is the
+   identity to the bit, the start by exponent, the damping against central differences of the
+   tangent slope on a sphere, a cylinder and a plane, the bound kept and the fine band lowered,
+   agreement across every cube edge, every scene past its eroded octaves);
+   `ErosionParamsTests.GulliesInsideTheErodedOctavesAreRefused`; `GeomorphTests` runs the
+   child-equals-parent invariant with damping on; the asset tests hold the three new fields. 176 pure
+   tests pass out of the Editor, and Core, the tests and the Editor assembly compile with Unity's
+   arguments. Owed in the Editor: the suite (the geomorph run, the asset holds, the Burst build), the
+   chunk throughput before and after (E6's cost), and the fly-throughs, gullies from 1 km.
+
 #### Out of scope for M5c
 
 - Uplift and tectonics: the pass erodes the noise's terrain, it does not grow mountains.

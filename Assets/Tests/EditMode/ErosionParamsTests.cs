@@ -176,5 +176,29 @@ namespace Sonoma.Tests
             Assert.Throws<ArgumentException>(() => ErosionParams.Create(s, hp, MacroParams.Create(s, hp, with), plain),
                                              "erosion in the macro parameters only");
         }
+
+        // The gully term (M5c, E6) is for the octaves erosion does not carry. Here the top level is 2
+        // and its band limit octave 4, so erosion carries octaves 0 .. 3: a gully term from octave 3
+        // is refused, and one from octave 4 is not.
+        [Test]
+        public void GulliesInsideTheErodedOctavesAreRefused()
+        {
+            var s  = Surfaces[0];
+            var hp = HeightParams.Create(s, 9, 0.0, 12, 100f, 0.5f, 2f, 42u);
+            var c  = Macro(Erosion());
+            var mp = MacroParams.Create(s, hp, c);
+            Assert.AreEqual(3, ErosionChannels.ErodedOctave(hp, mp), "the eroded octaves");
+
+            var inside  = hp.WithGullies(2f, hp.OctaveWavelength0 / 8.0, 0f);
+            var outside = hp.WithGullies(2f, hp.OctaveWavelength0 / 16.0, 0f);
+            Assert.AreEqual(3, inside.GullyStartOctave);
+            Assert.AreEqual(4, outside.GullyStartOctave);
+            Assert.Throws<ArgumentException>(() => ErosionParams.Create(s, inside, MacroParams.Create(s, inside, c), c),
+                                             "a gully term inside the eroded octaves");
+            Assert.IsTrue(ErosionParams.Create(s, outside, MacroParams.Create(s, outside, c), c).Enabled,
+                          "a gully term past the eroded octaves");
+            // Without erosion there is nothing to overlap.
+            Assert.IsFalse(ErosionParams.Create(s, inside, MacroParams.Create(s, inside, Macro(null)), Macro(null)).Enabled);
+        }
     }
 }

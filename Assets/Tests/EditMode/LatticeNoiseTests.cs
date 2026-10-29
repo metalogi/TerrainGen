@@ -11,6 +11,49 @@ namespace Sonoma.Tests
     {
         const uint Seed = 42u;
 
+        // The gully term (M5c, E6) takes its slope from Gradient3DD's derivative and its value from
+        // either function, so both halves are held: the value to the bit, at small coordinates and
+        // at Earth-sized ones, and the derivative against central differences of Gradient3D.
+        [Test]
+        public void AnalyticDerivativeMatchesTheNoise()
+        {
+            var    rng   = new Unity.Mathematics.Random(98765);
+            double worst = 0.0;
+
+            for (int i = 0; i < 20000; i++)
+            {
+                double range = i % 2 == 0 ? 1000.0 : 1e7;
+                var p = new double3(rng.NextDouble(-range, range), rng.NextDouble(-range, range),
+                                    rng.NextDouble(-range, range));
+                uint seed = Seed + (uint)(i % 7);
+
+                double value = LatticeNoise.Gradient3DD(p, seed, out double3 d);
+                Assert.AreEqual(LatticeNoise.Gradient3D(p, seed), value, 0.0,
+                    $"Gradient3DD's value is not Gradient3D's bits at {p}");
+
+                // Central differences, at coordinates small enough that the step is exact-ish.
+                if (range > 1000.0) continue;
+                const double h = 1e-5;
+                var fd = new double3(
+                    LatticeNoise.Gradient3D(p + new double3(h, 0, 0), seed) - LatticeNoise.Gradient3D(p - new double3(h, 0, 0), seed),
+                    LatticeNoise.Gradient3D(p + new double3(0, h, 0), seed) - LatticeNoise.Gradient3D(p - new double3(0, h, 0), seed),
+                    LatticeNoise.Gradient3D(p + new double3(0, 0, h), seed) - LatticeNoise.Gradient3D(p - new double3(0, 0, h), seed)) / (2.0 * h);
+                worst = math.max(worst, math.cmax(math.abs(fd - d)));
+            }
+
+            // The difference's truncation error is h^2 times the third derivative, around 1e-9, and
+            // its rounding 1e-16 / 1e-5; a wrong term in the product rule would be order 1.
+            TestContext.WriteLine($"worst derivative error against central differences: {worst:E3}");
+            Assert.Less(worst, 1e-6, "the analytic derivative disagrees with central differences");
+
+            // And the derivative is continuous across a cell face, where the fade's derivative
+            // vanishes: just either side of an integer plane the two cells' derivatives agree.
+            var face = new double3(17.0, 3.25, -8.5);
+            LatticeNoise.Gradient3DD(face - new double3(1e-9, 0, 0), Seed, out double3 below);
+            LatticeNoise.Gradient3DD(face + new double3(1e-9, 0, 0), Seed, out double3 above);
+            Assert.Less(math.cmax(math.abs(above - below)), 1e-6, "the derivative jumps across a cell face");
+        }
+
         [Test]
         public void NoiseIsZeroAtLatticePoints()
         {

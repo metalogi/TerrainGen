@@ -144,6 +144,11 @@ namespace Sonoma.Core.Quadtree
             ContinentSettings continents = Settings.Macro != null ? Settings.Macro.Continents : null;
             if (continents != null)
                 _params = _params.WithContinentalCutoff(continents.DetailCutoff, continents.CoarseOctaveAmplitude);
+            // The gully term's slope damping (M5c, E6), when configured. Before the macro build,
+            // whose erosion checks it stays out of the octaves it erodes.
+            if (Settings.GullyDamping > 0f)
+                _params = _params.WithGullies(Settings.GullyDamping, Settings.GullyStartWavelength,
+                                              Settings.WetFloorDamping);
             _lod    = LodMath.Create(Surface, Settings, _params);
             FillBiomeColors();
 

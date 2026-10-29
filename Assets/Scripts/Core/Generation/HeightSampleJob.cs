@@ -64,9 +64,13 @@ namespace Sonoma.Core.Generation
             // parameterisation, which is what makes the read exact on texels and bit-identical
             // across a shared edge (MacroSampler).
             int level = Macro.Layout.MacroLevel(Node.Depth);
-            var macro = Biomes.Modulate(
-                MacroSampler.Read(new MacroMapReader(MacroTexels, MacroDrainage), Macro, Node.Quad, level, u, v),
-                Macro, out float4 weights);
+            var reader = new MacroMapReader(MacroTexels, MacroDrainage);
+            var macro  = Biomes.Modulate(MacroSampler.Read(reader, Macro, Node.Quad, level, u, v),
+                                         Macro, out float4 weights);
+            // The gully term's wet-floor damping reads wetness at this job's level too, so the
+            // coarse job's morph target is still the parent's (M5c, E6).
+            if (Params.WetFloorDamping > 0f)
+                macro.Wetness = MacroSampler.ReadWetness(reader, Macro, Node.Quad, level, u, v);
             Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
             Splats[index]  = Biomes.Pack(weights);
         }
@@ -120,9 +124,13 @@ namespace Sonoma.Core.Generation
             BasePoints[index]  = p;
             BaseNormals[index] = n;
             int level = Macro.Layout.MacroLevel(Node.Depth - 1);
-            var macro = Biomes.Modulate(
-                MacroSampler.Read(new MacroMapReader(MacroTexels, MacroDrainage), Macro, Node.Quad, level, u, v),
-                Macro, out float4 weights);
+            var reader = new MacroMapReader(MacroTexels, MacroDrainage);
+            var macro  = Biomes.Modulate(MacroSampler.Read(reader, Macro, Node.Quad, level, u, v),
+                                         Macro, out float4 weights);
+            // The gully term's wet-floor damping reads wetness at this job's level too, so the
+            // coarse job's morph target is still the parent's (M5c, E6).
+            if (Params.WetFloorDamping > 0f)
+                macro.Wetness = MacroSampler.ReadWetness(reader, Macro, Node.Quad, level, u, v);
             Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
             Splats[index]  = Biomes.Pack(weights);
         }

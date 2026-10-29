@@ -125,6 +125,15 @@ namespace Sonoma.Core.Generation
             var e = c.Erosion.Value;
             e.Validate();
 
+            // The gully term is for the scales the maps cannot hold (M5c, E6). Reaching into the
+            // eroded octaves it would make T, which the pass erodes, differ from what the chunks
+            // draw: T is built before there is any wetness, so the wet-floor damping would apply to
+            // one and not the other.
+            if (hp.HasGullies && hp.GullyStartOctave <= ErosionChannels.ErodedOctave(hp, mp))
+                throw new ArgumentException(
+                    $"ErosionParams: the gully term starts at octave {hp.GullyStartOctave}, inside the octaves erosion " +
+                    $"erodes (0 .. {ErosionChannels.ErodedOctave(hp, mp)}). Lower GullyStartWavelength.");
+
             double quadArea = ContinentParams.SurfaceArea(s) / s.QuadCount;
             double texel    = ContinentParams.TopTexelSpacing(hp.S0, mp.Layout);
             int    bits     = math.clamp((int)math.round(e.AreaExponent * (1 << ExponentBits)), 1, (1 << ExponentBits) - 1);

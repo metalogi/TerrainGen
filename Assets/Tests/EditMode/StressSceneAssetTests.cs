@@ -42,6 +42,9 @@ namespace Sonoma.Tests
                 Assert.AreEqual(Seed,             s.Seed,               $"{sc.Asset}: Seed");
                 Assert.AreEqual(sc.RoughnessCrossover, s.RoughnessCrossover, $"{sc.Asset}: RoughnessCrossover");
                 Assert.AreEqual(sc.FinePersistence,    s.FinePersistence,    $"{sc.Asset}: FinePersistence");
+                Assert.AreEqual(sc.GullyDamping,         s.GullyDamping,         $"{sc.Asset}: GullyDamping");
+                Assert.AreEqual(sc.GullyStartWavelength, s.GullyStartWavelength, $"{sc.Asset}: GullyStartWavelength");
+                Assert.AreEqual(sc.WetFloorDamping,      s.WetFloorDamping,      $"{sc.Asset}: WetFloorDamping");
             }
         }
 
