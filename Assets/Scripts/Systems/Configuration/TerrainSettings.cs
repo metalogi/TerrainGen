@@ -138,8 +138,9 @@ namespace Sonoma.Systems.Configuration
         [Min(0f)]
         public float GullyDamping = 0f;
         [Tooltip("Wavelength in metres: octaves no longer than this are damped. In a scene with " +
-                 "erosion it must be shorter than the octaves erosion carries.")]
-        [Min(0f)]
+                 "erosion it must be shorter than the octaves erosion carries. At least 1 m; HeightParams " +
+                 "refuses a start of 0.")]
+        [Min(1f)]
         public double GullyStartWavelength = 1000.0;
         [Tooltip("Raises the damping on wet ground, by 1 + WetFloorDamping x wetness from the macro " +
                  "layer's erosion, so valley floors read smooth. 0 is off; without erosion wetness is " +

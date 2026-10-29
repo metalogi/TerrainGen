@@ -333,9 +333,13 @@ namespace Sonoma.Tests
                 var p     = MacroParams.Create(m.Surface, hp, c);
                 var ep    = ErosionParams.Create(m.Surface, hp, p, c);
                 float4[] texels;
+                float2[] drainage;
                 using (var maps = MacroMaps.Build(m.Surface, SurfaceMath.BuildRoots(m.Surface), p,
                                                   ContinentParams.Create(m.Surface, p, c), hp, ep))
-                    texels = maps.Texels.ToArray();
+                {
+                    texels   = maps.Texels.ToArray();
+                    drainage = maps.Drainage.ToArray();
+                }
 
                 int   maxDepth;
                 float fraction;
@@ -346,7 +350,7 @@ namespace Sonoma.Tests
                     maxDepth = sc.MaxDepth; fraction = sc.SkirtFraction;
                 }
                 StressSceneTests.AssertSkirtsCover($"{m.Scene} eroded",
-                    new StressSceneTests.SceneHeights(m.Scene, m.Surface, rough, texels, p), maxDepth, fraction);
+                    new StressSceneTests.SceneHeights(m.Scene, m.Surface, rough, texels, drainage, p), maxDepth, fraction);
             }
             Assert.Greater(scenes, 0, "no stress scene erodes");
         }

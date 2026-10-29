@@ -58,6 +58,7 @@ namespace Sonoma.Tests
         internal const float  GullyDamping         = 8f;
         internal const double GullyStartWavelength = 3000.0;
         internal const float  WetFloorDamping      = 2f;
+        internal const double BeltSlope            = 0.328;   // the belts' median slope before octave 12
 
         // The relief demand at Earth depth, C = halfRelief / (nodeSize * HeightScale / S0) for
         // the roughest node -- an ESTIMATE, not a measurement. A face at depth 19 is 4^19 nodes,

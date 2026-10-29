@@ -152,6 +152,33 @@ namespace Sonoma.Tests
             Assert.Greater(damped, Resolution * Resolution / 2, "the slope damping barely changes the heights");
 
             CheckChildAtFullMorphEqualsParent(macro, "a macro layer with biomes and slope damping");
+
+            // And over eroded maps with the wet-floor damping, so the coarse job's morph target
+            // carries the parent's wetness. Erosion carries octaves 0 .. 3 at three levels, so the
+            // gully term starts at octave 4, the parent's band limit, which it damps.
+            config.LevelCount = 3;
+            config.Continents = null;
+            config.Erosion    = ErosionBuildTests.Incising(2000f);
+            var wetParams = withBands.WithGullies(50f, withBands.OctaveWavelength0 / 16.0, 4f);
+            Assert.AreEqual(4, wetParams.GullyStartOctave, "the wet gully start");
+            var ep = MacroParams.Create(_surface, wetParams, config);
+            using var eroded = MacroMaps.Build(_surface, _roots, ep, ContinentParams.Create(_surface, ep, config),
+                                               wetParams, ErosionParams.Create(_surface, wetParams, ep, config));
+            float wettest = 0f;
+            for (int k = 0; k < eroded.Drainage.Length; k++) wettest = math.max(wettest, eroded.Drainage[k].x);
+            Assert.Greater(wettest, 0.3f, "the eroded maps are too dry for the coupling to show");
+
+            _params = withBands.WithGullies(50f, withBands.OctaveWavelength0 / 16.0, 0f);
+            var dryChunk = Build(new NodeId(0, Depth, 1, 2), eroded);
+            _params = wetParams;
+            var wetChunk = Build(new NodeId(0, Depth, 1, 2), eroded);
+            int wetMoved = 0;
+            for (int k = 0; k < Resolution * Resolution; k++)
+                if (wetChunk.Verts[k].TopoElevation.w != dryChunk.Verts[k].TopoElevation.w) wetMoved++;
+            TestContext.WriteLine($"wettest texel {wettest:F2}; the wet-floor damping moves {wetMoved} of {Resolution * Resolution} vertices");
+            Assert.Greater(wetMoved, 0, "the wet-floor damping moves nothing");
+
+            CheckChildAtFullMorphEqualsParent(eroded, "eroded maps with slope damping and wet-floor damping");
             _params = withBands;
         }
 

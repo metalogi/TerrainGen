@@ -208,6 +208,74 @@ namespace Sonoma.Tests
             Assert.Less(worst, 1e-3, "the gully term disagrees across a cube edge");
         }
 
+        // The wet-floor coupling over real eroded maps: HeightAtPoint takes the wetness at the same
+        // level as the rest of its macro sample and damps by GullyDamping (1 + WetFloorDamping x
+        // wetness); TerrainHeightFunction.Macro, which both sample jobs call, reads it at the level it
+        // is given, and not at all where the band limit stops short of the damped octaves.
+        [Test]
+        public void WetFloorDampingReadsTheWetness()
+        {
+            var c     = ErosionBuildTests.Make("plane", SurfaceDef.PlaneGrid(100000.0, 2, 2), ErosionBuildTests.Incising());
+            var built = ErosionBuildTests.Build(c, out float2[] drainage, out _, out _);
+            var maps  = new MacroTests.ArrayTexels(built, drainage);
+            var s     = c.Surface;
+            var mp    = c.Macro;
+            var wet   = c.Height.WithGullies(8f, c.Height.OctaveWavelength0 / 32.0, 2f);
+            var dry   = c.Height.WithGullies(8f, c.Height.OctaveWavelength0 / 32.0, 0f);
+            Assert.Greater(wet.GullyStartOctave, ErosionChannels.ErodedOctave(wet, mp), "the gully term reaches the eroded octaves");
+
+            const int depth = 8;
+            int oct = wet.MaxOctave(depth), level = mp.Layout.MacroLevel(depth);
+            var rng = new Unity.Mathematics.Random(0x3E7u);
+            int wetPoints = 0, moved = 0, levelsDiffer = 0;
+            for (int k = 0; k < 2000; k++)
+            {
+                double3 point = SurfaceMath.SurfacePoint(s, c.Roots[rng.NextInt(0, c.Roots.Length)], rng.NextDouble(), rng.NextDouble());
+                SurfaceMath.Locate(s, point, out int quad, out double u, out double v);
+
+                // By hand, from the primitives: the sample, its wetness at the same level, the height.
+                var   sample  = Biomes.Modulate(MacroSampler.Read(maps, mp, quad, level, u, v), mp, out _);
+                float wetness = MacroSampler.ReadWetness(maps, mp, quad, level, u, v);
+                sample.Wetness = wetness;
+                float expected = TerrainHeightFunction.Height(point, oct, sample, wet);
+                Assert.AreEqual(math.asuint(expected), math.asuint(TerrainHeightFunction.HeightAtPoint(s, point, depth, wet, mp, maps)),
+                    $"HeightAtPoint at {point} is not the height with the wetness read at its level");
+
+                // The damping really is GullyDamping (1 + W w) over the detail.
+                double detail = Gullied(wet, point, oct + 1, sample.BandGain, 8.0 * (1.0 + 2.0 * wetness), wet.GullyStartOctave);
+                Assert.AreEqual((float)(wet.HeightScale * detail + sample.BaseHeight), expected, $"the damping at {point}");
+
+                if (wetness > 0.2f)
+                {
+                    wetPoints++;
+                    if (expected != TerrainHeightFunction.HeightAtPoint(s, point, depth, dry, mp, maps)) moved++;
+                }
+
+                // The helper both jobs call: wetness at the level it is given, none short of the start.
+                var atLevel = TerrainHeightFunction.Macro(maps, mp, wet, quad, level - 1, u, v, oct, out _);
+                Assert.AreEqual(MacroSampler.ReadWetness(maps, mp, quad, level - 1, u, v), atLevel.Wetness, "wetness at the given level");
+                if (atLevel.Wetness != wetness) levelsDiffer++;
+                Assert.AreEqual(0f, TerrainHeightFunction.Macro(maps, mp, wet, quad, level, u, v, wet.GullyStartOctave - 1, out _).Wetness,
+                    "wetness read for a band limit short of the damped octaves");
+                Assert.AreEqual(0f, TerrainHeightFunction.Macro(maps, mp, dry, quad, level, u, v, oct, out _).Wetness,
+                    "wetness read with the wet-floor damping off");
+            }
+            TestContext.WriteLine($"{wetPoints} of 2000 points wetter than 0.2, {moved} of them moved; levels differ at {levelsDiffer}");
+            Assert.Greater(wetPoints, 20, "too few wet points for the coupling to show");
+            Assert.Greater(moved, wetPoints / 2, "the wetness barely changes the height");
+            Assert.Greater(levelsDiffer, 100, "two levels read the same wetness, so the level check cannot bite");
+        }
+
+        // The gully term needs parameters from Create, which records the topology its slope is
+        // projected against.
+        [Test]
+        public void GulliesNeedCreatedParameters()
+        {
+            Assert.Throws<System.InvalidOperationException>(() => default(HeightParams).WithGullies(1f, 1000.0, 0f));
+            Assert.AreEqual(SurfaceType.CubeSphere, Earth.Topology);
+            Assert.AreEqual(SurfaceType.Cylinder, StressSceneTests.Ringworld.Params.Topology);
+        }
+
         // Every stress scene runs the gully term, and in every scene with erosion it starts past the
         // octaves erosion carries -- the condition ErosionParams.Create enforces at startup, checked
         // here on the scenes' own configurations so a retune fails a test rather than play.
