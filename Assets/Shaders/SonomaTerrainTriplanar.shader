@@ -30,7 +30,8 @@
 // is the cue that separates one ridge from the ridge behind it, which a directional light
 // alone shows only near the terminator.
 //
-// Per-frame globals:
+// Per-frame globals. All but _SonomaBiomeColors are declared in two includes, so that the ocean
+// shader (ocean-a) can share them: the morph's in SonomaCommon.hlsl, the sky's in SonomaSky.hlsl.
 //   _SonomaWorldOrigin (float3), from WorldOriginSystem.PushOriginToShader — added to
 //   positionWS so triplanar samples on true world coordinates and stays continuous
 //   through floating-origin rebases.
@@ -166,96 +167,12 @@ Shader "Sonoma/TerrainTriplanar"
             float  _TriplanarSharpness;
         CBUFFER_END
 
-        // Per-frame globals (NOT in UnityPerMaterial -- set via Shader.SetGlobal*).
-        float3 _SonomaWorldOrigin;
+        // The morph globals and functions, shared with every shader drawn on the terrain's nodes.
+        #include "SonomaCommon.hlsl"
 
-        // One linear colour per biome slot; see the header. Read only under _SONOMA_BIOMES.
+        // Per-frame global (NOT in UnityPerMaterial -- set via Shader.SetGlobal*). One linear
+        // colour per biome slot; see the header. Read only under _SONOMA_BIOMES.
         float4 _SonomaBiomeColors[4];
-
-        // (start_d, end_d, 0, 0): the distances over which a depth-d chunk morphs onto its
-        // parent. Ranges nest exactly (end_{d-1} == 2*end_d), so at any boundary between
-        // depths d and d-1 the fine side is at k = 1 where the coarse side is still at
-        // k = 0. See LodMath, and SonomaRevisedPlan.md section 4.4.
-        // LodMath.Create refuses a MaxDepth above what NodeId can address (30), so no chunk
-        // can reach this index. The clamp is the belt to that brace: it bounds the read, but
-        // it does NOT degrade gracefully -- slot 31's range is a few centimetres wide, so a
-        // chunk landing there would be pinned at k = 1 and drawn permanently morphed onto
-        // its parent, not drawn unmorphed.
-        #define SONOMA_MAX_MORPH_DEPTH 31
-        float4 _SonomaMorphRanges[SONOMA_MAX_MORPH_DEPTH + 1];
-
-        // Render space (world - origin), like positionWS before the _SonomaWorldOrigin
-        // correction and like every chunk transform. Flattened, as the LOD sees the camera.
-        float3 _SonomaViewPosition;
-
-        // (Flatten, Anchor, 0, 0); see the header and LodVertical.
-        float4 _SonomaLodVertical;
-
-        // Distance is measured from the UNMORPHED position. That matters twice over: it is
-        // what lets every pass arrive at the same k for the same vertex, and it is what
-        // makes two chunks sharing a vertex agree -- they compute the same world position
-        // for it, so they compute the same distance and the same k. Per vertex, never per
-        // chunk.
-        //
-        // Both positions are render space, so their difference is true world metres and
-        // needs no _SonomaWorldOrigin correction, unlike the triplanar sampling in the
-        // fragment stage.
-        //
-        // _SonomaViewPosition rather than _WorldSpaceCameraPos, and that is not a style
-        // choice. URP sets _WorldSpaceCameraPos for the main-light shadow pass explicitly
-        // (MainLightShadowCasterPass calls ShadowUtils.SetCameraPosition, commented "not set
-        // for passes executed before normal rendering") and AdditionalLightsShadowCasterPass
-        // does not. So with a shadow-casting point or spot light and no shadowed directional
-        // light, the ShadowCaster pass reads whatever was last bound -- a stale frame, or
-        // another camera -- and morphs the shadow geometry by a different k than ForwardLit
-        // and DepthOnly used. That is the same shadow-acne-along-LOD-boundaries failure the
-        // "morph in every pass" rule exists to prevent, arrived at from the other side.
-        // TerrainRoot pushes this once a frame from the camera it also selected with, so all
-        // four passes agree by construction rather than by URP's pass order.
-        //
-        // The vertex is flattened before the distance is taken, by the map LodVertical gives
-        // the camera and LodMath.NodeDistance the bounding spheres: moved along its topology
-        // up by Flatten x (elevation - Anchor), with the UNMORPHED elevation, TEXCOORD1.w, for
-        // the reason the position is unmorphed. topoUp and elevation are attributes, the same
-        // bits in every chunk that shares the vertex, so the move is too. topoUp goes through
-        // TransformObjectToWorldDir, as ForwardLit's does: chunk transforms are unrotated, so
-        // that is the identity today, and the move stays right if a parent ever rotates them.
-        //
-        // The anchor moves every point, the camera included, by about Flatten x Envelope -- 68 km
-        // on Earth -- so both ends of the distance sit that far from the render-space origin and
-        // carry float rounding of a few millimetres. Across the morph windows that is a k error
-        // under 1e-3: sub-millimetre motion, at a shared vertex or anywhere else.
-        float SonomaMorphFactor(float3 positionOS, float4 topoElevation, float depth)
-        {
-            float3 up   = TransformObjectToWorldDir(topoElevation.xyz);
-            float3 wp   = TransformObjectToWorld(positionOS)
-                        - up * (_SonomaLodVertical.x * (topoElevation.w - _SonomaLodVertical.y));
-            float  dist = distance(wp, _SonomaViewPosition);
-            float2 r    = _SonomaMorphRanges[clamp((int)depth, 0, SONOMA_MAX_MORPH_DEPTH)].xy;
-            return saturate((dist - r.x) / max(r.y - r.x, 1e-5));
-        }
-
-        // Returns the factor it used, so a caller that has more than position and normal to
-        // blend -- ForwardLit, with its elevation -- does not recompute it.
-        float SonomaMorph(inout float3 positionOS, inout float3 normalOS, float4 topoElevation,
-                          float4 morphPosition, float3 morphNormal)
-        {
-            float k    = SonomaMorphFactor(positionOS, topoElevation, morphPosition.w);
-            positionOS = lerp(positionOS, morphPosition.xyz, k);
-            normalOS   = lerp(normalOS,   morphNormal,       k);
-            // Deliberately not normalized here: the fragment stages normalize what they
-            // receive, and a lerp of two unit normals is only short, never wrong.
-            return k;
-        }
-
-        // Position only, for the depth prepass, which has no normal to morph. Its position
-        // must still match the other passes exactly, or the depth test rejects the lit
-        // geometry it is supposed to accept.
-        void SonomaMorphPosition(inout float3 positionOS, float4 topoElevation, float4 morphPosition)
-        {
-            positionOS = lerp(positionOS, morphPosition.xyz,
-                              SonomaMorphFactor(positionOS, topoElevation, morphPosition.w));
-        }
         ENDHLSL
 
         Pass
@@ -283,67 +200,7 @@ Shader "Sonoma/TerrainTriplanar"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
-            #if defined(_SONOMA_SKY)
-                // Per scene, from TerrainRoot.PushShaderGlobals; see the header. Linear colours.
-                float4 _SonomaSkyAmbient;    // rgb: ambient from straight up
-                float4 _SonomaGroundAmbient; // rgb: ambient from straight down
-                float4 _SonomaHaze;          // rgb: haze colour; a: density at the base surface, per metre
-                float4 _SonomaSurface;       // x: SurfaceType (0 plane grid, 1 cube sphere, 2 cylinder);
-                                             // y: radius; z: 1 / haze scale height, per metre
-
-                // Altitude above the base surface of a point in absolute coordinates. SurfaceMath's
-                // sphere is centred on the absolute origin, its cylinder runs along the Z axis and
-                // is seen from inside, and its plane grid lies at y = 0. In float, so at Earth
-                // radius it is good to about half a metre, which haze with a scale height of
-                // kilometres does not notice.
-                float SonomaAltitude(float3 p)
-                {
-                    if (_SonomaSurface.x > 1.5) return _SonomaSurface.y - length(p.xy);
-                    if (_SonomaSurface.x > 0.5) return length(p) - _SonomaSurface.y;
-                    return p.y;
-                }
-
-                // Optical depth along the straight path from eye to p, both in render space, in
-                // metres of air at base-surface density: the integral of exp(-h / H) over the
-                // path, with the altitude h taken as linear within each of SONOMA_HAZE_STEPS
-                // steps. Linear within a step, each step integrates exactly, to
-                // len x (e^-a - e^-b) / (b - a) for end altitudes a and b in scale heights, and
-                // that is what keeps a path that climbs out of the air -- across a ring to its far
-                // side, or from orbit -- from being charged the base density all the way: the step
-                // comes to about len x H / climb. A straight path across a sphere's surface dips
-                // below the line between its ends, so a step this coarse undercounts grazing
-                // paths over the horizon, which are hazed out regardless. The step length comes
-                // from render space, where a short path keeps its precision; only the altitudes
-                // need the origin added back.
-                #define SONOMA_HAZE_STEPS 4
-                float SonomaOpticalDepth(float3 eye, float3 p)
-                {
-                    float invH  = _SonomaSurface.z;
-                    float len   = distance(eye, p) / SONOMA_HAZE_STEPS;
-                    float a     = max(SonomaAltitude(eye + _SonomaWorldOrigin) * invH, -20.0);
-                    float depth = 0.0;
-                    [unroll]
-                    for (int i = 1; i <= SONOMA_HAZE_STEPS; i++)
-                    {
-                        float3 q  = lerp(eye, p, i / (float)SONOMA_HAZE_STEPS);
-                        float  b  = max(SonomaAltitude(q + _SonomaWorldOrigin) * invH, -20.0);
-                        float  db = b - a;
-                        depth += len * (abs(db) > 1e-4 ? (exp(-a) - exp(-b)) / db : exp(-a));
-                        a = b;
-                    }
-                    return depth;
-                }
-
-                // What the haze between the eye and the ground scatters towards the eye: its
-                // colour, lit by the sun where the air is in daylight and by the sky alone where it
-                // is not. Daylight is judged at the fragment, from its own up, with a twilight band
-                // about the terminator rather than a hard line.
-                half3 SonomaHazeLight(float3 topoUp, Light ml)
-                {
-                    half day = smoothstep(-0.1, 0.3, dot(topoUp, ml.direction));
-                    return _SonomaHaze.rgb * (ml.color * day + _SonomaSkyAmbient.rgb);
-                }
-            #endif
+            #include "SonomaSky.hlsl"
 
             struct Attributes
             {
@@ -498,12 +355,8 @@ Shader "Sonoma/TerrainTriplanar"
                     half3 ambient = albedo * lerp(_SonomaGroundAmbient.rgb, _SonomaSkyAmbient.rgb, skyView);
                     half3 color   = direct + ambient;
 
-                    // Aerial perspective, from the camera rendering this pass: _WorldSpaceCameraPos
-                    // is right here, where it is wrong for the morph, because ForwardLit is a camera
-                    // pass and URP binds it for one; the shadow passes are where it goes stale. At a
-                    // density of zero the transmittance is exactly 1 and the colour is unchanged.
-                    half T = exp(-_SonomaHaze.a * SonomaOpticalDepth(_WorldSpaceCameraPos, input.positionWS));
-                    color  = color * T + SonomaHazeLight(topoUp, ml) * (1.0 - T);
+                    // Aerial perspective; see SonomaSky.hlsl.
+                    color = SonomaApplyHaze(color, input.positionWS, topoUp, ml);
                 #else
                     half3 ambient = albedo * SampleSH(N) * 0.5;
                     half3 color   = direct + ambient;

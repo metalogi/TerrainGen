@@ -1,4 +1,3 @@
-using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Jobs;
@@ -308,10 +307,7 @@ namespace Sonoma.Tests
         [Test]
         public void ShaderMorphsInEveryPass()
         {
-            string path = Path.Combine(Application.dataPath, "Shaders", "SonomaTerrainTriplanar.shader");
-            Assert.IsTrue(File.Exists(path), $"shader not found at {path}");
-
-            string source = File.ReadAllText(path);
+            string source = ShaderSource.Load("SonomaTerrainTriplanar.shader");
             Assert.IsTrue(source.Contains("_SonomaMorphRanges"),
                 "the shader declares no morph range array");
 
@@ -327,10 +323,16 @@ namespace Sonoma.Tests
             // boundaries failure this test exists to prevent, reached from the other side.
             //
             // Scoped to the function body, because the comment above it names the builtin it
-            // is deliberately not using.
+            // is deliberately not using. The body ends at its matching brace, whatever the
+            // indentation of the file it lives in (SonomaCommon.hlsl, since ocean-a).
             int fnStart = source.IndexOf("float SonomaMorphFactor(", System.StringComparison.Ordinal);
             Assert.Greater(fnStart, 0, "SonomaMorphFactor is missing from the shader");
-            int fnEnd = source.IndexOf("\n        }", fnStart, System.StringComparison.Ordinal);
+            int fnEnd = -1;
+            for (int i = source.IndexOf('{', fnStart), open = 0; i >= 0 && i < source.Length; i++)
+            {
+                if (source[i] == '{') open++;
+                else if (source[i] == '}' && --open == 0) { fnEnd = i; break; }
+            }
             Assert.Greater(fnEnd, fnStart, "SonomaMorphFactor has no body");
 
             string factor = source.Substring(fnStart, fnEnd - fnStart);
@@ -381,8 +383,7 @@ namespace Sonoma.Tests
         [Test]
         public void ShaderMorphsTheSplat()
         {
-            string path   = Path.Combine(Application.dataPath, "Shaders", "SonomaTerrainTriplanar.shader");
-            string source = File.ReadAllText(path);
+            string source = ShaderSource.Load("SonomaTerrainTriplanar.shader");
 
             int start = source.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
             int end   = source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal);
@@ -425,8 +426,7 @@ namespace Sonoma.Tests
         [Test]
         public void ShaderSkyIsAForwardLitFeature()
         {
-            string path   = Path.Combine(Application.dataPath, "Shaders", "SonomaTerrainTriplanar.shader");
-            string source = File.ReadAllText(path);
+            string source = ShaderSource.Load("SonomaTerrainTriplanar.shader");
 
             int start = source.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
             int end   = source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal);
