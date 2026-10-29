@@ -52,6 +52,13 @@ namespace Sonoma.Tests
         internal const double TenMetreTarget     = 0.2;
         internal const double TenMetreOnOneSlope = 0.019;
 
+        // The gully term's slope damping (M5c, E6, G1): octaves of 3 km and finer (octave 12, 2.5 km, on) lose amplitude
+        // on steep ground, by 1 / (1 + 8 slope^2) -- about half at the belts' median slope of a third,
+        // and a quarter at their p90 of 0.58 -- and twice as fast again on the wettest valley floors.
+        internal const float  GullyDamping         = 8f;
+        internal const double GullyStartWavelength = 3000.0;
+        internal const float  WetFloorDamping      = 2f;
+
         // The relief demand at Earth depth, C = halfRelief / (nodeSize * HeightScale / S0) for
         // the roughest node -- an ESTIMATE, not a measurement. A face at depth 19 is 4^19 nodes,
         // so nothing has scanned it.
@@ -89,9 +96,13 @@ namespace Sonoma.Tests
             HeightParams.Create(Earth, Resolution, 0.0, octaveCount, HeightScale, Persistence,
                                 Lacunarity, Seed);
 
-        // As EarthStress runs it, with the roughness spectrum.
-        internal static HeightParams RoughParams =>
+        // The roughness spectrum alone, for tests of the sum that apply no gully term.
+        internal static HeightParams SpectrumParams =>
             Params(OctaveCount).WithRoughness(FinePersistence, RoughnessCrossover);
+
+        // As EarthStress runs it, with the roughness spectrum and the gully term.
+        internal static HeightParams RoughParams =>
+            SpectrumParams.WithGullies(GullyDamping, GullyStartWavelength, WetFloorDamping);
 
         // As TerrainRoot builds it: flattened by LodVerticalScale over EarthStress's height bound.
         internal static LodMath Lod(in HeightParams p) =>

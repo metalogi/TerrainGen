@@ -55,6 +55,12 @@ namespace Sonoma.Tests
             public double     TenMetreTarget = 0.2;   // or a recorded shortfall below it
             public double     TenMetreOnOneSlope;     // HeightScale x 0.5^k at the same octave
 
+            // The gully term's slope damping (M5c, E6): octaves no longer than GullyStartWavelength
+            // are divided by 1 + GullyDamping (1 + WetFloorDamping x wetness) slope^2.
+            public float      GullyDamping;
+            public double     GullyStartWavelength;
+            public float      WetFloorDamping;
+
             // C = halfRelief / (nodeSize x HeightScale / S0) for the roughest node at MaxDepth --
             // an ESTIMATE, as in EarthScaleTests, and the runtime's end-of-session report of the
             // roughest chunk is the arbiter. With the roughness spectrum: half again over the
@@ -75,8 +81,11 @@ namespace Sonoma.Tests
             public HeightParams Params => HeightParams.Create(Surface, Resolution, 0.0, OctaveCount,
                                                               HeightScale, Persistence, Lacunarity, Seed);
 
-            // As the scene runs it: with its roughness spectrum.
-            public HeightParams RoughParams => Params.WithRoughness(FinePersistence, RoughnessCrossover);
+            // As the scene runs it: with its roughness spectrum and its gully term.
+            public HeightParams RoughParams => Gullied(Params.WithRoughness(FinePersistence, RoughnessCrossover));
+
+            HeightParams Gullied(in HeightParams p)
+                => GullyDamping > 0f ? p.WithGullies(GullyDamping, GullyStartWavelength, WetFloorDamping) : p;
 
             // As TerrainRoot builds it: flattened by LodVerticalScale over the scene's height bound.
             public LodMath Lod(in HeightParams p) =>
@@ -113,6 +122,7 @@ namespace Sonoma.Tests
             MaxDepth = 17, OctaveCount = 22, Budget = 8300, HeightScale = 10000f, SkirtFraction = 1f,
             SplitFactor = 4f, MorphStart = 0.12f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.53f, TenMetreFeature = 1.332, TenMetreOnOneSlope = 0.0382,
+            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f,
             ReliefFactor = 340.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
             WorstQuad = 0, WorstU = 0.0, WorstV = 0.0, Worst = 7302,
         };
@@ -143,6 +153,7 @@ namespace Sonoma.Tests
             MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 10000f, SkirtFraction = 1.2f,
             MorphStart = 0.14f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.0763,
+            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f,
             ReliefFactor = 171.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
             WorstQuad = 0, WorstU = 21.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 4980,
         };
@@ -169,6 +180,7 @@ namespace Sonoma.Tests
             Surface = SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4),
             MaxDepth = 9, OctaveCount = 14, Budget = 4400, HeightScale = 1000f, SkirtFraction = 1f,
             RoughnessCrossover = 100.0, FinePersistence = 0.55f, TenMetreFeature = 1.430, TenMetreOnOneSlope = 0.9766,
+            GullyDamping = 8f, GullyStartWavelength = 100.0, WetFloorDamping = 2f,
             ReliefFactor = 9.0,
             // Eroded (E5, 2026-10-25): the measured envelope is 2.3 km against the analytic 2.6, so the
             // anchor moves less and the world shrinks less. Re-scanned as before, rim and interior
@@ -216,6 +228,7 @@ namespace Sonoma.Tests
             MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4000f, SkirtFraction = 1.2f,
             MorphStart = 0.13f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 0.657, TenMetreOnOneSlope = 0.1221,
+            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f,
             ReliefFactor = 73.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
             WorstQuad = 0, WorstU = 37.0 / 512.0, WorstV = 267.0 / 512.0, Worst = 4320,
         };

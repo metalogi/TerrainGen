@@ -38,12 +38,27 @@ namespace Sonoma.Core.Generation
             // the original's bits with zero gains, FinePersistence equal to Persistence and no
             // cutoff, but the original stays the path for them, so a terrain without biomes,
             // roughness or continents runs the code M4 shipped.
-            double fbm = math.all(macro.BandGain == 0f) && p.FinePersistence == p.Persistence && p.FirstOctave == 0
-                ? LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed)
-                : LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
-                                   macro.BandGain, p.LowBandEnd, p.MidBandEnd,
-                                   p.FinePersistence, p.CrossoverOctave,
-                                   p.FirstOctave, p.CoarseGain);
+            //
+            // The gully term (M5c, E6) is a path of its own, taken only when it is on, so with
+            // GullyDamping 0 every scene keeps the bits it had. Its damping is raised on wet ground,
+            // read from the macro layer's wetness -- a macro value, which agrees across every
+            // root-quad edge, never a macro derivative, which does not.
+            double fbm;
+            if (p.HasGullies)
+                fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
+                                       macro.BandGain, p.LowBandEnd, p.MidBandEnd,
+                                       p.FinePersistence, p.CrossoverOctave,
+                                       p.FirstOctave, p.CoarseGain,
+                                       p.GullyStartOctave,
+                                       p.GullyDamping * (1.0 + (double)p.WetFloorDamping * macro.Wetness),
+                                       p.HeightScale / p.OctaveWavelength0, p.SurfaceUp(surfacePos));
+            else if (math.all(macro.BandGain == 0f) && p.FinePersistence == p.Persistence && p.FirstOctave == 0)
+                fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed);
+            else
+                fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
+                                       macro.BandGain, p.LowBandEnd, p.MidBandEnd,
+                                       p.FinePersistence, p.CrossoverOctave,
+                                       p.FirstOctave, p.CoarseGain);
 
             // Signed noise, so the base surface is the mean and the terrain sits around it.
             // The prototype summed amp * (snoise * 0.5 + 0.5), which biases every sample
@@ -77,9 +92,10 @@ namespace Sonoma.Core.Generation
             if (macro.Enabled)
             {
                 SurfaceMath.Locate(s, surfacePoint, out int quad, out double u, out double v);
-                sample = Biomes.Modulate(
-                    MacroSampler.Read(texels, macro, quad, macro.Layout.MacroLevel(maxDepth), u, v),
-                    macro, out _);
+                int level = macro.Layout.MacroLevel(maxDepth);
+                sample = Biomes.Modulate(MacroSampler.Read(texels, macro, quad, level, u, v), macro, out _);
+                if (p.WetFloorDamping > 0f)
+                    sample.Wetness = MacroSampler.ReadWetness(texels, macro, quad, level, u, v);
             }
             return Height(surfacePoint, p.MaxOctave(maxDepth), sample, p);
         }

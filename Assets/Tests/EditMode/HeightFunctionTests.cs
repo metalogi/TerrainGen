@@ -520,7 +520,7 @@ namespace Sonoma.Tests
         [Test]
         public void CutoffDropsTheCoarseOctaves()
         {
-            var rough = EarthScaleTests.RoughParams.WithBands(150000.0, 5000.0);
+            var rough = EarthScaleTests.SpectrumParams.WithBands(150000.0, 5000.0);
 
             // By exponent. Earth's octave 0 is S0 across, so octaves 0-3 are at least 1,000 km.
             var earth = rough.WithContinentalCutoff(1000000.0, 0f);

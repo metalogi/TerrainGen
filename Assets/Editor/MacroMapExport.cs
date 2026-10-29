@@ -101,6 +101,8 @@ static class MacroMapExport
             hp = hp.WithRoughness(t.FinePersistence, t.RoughnessCrossover);
         if (t.Macro.Continents != null)
             hp = hp.WithContinentalCutoff(t.Macro.Continents.DetailCutoff, t.Macro.Continents.CoarseOctaveAmplitude);
+        if (t.GullyDamping > 0f)
+            hp = hp.WithGullies(t.GullyDamping, t.GullyStartWavelength, t.WetFloorDamping);
         config = t.Macro.ToConfig();
     }
 

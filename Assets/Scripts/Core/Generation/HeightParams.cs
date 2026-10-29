@@ -103,6 +103,63 @@ namespace Sonoma.Core.Generation
             return p;
         }
 
+        // The gully term's slope damping (M5c, E6, G1): octaves GullyStartOctave and finer are
+        // divided by 1 + GullyDamping (1 + WetFloorDamping x wetness) |g|^2, g the slope of the
+        // octaves before them (LatticeNoise.Fbm). GullyDamping 0, as Create leaves it, is off, and
+        // the height function then keeps the path it had without it. Topology says which way is
+        // up for the slope's tangent projection; Create sets it.
+        public int         GullyStartOctave;
+        public float       GullyDamping;
+        public float       WetFloorDamping;
+        public SurfaceType Topology;
+
+        // The start as a wavelength in metres, like the band edges: every octave no longer than it
+        // is damped, counted by exponent, so an octave exactly at the start is damped however the
+        // division rounds. Both factors must be non-negative, which keeps the damping at most 1
+        // and so MaxAbsHeight a bound.
+        public HeightParams WithGullies(float damping, double startWavelength, float wetFloorDamping)
+        {
+            if (!(damping >= 0.0f) || float.IsInfinity(damping))
+                throw new ArgumentOutOfRangeException(nameof(damping),
+                    "HeightParams: gully damping must be finite and non-negative.");
+            if (!(startWavelength > 0.0) || double.IsInfinity(startWavelength))
+                throw new ArgumentOutOfRangeException(nameof(startWavelength),
+                    "HeightParams: the gully start must be a finite, positive wavelength.");
+            if (!(wetFloorDamping >= 0.0f) || float.IsInfinity(wetFloorDamping))
+                throw new ArgumentOutOfRangeException(nameof(wetFloorDamping),
+                    "HeightParams: wet floor damping must be finite and non-negative.");
+
+            var p = this;
+            p.GullyDamping     = damping;
+            p.WetFloorDamping  = damping > 0f ? wetFloorDamping : 0f;
+            p.GullyStartOctave = LongerThan(startWavelength);
+            return p;
+        }
+
+        // The number of octaves strictly longer than the wavelength: BandEnd counts those at least
+        // as long, so where the ratio is an exact power of two the octave at the edge is dropped.
+        // Read off the exponent and mantissa, never a log, for K0's reason.
+        int LongerThan(double edge)
+        {
+            double ratio = OctaveWavelength0 / edge;
+            if (!(ratio > 1.0)) return 0;
+            bool exact = (math.asulong(ratio) & 0x000FFFFFFFFFFFFFul) == 0ul;
+            return math.clamp(FloorLog2(ratio) + (exact ? 0 : 1), 0, OctaveCount);
+        }
+
+        // Whether the gully term changes anything.
+        public bool HasGullies => GullyDamping > 0f;
+
+        // A vector along the surface normal at a base-surface point, for the gully term's tangent
+        // projection: not unit, which the projection does not need. A function of the point alone,
+        // so it agrees wherever positions do.
+        public double3 SurfaceUp(in double3 surfacePos) => Topology switch
+        {
+            SurfaceType.CubeSphere => surfacePos,
+            SurfaceType.Cylinder   => new double3(surfacePos.x, surfacePos.y, 0.0),
+            _                      => new double3(0.0, 1.0, 0.0),
+        };
+
         // The amplitude of octave k relative to octave 0, as the sum applies it. For the tests
         // and the roughness figures; the sum itself multiplies as it goes. The fall-off only:
         // neither the band gains nor the continental band's gain are in it.
@@ -201,6 +258,7 @@ namespace Sonoma.Core.Generation
                 Seed              = seed,
                 FinePersistence   = persistence,
                 CrossoverOctave   = octaveCount,
+                Topology          = s.Type,
             };
         }
 
