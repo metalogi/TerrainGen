@@ -48,6 +48,31 @@ namespace Sonoma.Tests
             }
         }
 
+        // ocean-a, A3: each stress scene's sea level is its erosion's base level, one number in two
+        // homes, so a retune of one fails here before TerrainRoot refuses the scene. SampleScene
+        // has no ocean and no erosion. The ocean stays off until the scenes have its material.
+        [Test]
+        public void SeaLevelIsTheErosionBaseLevel()
+        {
+            var assets = new System.Collections.Generic.List<string> { "Assets/Settings/EarthTerrainSettings.asset" };
+            foreach (var sc in All) assets.Add(sc.Asset);
+
+            foreach (string path in assets)
+            {
+                var s = AssetDatabase.LoadAssetAtPath<TerrainSettings>(path);
+                Assert.IsNotNull(s, $"{path} is missing or is not a TerrainSettings");
+                Assert.IsNotNull(s.Macro != null ? s.Macro.Erosion : null, $"{path}: every stress scene erodes");
+                Assert.AreEqual((double)s.Macro.Erosion.BaseLevel, s.SeaLevel, $"{path}: SeaLevel against BaseLevel");
+                Assert.AreEqual(0f, s.OceanTerrainOverlap, $"{path}: OceanTerrainOverlap");
+            }
+            Assert.AreEqual(68.0, AssetDatabase.LoadAssetAtPath<TerrainSettings>(
+                "Assets/Settings/TerrariumTerrainSettings.asset").SeaLevel, "the terrarium's sea");
+
+            var sample = AssetDatabase.LoadAssetAtPath<TerrainSettings>("Assets/Settings/TerrainSettings.asset");
+            Assert.IsFalse(sample.Ocean, "SampleScene has no ocean");
+            Assert.AreEqual(0.0, sample.SeaLevel, "SampleScene's sea level");
+        }
+
         // Each scene runs its own asset, on the surface the constants describe.
         [Test]
         public void ScenesRunTheirAssets()

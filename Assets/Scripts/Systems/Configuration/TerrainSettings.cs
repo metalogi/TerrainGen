@@ -171,5 +171,20 @@ namespace Sonoma.Systems.Configuration
         [Tooltip("Altitude over which the haze thins by a factor of e, in metres.")]
         [Min(1f)]
         public float HazeScaleHeight = 3000f;
+
+        [Header("Ocean")]
+        [Tooltip("A flat sea at SeaLevel, drawn on the terrain's own chunks and morphed with them " +
+                 "(Docs/Ocean_A_Plan.md). Needs TerrainRoot's OceanMaterial. Off draws the terrain " +
+                 "alone, bit for bit as before the ocean existed.")]
+        public bool Ocean = false;
+        [Tooltip("Metres above the base surface, along its normal: the height of the sea, and so of " +
+                 "the coastline. A property of the world whether or not Ocean is on: with erosion it " +
+                 "must equal the erosion's BaseLevel, whose outlets are the sea.")]
+        public double SeaLevel = 0.0;
+        [Tooltip("Metres. How far under the sea a whole chunk must lie to draw water alone; a chunk " +
+                 "nearer the surface than this draws its terrain under the water too. 0 for a flat " +
+                 "sea; waves will need at least their amplitude.")]
+        [Min(0f)]
+        public float OceanTerrainOverlap = 0f;
     }
 }
