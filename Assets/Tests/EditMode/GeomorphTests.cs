@@ -140,10 +140,10 @@ namespace Sonoma.Tests
             CheckChildAtFullMorphEqualsParent(continents, "a macro layer with continents and a detail cutoff");
 
             // And with the gully term's slope damping (M5c, E6): octave k's damping depends only on
-            // the octaves before it, so the parent's sum is still a prefix of the child's. Octaves of
-            // 1,024 m and finer are damped, which the parent's band limit, octave 4, includes, and
-            // the damping is strong enough here to move the ground.
-            _params = withBands.WithGullies(50f, 1024.0, 0f);
+            // the octaves before it, so the parent's sum is still a prefix of the child's. Octave 2
+            // and finer are damped, which the parent's band limit, octave 4, includes, and the
+            // damping is strong enough here to move the ground.
+            _params = withBands.WithGullies(50f, withBands.OctaveWavelength0 / 4.0, 0f);
             Assert.AreEqual(2, _params.GullyStartOctave, "the gully start");
             var gullied = Build(new NodeId(0, Depth, 1, 2), macro);
             int damped = 0;
