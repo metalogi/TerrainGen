@@ -577,3 +577,44 @@ measurements, and anything the Editor said that this plan did not.
    kept the prefix), but S1 is taken: it also moves the index copy and the submesh setup off the main
    thread. The throwaway job was deleted after the run. `CLAUDE.md`'s "Set buffer parameters before
    scheduling" becomes "the mesh job sets them" in Step 8.
+3. **Step 0's baselines (2026-10-29), on `ocean-a` at 7baa721: main plus this plan and the
+   `GenerationScheduler.Upload` Profiler marker, one sample per chunk landed.** Editor play mode, Burst
+   on, the Editor in front. A temporary Editor script, `OceanABaselineDriver`, ran every scene from a
+   queue. Nothing could be sent to the Editor during play: a unity-mcp command compiled in play mode
+   ended the session. The script is untracked and goes once Step 1 has recaptured the frames.
+   - **How it measured.** Each scene settled at its start pose: no job in flight, and no upload for
+     90 ticks. It captured a frame, then descended along the local up from the start clearance to 20 m
+     above `TerrainRoot.HeightAt`, exponentially in clearance, over 90 s (60 s in the terrarium). At the
+     bottom it turned to look along the ground 10° down, settled, and captured again. `ProfilerRecorder`s
+     read `GenerationScheduler.Upload` and the three Burst job markers. Worker time is each job marker's
+     total over the chunks meshed. A first pass lost its descent figures because
+     `ProfilerRecorder.Reset` also stops the recorder; it was rerun.
+   - **The descent.**
+
+     | scene | start clearance | chunks landed | fps | upload per chunk | worker per chunk: fine / coarse / mesh |
+     |---|---|---|---|---|---|
+     | `EarthStress` | 998 km | 5,532 (61.5/s) | 81 | 0.128 ms | 1.48 / 0.41 / 0.21 ms |
+     | `SmallPlanetStress` | 249 km | 4,768 (53.0/s) | 85 | 0.122 ms | 1.44 / 0.41 / 0.20 ms |
+     | `RingworldStress` | 97.9 km | 3,016 (33.5/s) | 105 | 0.123 ms | 1.52 / 0.43 / 0.20 ms |
+     | `NarrowRingStress` | 51.6 km | 3,005 (33.4/s) | 106 | 0.124 ms | 1.58 / 0.45 / 0.20 ms |
+     | `TerrariumStress` | 836 m | 512 (8.5/s) | 122 | 0.120 ms | 1.47 / 0.41 / 0.18 ms |
+
+     A descent's rate is set by how fast it asks for chunks, not by capacity. Capacity shows in the
+     start-up burst: 880–2,240 chunks in 3–7 s, 290–330 chunks a second (361 on Earth in the first pass),
+     at 0.116–0.148 ms of upload per chunk. Upload is about 0.12 ms a chunk everywhere. The job that
+     dominates is the fine height sample, gully derivatives included, at about 1.5 ms of worker time a
+     chunk near the ground. Ocean-a's Coast chunks add up to n vertices to the mesh job, which is about
+     0.2 ms; the measure for Step 7 is upload and mesh time per chunk against these.
+   - **Peak working sets**, from each session's report: Earth 6,750 of 9,400; small planet 6,022 of
+     8,300; ring 4,304 of 5,600; narrow ring 3,812 of 4,900; terrarium 2,752 of 4,400. `SampleScene` has
+     no descent (30 chunks from its start pose). Rebases: 1–4 a session, the slowest 4.09 ms over 6,570
+     chunks on Earth. No relief warning, no error.
+   - **Reference frames.** The frames are 1920 × 1080, rendered offscreen through
+     `RenderPipeline.SubmitRenderRequest` from the active camera, not through `Unity_Camera_Capture`, and
+     written to `Logs/OceanA/ref_<scene>_start.png` and `_bottom.png` (gitignored). Every scene has both
+     except `SampleScene`, which has only a start frame. The start frames are byte-identical between the
+     two passes for Earth, the small planet and the ring; `SampleScene`'s and the others' were taken once.
+     So Step 1's same-pixels check compares the start frames, with the driver rerun as it is. The bottom
+     frames are
+     not reproducible. The timed descent ends a few centimetres differently each run (the ring's bottom
+     differed between passes), so they are for the eye only.
