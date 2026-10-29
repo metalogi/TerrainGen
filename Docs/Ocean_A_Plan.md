@@ -565,3 +565,15 @@ measurements, and anything the Editor said that this plan did not.
 1. **A1–A6 answered (2026-10-29): all as recommended.** Kinds come from each chunk's drawn range;
    Ocean chunks are water alone; `SeaLevel` is held equal to erosion's `BaseLevel`; two includes; depth
    colour in `ocean-a`; the narrow ring has an ocean and Q7 waits.
+2. **Step 0's spike (2026-10-29): S1 works, under Burst, so the job sizes its own buffers.** A
+   `[BurstCompile(CompileSynchronously = true)]` `IJob` in the test assembly, with the
+   `BurstWitnessJob` sentinel reporting it compiled, called `Mesh.MeshData.SetVertexBufferParams`
+   with a `[ReadOnly] NativeArray<VertexAttributeDescriptor>` of `ChunkMeshBuffers.VertexAttributes()`,
+   `SetIndexBufferParams(…, UInt16)`, wrote `TerrainVertex`es and a doubled R = 33 index buffer, set
+   `subMeshCount` 2 and both submeshes, and `ApplyAndDisposeWritableMeshData` on the main thread
+   produced a mesh of 2,442 vertices and two submeshes, the second starting at index 6,912 with its
+   first index offset by 1,221, the last vertex's values intact. No safety-system error, no Burst
+   diagnostic, console clean. S2 also works (shrinking a `MeshData`'s vertex params on the main thread
+   kept the prefix), but S1 is taken: it also moves the index copy and the submesh setup off the main
+   thread. The throwaway job was deleted after the run. `CLAUDE.md`'s "Set buffer parameters before
+   scheduling" becomes "the mesh job sets them" in Step 8.
