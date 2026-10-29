@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Sonoma.Core.CoordinateSpace;
@@ -83,6 +84,10 @@ namespace Sonoma.Core.Quadtree
         readonly Dictionary<NodeId, Pending>  _inFlight = new Dictionary<NodeId, Pending>();
         readonly List<NodeId>                 _finished = new List<NodeId>();
         readonly Stopwatch                    _clock    = new Stopwatch();
+
+        // One sample per chunk landed, so the Profiler (and a ProfilerRecorder) gives the main
+        // thread's cost per upload directly, against the UploadBudgetMs it is bounded by.
+        static readonly ProfilerMarker s_Upload = new ProfilerMarker("GenerationScheduler.Upload");
 
         // What the mesh job measured, handed on with the chunk. The selector needs the
         // height bounds for its bounding sphere and would otherwise have to walk the mesh
@@ -295,6 +300,7 @@ namespace Sonoma.Core.Quadtree
 
         void Upload(Pending p)
         {
+            using var marker = s_Upload.Auto();
             int R = _resolution;
             var data = p.MeshData[0];
 
