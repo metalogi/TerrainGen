@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -18,10 +17,7 @@ namespace Sonoma.Tests
     {
         static string ForwardLitPass()
         {
-            string path = Path.Combine(Application.dataPath, "Shaders", "SonomaTerrainTriplanar.shader");
-            Assert.IsTrue(File.Exists(path), $"shader not found at {path}");
-
-            string source = File.ReadAllText(path);
+            string source = ShaderSource.Load("SonomaTerrainTriplanar.shader");
             int start = source.IndexOf("Name \"ForwardLit\"", StringComparison.Ordinal);
             Assert.Greater(start, 0, "the ForwardLit pass is missing from the shader");
             int end = source.IndexOf("ENDHLSL", start, StringComparison.Ordinal);

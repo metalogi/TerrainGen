@@ -618,3 +618,14 @@ measurements, and anything the Editor said that this plan did not.
      frames are
      not reproducible. The timed descent ends a few centimetres differently each run (the ring's bottom
      differed between passes), so they are for the eye only.
+4. **Step 1 (2026-10-29): the includes moved nothing rendered.** `SonomaCommon.hlsl` and
+   `SonomaSky.hlsl` hold the code A4 names, comments verbatim; `SonomaApplyHaze` takes the two lines
+   `Frag` composed the haze with, and their comment. `_SonomaBiomeColors` stays in the terrain shader.
+   - **Same pixels.** All six scenes' start frames, recaptured by the step 0 driver after the move,
+     are byte-identical to step 0's: `SampleScene` and all five stress scenes.
+   - **Same variants.** `ShaderUtil.GetPassKeywords` reports the keywords the unchanged pragmas
+     declare, pass by pass, so the variant count is unchanged. The shader compiles with no messages.
+   - **Same tests.** `ShaderSource.Load` splices the `Sonoma*.hlsl` includes, and the four reads use
+     it. `ShaderMorphsInEveryPass` found `SonomaMorphFactor`'s end by eight spaces of indentation,
+     which the include's top-level function does not have; it now matches braces. All 228 EditMode
+     tests pass in the Editor, with the eleven `[Explicit]` tools skipped.
