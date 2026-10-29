@@ -43,8 +43,12 @@ namespace Sonoma.Core.Generation
             // GullyDamping 0 every scene keeps the bits it had. Its damping is raised on wet ground,
             // read from the macro layer's wetness -- a macro value, which agrees across every
             // root-quad edge, never a macro derivative, which does not.
+            //
+            // A band limit short of the first damped octave damps nothing, and the gully sum is then
+            // the general sum to the bit, so it takes the general path and skips the derivatives: at
+            // the coarse depths and in erosion's T, which never reach the damped octaves.
             double fbm;
-            if (p.HasGullies)
+            if (p.HasGullies && maxOctave >= p.GullyStartOctave)
                 fbm = LatticeNoise.Fbm(n, maxOctave + 1, p.Persistence, p.Lacunarity, p.Seed,
                                        macro.BandGain, p.LowBandEnd, p.MidBandEnd,
                                        p.FinePersistence, p.CrossoverOctave,
@@ -89,15 +93,29 @@ namespace Sonoma.Core.Generation
             where T : struct, IMacroTexels
         {
             var sample = MacroSample.Zero;
+            int octave = p.MaxOctave(maxDepth);
             if (macro.Enabled)
             {
                 SurfaceMath.Locate(s, surfacePoint, out int quad, out double u, out double v);
-                int level = macro.Layout.MacroLevel(maxDepth);
-                sample = Biomes.Modulate(MacroSampler.Read(texels, macro, quad, level, u, v), macro, out _);
-                if (p.WetFloorDamping > 0f)
-                    sample.Wetness = MacroSampler.ReadWetness(texels, macro, quad, level, u, v);
+                sample = Macro(texels, macro, p, quad, macro.Layout.MacroLevel(maxDepth), u, v, octave, out _);
             }
-            return Height(surfacePoint, p.MaxOctave(maxDepth), sample, p);
+            return Height(surfacePoint, octave, sample, p);
+        }
+
+        // The macro sample Height takes at (quad, u, v) on this level: the bicubic read, the biomes'
+        // band gains (Biomes.Modulate, whose weights come back for the splat), and the wetness the
+        // gully term's wet-floor damping reads -- only when that damping is on and maxOctave reaches
+        // the damped octaves, since otherwise nothing reads it. The one route for both sample jobs,
+        // HeightAtPoint and the tests' copies, so none can leave the wetness out or read it at
+        // another level than the rest of the sample.
+        public static MacroSample Macro<T>(T texels, in MacroParams macro, in HeightParams p, int quad, int level,
+                                           double u, double v, int maxOctave, out float4 weights)
+            where T : struct, IMacroTexels
+        {
+            var sample = Biomes.Modulate(MacroSampler.Read(texels, macro, quad, level, u, v), macro, out weights);
+            if (p.WetFloorDamping > 0f && maxOctave >= p.GullyStartOctave)
+                sample.Wetness = MacroSampler.ReadWetness(texels, macro, quad, level, u, v);
+            return sample;
         }
 
         // A bound on |Height| anywhere on the surface, at any depth: every octave at the largest

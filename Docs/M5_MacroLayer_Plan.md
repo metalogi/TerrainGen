@@ -1688,9 +1688,20 @@ Branch `m5c-gullies`, G1 only: D2 waits on the user's judgement of G1 in play.
    small planet 0.616, ring 0.382, narrow ring 0.497, all lower than before. The terrarium rose,
    1.0196 to 1.0277, and its pin went from 1.5295 to 1.5416; it still clears its allowance by 1.26×
    against the 1.25 asked. The eroded skirt shares: Earth 0.590, small planet 0.625, ring 0.774,
-   narrow ring 0.790, terrarium 0.614, all within their `SkirtFraction`s. The measurements sample
-   wetness at 0, so the wet-floor damping is left out, which is the rougher side. Working sets do
-   not move, since the envelopes do not.
+   narrow ring 0.790, terrarium 0.614, all within their `SkirtFraction`s. Working sets do not move,
+   since the envelopes do not.
+7. **From the PR's review (2026-10-28).** The tests' copy of the height job left the wetness out, so
+   the measurements above ran without the wet-floor damping. `TerrainHeightFunction.Macro` is now
+   the one macro read for both jobs, `HeightAtPoint` and the tests' `SceneHeights`, which carries the
+   eroded drainage maps. Re-measured with it (20 min): combined half-relief Earth 0.5998, small planet
+   0.6148, ring 0.3815, narrow ring 0.4966, terrarium 1.0251 (under its 1.5416 pin, kept); skirt
+   shares unchanged but the terrarium's, 0.614 to 0.580. Also: `Height` takes the general path where
+   the band limit stops short of the damped octaves (the same bits, no derivatives);
+   `WithGullies` refuses parameters not made by `Create`; `GullyStartWavelength` has a minimum of
+   1 m; `GullyTests.WetFloorDampingReadsTheWetness` tests the coupling over real eroded maps and
+   `GeomorphTests` runs the invariant over eroded maps with it on; `CloseUpRoughnessMeetsItsTarget`
+   also checks the 10 m features after damping at each scene's median belt slope (35 to 74 cm, all
+   over 20 cm). Editor suite: 228 pass, 11 measuring tools skip.
 6. **Tests.** `LatticeNoiseTests.AnalyticDerivativeMatchesTheNoise`; `GullyTests` (off is the
    identity to the bit, the start by exponent, the damping against central differences of the
    tangent slope on a sphere, a cylinder and a plane, the bound kept and the fine band lowered,

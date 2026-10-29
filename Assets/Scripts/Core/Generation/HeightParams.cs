@@ -119,6 +119,11 @@ namespace Sonoma.Core.Generation
         // and so MaxAbsHeight a bound.
         public HeightParams WithGullies(float damping, double startWavelength, float wetFloorDamping)
         {
+            // Topology, which says which way is up, is set only by Create; a default PlaneGrid would
+            // quietly take a sphere's slope against +Y.
+            if (!(S0 > 0.0))
+                throw new InvalidOperationException(
+                    "HeightParams: the gully term needs parameters made by Create, which records the surface's topology.");
             if (!(damping >= 0.0f) || float.IsInfinity(damping))
                 throw new ArgumentOutOfRangeException(nameof(damping),
                     "HeightParams: gully damping must be finite and non-negative.");

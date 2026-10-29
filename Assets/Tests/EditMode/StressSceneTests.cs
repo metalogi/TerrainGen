@@ -60,6 +60,10 @@ namespace Sonoma.Tests
             public float      GullyDamping;
             public double     GullyStartWavelength;
             public float      WetFloorDamping;
+            // The mountain belts's median slope before the first damped octave (mid band at 3.3), from
+            // 1,500 points of the undamped spectrum (2026-10-28): what CloseUpRoughnessMeetsItsTarget
+            // damps the 10 m features by.
+            public double     BeltSlope;
 
             // C = halfRelief / (nodeSize x HeightScale / S0) for the roughest node at MaxDepth --
             // an ESTIMATE, as in EarthScaleTests, and the runtime's end-of-session report of the
@@ -122,7 +126,7 @@ namespace Sonoma.Tests
             MaxDepth = 17, OctaveCount = 22, Budget = 8300, HeightScale = 10000f, SkirtFraction = 1f,
             SplitFactor = 4f, MorphStart = 0.12f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.53f, TenMetreFeature = 1.332, TenMetreOnOneSlope = 0.0382,
-            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f,
+            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f, BeltSlope = 0.316,
             ReliefFactor = 340.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
             WorstQuad = 0, WorstU = 0.0, WorstV = 0.0, Worst = 7302,
         };
@@ -153,7 +157,7 @@ namespace Sonoma.Tests
             MaxDepth = 16, OctaveCount = 21, Budget = 5600, HeightScale = 10000f, SkirtFraction = 1.2f,
             MorphStart = 0.14f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 1.126, TenMetreOnOneSlope = 0.0763,
-            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f,
+            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f, BeltSlope = 0.335,
             ReliefFactor = 171.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
             WorstQuad = 0, WorstU = 21.0 / 512.0, WorstV = 245.0 / 512.0, Worst = 4980,
         };
@@ -180,7 +184,7 @@ namespace Sonoma.Tests
             Surface = SurfaceDef.Cylinder(10000.0, 30000.0, 8, 4),
             MaxDepth = 9, OctaveCount = 14, Budget = 4400, HeightScale = 1000f, SkirtFraction = 1f,
             RoughnessCrossover = 100.0, FinePersistence = 0.55f, TenMetreFeature = 1.430, TenMetreOnOneSlope = 0.9766,
-            GullyDamping = 8f, GullyStartWavelength = 100.0, WetFloorDamping = 2f,
+            GullyDamping = 8f, GullyStartWavelength = 100.0, WetFloorDamping = 2f, BeltSlope = 0.53,
             ReliefFactor = 9.0,
             // Eroded (E5, 2026-10-25): the measured envelope is 2.3 km against the analytic 2.6, so the
             // anchor moves less and the world shrinks less. Re-scanned as before, rim and interior
@@ -228,7 +232,7 @@ namespace Sonoma.Tests
             MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4000f, SkirtFraction = 1.2f,
             MorphStart = 0.13f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 0.657, TenMetreOnOneSlope = 0.1221,
-            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f,
+            GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f, BeltSlope = 0.33,
             ReliefFactor = 73.0, ReliefMeasuredAt = new float3(1f, 3f, 1f),
             WorstQuad = 0, WorstU = 37.0 / 512.0, WorstV = 267.0 / 512.0, Worst = 4320,
         };
@@ -397,6 +401,23 @@ namespace Sonoma.Tests
                 Assert.GreaterOrEqual(now, target, $"{at}: features {now * 100:F1} cm, short of the target");
                 Assert.AreEqual(feature, now, 0.0005, $"{at}: the roughness has moved from its pinned figure");
                 Assert.AreEqual(flat, one, 0.0005, $"{at}: on one slope of 0.5");
+
+                // And after the gully term's damping (M5c, E6) on a mountainside: at the belts' median
+                // slope the 10 m features keep 1 / (1 + GullyDamping slope^2) of their amplitude,
+                // which must still reach the target, so a damping strong enough to flatten the
+                // slopes fails here.
+                float  damping = EarthScaleTests.GullyDamping;
+                double slope   = EarthScaleTests.BeltSlope;
+                if (name != "EarthStress")
+                {
+                    var sc = System.Array.Find(All, x => x.Name == name);
+                    damping = sc.GullyDamping;
+                    slope   = sc.BeltSlope;
+                }
+                Assert.IsTrue(rough.HasGullies && k >= rough.GullyStartOctave, $"{at}: the 10 m features are not damped");
+                double damped = now / (1.0 + damping * slope * slope);
+                TestContext.WriteLine($"{at}: {now * 100:F1} cm, {damped * 100:F1} cm on the belts' median slope {slope:F3}");
+                Assert.GreaterOrEqual(damped, target, $"{at}: damped to {damped * 100:F1} cm on the belts' slopes, short of the target");
             }
         }
 
@@ -469,14 +490,15 @@ namespace Sonoma.Tests
             // Heights over maps already built whole with these macro parameters: the Editor's Burst
             // build of an eroded scene (MacroMapsTests.SkirtsCoverTheErodedTransientGap), seconds where
             // the managed build takes a minute under the Editor's Mono.
-            public SceneHeights(string scene, in SurfaceDef s, in HeightParams rough, float4[] built, in MacroParams macro)
+            public SceneHeights(string scene, in SurfaceDef s, in HeightParams rough, float4[] built, float2[] drainage,
+                                in MacroParams macro)
             {
                 var m = MacroTests.For(scene);
                 _s      = s;
                 _roots  = SurfaceMath.BuildRoots(s);
                 _hp     = MacroTests.SceneParams(m, rough);
                 _mp     = macro;
-                _texels = new LazyTexels(built);
+                _texels = new LazyTexels(built, drainage);
             }
 
             // eroded reads the scene's eroded maps (MacroTests.ErodedBuild), built whole once, seconds a
@@ -493,7 +515,7 @@ namespace Sonoma.Tests
                 {
                     var built = MacroTests.ErodedBuild(m);
                     _mp     = built.Macro;
-                    _texels = new LazyTexels(built.Texels);
+                    _texels = new LazyTexels(built.Texels, built.Drainage);
                     return;
                 }
                 if (smooth)
@@ -520,10 +542,11 @@ namespace Sonoma.Tests
             {
                 ChunkGrid.VertexUV(n, i, j, Resolution, out double u, out double v);
                 SurfaceMath.SurfaceFrame(_s, _roots[n.Quad], u, v, out double3 p, out float3 normal);
-                var macro = Biomes.Modulate(
-                    MacroSampler.Read(new TexelReader(_texels), _mp, n.Quad, _mp.Layout.MacroLevel(band), u, v),
-                    _mp, out _);
-                height = TerrainHeightFunction.Height(p, _hp.MaxOctave(band), macro, _hp);
+                // Through the helper the jobs call, wetness included.
+                int oct   = _hp.MaxOctave(band);
+                var macro = TerrainHeightFunction.Macro(new TexelReader(_texels), _mp, _hp, n.Quad,
+                                                        _mp.Layout.MacroLevel(band), u, v, oct, out _);
+                height = TerrainHeightFunction.Height(p, oct, macro, _hp);
                 return p + (double3)(normal * height);
             }
 
@@ -571,9 +594,13 @@ namespace Sonoma.Tests
                 _s = s; _roots = roots; _p = p; _continent = continent;
             }
 
-            // Maps already built whole, eroded ones: every texel is read from them.
+            // Maps already built whole, eroded ones: every texel is read from them, and the drainage maps
+            // too, for the gully terms wet-floor damping.
             readonly float4[] _built;
-            public LazyTexels(float4[] built) { _built = built; }
+            readonly float2[] _drainage;
+            public LazyTexels(float4[] built, float2[] drainage) { _built = built; _drainage = drainage; }
+
+            public float2 Drainage(int index) => _drainage != null ? _drainage[index] : default;
 
             // What MacroGenerator.Build stores there: the texel, or the one it is a copy of.
             public float4 Texel(int index)
@@ -594,9 +621,9 @@ namespace Sonoma.Tests
             readonly LazyTexels _t;
             public TexelReader(LazyTexels t) { _t = t; }
             public float4 Texel(int index) => _t.Texel(index);
-            // Heights never read the drainage maps (MacroSampler.Read leaves Wetness alone), so nothing
-            // reads this; an eroded scene's texels come built whole, D already in the base height.
-            public float2 Drainage(int index) => default;
+            // The drainage maps of an eroded scene built whole, for the gully term's wet-floor damping;
+            // lazily made maps have no erosion, and nothing reads them.
+            public float2 Drainage(int index) => _t.Drainage(index);
         }
 
         // edgesPerDepth transient edges for each depth from minDepth to maxDepth and each depth
