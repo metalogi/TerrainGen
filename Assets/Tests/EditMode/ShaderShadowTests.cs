@@ -4,20 +4,27 @@ using UnityEngine;
 
 namespace Sonoma.Tests
 {
-    // How the terrain shader receives main-light shadows.
+    // How the terrain shader, and from ocean-a the ocean's, receive main-light shadows.
     //
     // A source-text guard, like GeomorphTests.ShaderMorphsInEveryPass, and for the same
     // reason: every failure guarded here is silent. A keyword the pipeline enables but the
     // shader never declares does not warn -- the shader just gets the variant with that
     // keyword off. A shadow coordinate interpolated when it must not be does not warn
     // either; it renders, and it renders wrong only in a ring a triangle or two wide.
+    // The sea receives the terrain's shadows, so a ring on the water beside none on the shore
+    // would be the same failure; every test runs over both shaders.
     //
     // Editor-only: it needs Application.dataPath to find the shader.
+    [TestFixture("SonomaTerrainTriplanar.shader")]
+    [TestFixture("SonomaOcean.shader")]
     public class ShaderShadowTests
     {
-        static string ForwardLitPass()
+        readonly string _shader;
+        public ShaderShadowTests(string shader) { _shader = shader; }
+
+        string ForwardLitPass()
         {
-            string source = ShaderSource.Load("SonomaTerrainTriplanar.shader");
+            string source = ShaderSource.Load(_shader);
             int start = source.IndexOf("Name \"ForwardLit\"", StringComparison.Ordinal);
             Assert.Greater(start, 0, "the ForwardLit pass is missing from the shader");
             int end = source.IndexOf("ENDHLSL", start, StringComparison.Ordinal);

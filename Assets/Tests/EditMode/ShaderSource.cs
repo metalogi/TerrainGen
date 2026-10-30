@@ -18,11 +18,24 @@ namespace Sonoma.Tests
         static readonly Regex Include =
             new Regex(@"^[ \t]*#include\s+""(Sonoma[^""]*\.hlsl)""[^\n]*$", RegexOptions.Multiline);
 
-        public static string Load(string name)
+        public static string Load(string name) => Splice(PathOf(name), new HashSet<string>());
+
+        // The file alone, unspliced: for what a shader must not define itself because an include does.
+        public static string Raw(string name) => File.ReadAllText(PathOf(name));
+
+        // The shaders drawn on the terrain's nodes, and the passes each has (ocean-a): the ocean has
+        // no ShadowCaster (C5).
+        public static readonly (string Shader, string[] Passes)[] NodeShaders =
+        {
+            ("SonomaTerrainTriplanar.shader", new[] { "ForwardLit", "ShadowCaster", "DepthOnly", "DepthNormals" }),
+            ("SonomaOcean.shader",            new[] { "ForwardLit", "DepthOnly", "DepthNormals" }),
+        };
+
+        static string PathOf(string name)
         {
             string path = Path.Combine(Application.dataPath, "Shaders", name);
             Assert.IsTrue(File.Exists(path), $"shader not found at {path}");
-            return Splice(path, new HashSet<string>());
+            return path;
         }
 
         static string Splice(string path, HashSet<string> seen)
