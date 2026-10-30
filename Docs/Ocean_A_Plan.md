@@ -665,3 +665,41 @@ measurements, and anything the Editor said that this plan did not.
    - `OceanIndexLayout` checks the winding on every grid triangle of both halves, not only the first.
    - 236 EditMode tests pass in the Editor, with the eleven `[Explicit]` tools skipped; the seven in
      `OceanLayoutTests` take about a second.
+7. **Step 4 (2026-10-29): the mesh job decides the kind and sizes its own buffers (S1).** `ChunkMeshJob`
+   takes one pass over the fine heights and the morph targets for `[0, 1]` and `[3, 4]`, classifies,
+   then sets the vertex and index buffer parameters, copies the single or doubled shared index buffer
+   and sets one or two submeshes, all inside the job. The terrain writes are the old loop moved into
+   `WriteTerrain` unchanged; the skirt loop is shared by both grids (`WriteSkirts`, offset by the grid's
+   base). `GenerationScheduler` no longer sets buffer parameters, copies indices or sets the submesh;
+   `Upload` reads the kind from `HeightBounds[5]` and calls `TerrainChunk.SetKind` with the pool's
+   cached `Material[]`. `Result` carries `Kind`; storing it in `LodSelector.NodeState` waits for Step 6,
+   where the reports use it.
+   - **The doubled buffer is built only with an ocean.** Without one the scheduler passes the single
+     buffer as both, since at R above 179 the doubled one cannot be built and nothing reads it. The
+     vertex attribute array is a persistent scheduler field, freed in `Dispose`; it is not `readonly`,
+     because `Dispose` on a `readonly` struct field frees a copy and a second `Dispose` (which
+     `MacroMapsOutliveTheJobs` makes) would free it again.
+   - **`ChunkPool` takes the ocean material as an optional fourth argument;** its index format and
+     cached arrays follow from whether it has one. `TerrainRoot` passes it only when the ocean is on.
+   - **The tests share one job driver.** `ChunkJobRunner.Build` runs the three real jobs and reads back
+     vertices, indices, submeshes, both bounds arrays and the sample jobs' own outputs. `GeomorphTests`
+     uses it in place of its private copy.
+   - **`JobDecidesTheKindFromWhatItDraws` sweeps rather than picks.** On Earth's eroded maps, built by
+     Burst, it runs 216 depth-7 nodes (a 6 × 6 grid on every face), takes each drawn range from the sample
+     jobs' heights, classifies it independently and holds the job's range, kind, counts, submeshes and
+     grid placement to it. It found 46 Land, 31 Coast and 139 Ocean chunks and requires at least one of
+     each, so a retune of the continents cannot leave it testing one kind. The plan asked for three nodes
+     found from the continent map; the final terrain's coast is not the map's (96% agreement), so the
+     sweep reads the terrain as built.
+   - **The water geomorph runs on forced Coast chunks.** `ChildAtFullMorphEqualsParent` gains a run over
+     the four-level macro layer with a sea whose overlap and waves are far past the relief, so the parent
+     and all four children are Coast. Each child water vertex's morph target is the parent's water vertex
+     (0 m apart on the plane tile), its morph normal is the parent's to the bit, and every surviving water
+     triangle is one in the parent's own index buffer, 32 a child.
+   - **`SeaSurfaceIsTheBaseSurfaceOffset`** holds positions to 4e-7 of their anchor-relative magnitude,
+     plus a millimetre; the worst was 0.13 of that. Normals are held to 1e-6, not to the bit, because
+     Burst's trigonometry is not managed code's in the last bit.
+   - **`OceanOffBuildsTodaysMesh`** compares the job with no ocean to the terrain half of a Coast chunk of
+     the same node on a cube sphere, bit for bit, plus the single submesh and the shared single buffer.
+   - 240 EditMode tests pass in the Editor, with the eleven `[Explicit]` tools skipped. No play session
+     has run this step's scheduler path; the selector tests drive it through real uploads.

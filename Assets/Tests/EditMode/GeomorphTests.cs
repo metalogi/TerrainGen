@@ -1,9 +1,5 @@
 using NUnit.Framework;
-using Unity.Collections;
-using Unity.Jobs;
 using Unity.Mathematics;
-using UnityEngine;
-using UnityEngine.Rendering;
 using Sonoma.Core.Generation;
 using Sonoma.Core.Surface;
 
@@ -112,6 +108,16 @@ namespace Sonoma.Tests
 
             CheckChildAtFullMorphEqualsParent(macro, "a four-level macro layer with biomes");
 
+            // And the water of Coast chunks (ocean-a, the parent plan's test 8): every water morph
+            // target is the parent's water vertex, and the surviving water triangles are the
+            // parent's. An overlap and waves far past the relief make every chunk Coast, so parent
+            // and children all draw both grids.
+            var everywhere = new OceanParams
+            {
+                Enabled = true, SeaLevel = 37.5, SeaLevelFloat = 37.5f, TerrainOverlap = 1e6f, WaveAmplitude = 1e6f,
+            };
+            CheckChildAtFullMorphEqualsParent(macro, "a four-level macro layer with biomes, and a sea", everywhere);
+
             // And with continents and their detail cutoff (Docs/Continents_Plan.md, Task 5): the
             // continent height is in every level both jobs read, and both drop the same octaves. The
             // cutoff, 1,024 m, drops octaves 0-2, which the parent's band limit, octave 4, includes,
@@ -181,7 +187,7 @@ namespace Sonoma.Tests
             _params = withBands;
         }
 
-        void CheckChildAtFullMorphEqualsParent(MacroMaps macro, string label)
+        void CheckChildAtFullMorphEqualsParent(MacroMaps macro, string label, OceanParams ocean = default)
         {
             int R    = Resolution;
             int half = (R - 1) / 2;
@@ -189,13 +195,19 @@ namespace Sonoma.Tests
             // Off-centre on purpose, so a bug that only works for quadrant 0 or for a node at
             // the origin has somewhere to show.
             var parentNode = new NodeId(0, Depth, 1, 2);
-            var parent     = Build(parentNode, macro);
+            var parent     = Build(parentNode, macro, ocean: ocean);
+            if (ocean.Enabled) Assert.AreEqual(ChunkKind.Coast, parent.Kind, $"{label}: the parent");
 
             for (int q = 0; q < 4; q++)
             {
                 var childNode = parentNode.Child(q);
-                var child     = Build(childNode, macro);
+                var child     = Build(childNode, macro, ocean: ocean);
                 int qu = q & 1, qv = (q >> 1) & 1;
+                if (ocean.Enabled)
+                {
+                    Assert.AreEqual(ChunkKind.Coast, child.Kind, $"{label}: quadrant {q}");
+                    CheckWaterMorphsToTheParent(parent, child, qu, qv, ocean.SeaLevelFloat, $"{label}, quadrant {q}");
+                }
 
                 double worstPosition = 0.0, worstNormal = 0.0;
 
@@ -291,6 +303,47 @@ namespace Sonoma.Tests
                     $"{label}, quadrant {q}: worst position error {worstPosition:E3} m, " +
                     $"worst normal error {worstNormal:E3}, {surviving} surviving cells");
             }
+        }
+
+        // The water half of two Coast chunks, parent and child, at [n, 2n): each child water vertex's
+        // morph target is the parent water vertex it corresponds to, its morph normal is that
+        // vertex's normal to the bit (both are the base normal at the same surface parameter), and
+        // every child water triangle that survives full morph is one of the parent's water
+        // triangles, read from the parent's own index buffer.
+        void CheckWaterMorphsToTheParent(ChunkJobRunner.Built parent, ChunkJobRunner.Built child,
+                                         int qu, int qv, float sea, string label)
+        {
+            int R = Resolution, n = ChunkMeshLayout.VertexCount(R), I = ChunkMeshLayout.IndexCount(R);
+            int ToParent(int v) { int g = v - n; return n + ParentIndex(qv, g / R, R) * R + ParentIndex(qu, g % R, R); }
+
+            for (int j = 0; j < R; j++)
+            for (int i = 0; i < R; i++)
+            {
+                var cv = child.Verts[n + j * R + i];
+                var pv = parent.Verts[ToParent(n + j * R + i)];
+                double dp = math.distance(child.Anchor + (double3)cv.MorphPosition.xyz, parent.Anchor + (double3)pv.Position);
+                Assert.Less(dp, PositionTolerance,
+                    $"{label}, water vertex ({i},{j}): morph target is {dp:E3} m from the parent's water vertex");
+                Assert.AreEqual(pv.Normal, cv.MorphNormalElevation.xyz,
+                    $"{label}, water vertex ({i},{j}): morph normal is not the parent water vertex's");
+                Assert.AreEqual(sea, cv.TopoElevation.w, $"{label}, water vertex ({i},{j}): elevation");
+            }
+
+            var parentTriangles = new System.Collections.Generic.HashSet<(int, int, int)>();
+            for (int t = I; t < 2 * I; t += 3)
+                parentTriangles.Add((parent.Indices[t], parent.Indices[t + 1], parent.Indices[t + 2]));
+
+            int surviving = 0, gridIndices = (R - 1) * (R - 1) * 6;
+            for (int t = I; t < I + gridIndices; t += 3)
+            {
+                int a = ToParent(child.Indices[t]), b = ToParent(child.Indices[t + 1]), c = ToParent(child.Indices[t + 2]);
+                if (Degenerate(a, b, c)) continue;
+                Assert.IsTrue(parentTriangles.Contains((a, b, c)),
+                    $"{label}: child water triangle {(t - I) / 3} survives as ({a},{b},{c}), which the parent does not draw");
+                surviving++;
+            }
+            int half = (R - 1) / 2;
+            Assert.AreEqual(2 * half * half, surviving, $"{label}: the surviving water triangles do not tile the parent quadrant");
         }
 
         // Child vertex index -> parent vertex index along one axis, for the even sub-grid.
@@ -491,84 +544,9 @@ namespace Sonoma.Tests
 
         // -- Building a chunk through the real job path ------------------------
 
-        struct Built
-        {
-            public double3         Anchor;
-            public TerrainVertex[] Verts;
-            public float[]         HeightBounds;   // min, max, skirt drop
-            public float3[]        VertexBounds;   // min, max
-        }
-
-        // Through the real jobs, with the macro maps the scheduler would hand them; the jobs pick
-        // each one's level from the node themselves.
-        Built Build(NodeId node, MacroMaps macro, float skirtDepth = 0f, float skirtFraction = 0f, float chordSag = 0f)
-        {
-            var root    = _roots[node.Quad];
-            int R       = _params.Resolution;
-            int samples = ChunkMeshLayout.SampleCount(R);
-            int coarse  = ChunkMeshLayout.CoarseCount(R);
-
-            var basePoints    = new NativeArray<double3>(samples, Allocator.TempJob);
-            var baseNormals   = new NativeArray<float3>(samples,  Allocator.TempJob);
-            var heights       = new NativeArray<float>(samples,   Allocator.TempJob);
-            var coarsePoints  = new NativeArray<double3>(coarse,  Allocator.TempJob);
-            var coarseNormals = new NativeArray<float3>(coarse,   Allocator.TempJob);
-            var coarseHeights = new NativeArray<float>(coarse,    Allocator.TempJob);
-            var splats        = new NativeArray<uint>(samples,    Allocator.TempJob);
-            var coarseSplats  = new NativeArray<uint>(coarse,     Allocator.TempJob);
-            var heightBounds  = new NativeArray<float>(3,         Allocator.TempJob);
-            var vertexBounds  = new NativeArray<float3>(2,        Allocator.TempJob);
-
-            var meshData = Mesh.AllocateWritableMeshData(1);
-            var data     = meshData[0];
-            var attrs    = new NativeArray<VertexAttributeDescriptor>(
-                               ChunkMeshBuffers.VertexAttributes(), Allocator.Temp);
-            data.SetVertexBufferParams(ChunkMeshLayout.VertexCount(R), attrs);
-            attrs.Dispose();
-            data.SetIndexBufferParams(ChunkMeshLayout.IndexCount(R), IndexFormat.UInt16);
-            data.subMeshCount = 1;
-
-            double3 anchor = SurfaceMath.SurfacePoint(_surface, root,
-                                 0.5 * (node.UMin + node.UMax), 0.5 * (node.VMin + node.VMax));
-
-            new HeightSampleJob
-            {
-                Surface = _surface, Root = root, Node = node, Params = _params,
-                MaxOctave = _params.MaxOctave(node.Depth), Resolution = R,
-                Macro = macro.Params, MacroTexels = macro.Texels, MacroDrainage = macro.Drainage,
-                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
-            }.Schedule(samples, 64).Complete();
-
-            new CoarseHeightSampleJob
-            {
-                Surface = _surface, Root = root, Node = node, Params = _params,
-                MaxOctave = _params.MaxOctave(node.Depth - 1), Resolution = R,
-                Macro = macro.Params, MacroTexels = macro.Texels, MacroDrainage = macro.Drainage,
-                BasePoints = coarsePoints, BaseNormals = coarseNormals, Heights = coarseHeights,
-                Splats = coarseSplats,
-            }.Schedule(coarse, 64).Complete();
-
-            new ChunkMeshJob
-            {
-                Resolution = R, Anchor = anchor, Depth = node.Depth,
-                SkirtDepth = skirtDepth, SkirtFraction = skirtFraction, ChordSag = chordSag,
-                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
-                CoarseBasePoints = coarsePoints, CoarseBaseNormals = coarseNormals,
-                CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
-                Mesh = data, HeightBounds = heightBounds, VertexBounds = vertexBounds,
-            }.Schedule().Complete();
-
-            var verts   = data.GetVertexData<TerrainVertex>().ToArray();
-            var hBounds = heightBounds.ToArray();
-            var vBounds = vertexBounds.ToArray();
-
-            meshData.Dispose();
-            basePoints.Dispose(); baseNormals.Dispose(); heights.Dispose();
-            coarsePoints.Dispose(); coarseNormals.Dispose(); coarseHeights.Dispose();
-            splats.Dispose(); coarseSplats.Dispose();
-            heightBounds.Dispose(); vertexBounds.Dispose();
-
-            return new Built { Anchor = anchor, Verts = verts, HeightBounds = hBounds, VertexBounds = vBounds };
-        }
+        ChunkJobRunner.Built Build(NodeId node, MacroMaps macro, float skirtDepth = 0f, float skirtFraction = 0f,
+                                   float chordSag = 0f, OceanParams ocean = default, float waterSkirtDrop = 0f)
+            => ChunkJobRunner.Build(_surface, _roots, _params, node, macro, skirtDepth, skirtFraction, chordSag,
+                                    ocean, waterSkirtDrop);
     }
 }
