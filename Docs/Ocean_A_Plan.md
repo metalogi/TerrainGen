@@ -645,3 +645,23 @@ measurements, and anything the Editor said that this plan did not.
      `SeaLevelMustBeTheErosionBaseLevel` and `OceanCapsTheResolution`'s `OceanParams` half; Step 3 adds
      the layout's. `StressSceneAssetTests.SeaLevelIsTheErosionBaseLevel` holds the five stress assets'
      sea levels to their erosion and `SampleScene` to none. 233 EditMode tests pass in the Editor.
+6. **Step 3 (2026-10-29): the kinds and the layout, pure.** `ChunkKind` and `ChunkKinds.Classify`,
+   and in `ChunkMeshLayout` the per-kind `VertexCount` and `IndexCount`, `WaterBase`,
+   `BuildIndices(R, flipWinding, doubled)` and `WaterSkirtDrop`, as the plan lists them.
+   - **An undecidable range is Coast.** `Classify` asks the range to be ordered as well as above or
+     below the sea, so a NaN at either end, a NaN sea, and an empty range (lo above hi, which is where
+     a min-max scan starts) are all Coast, the kind that hides nothing. `WaterBase` throws for Land.
+   - **The two-argument `BuildIndices` is the single buffer, unchanged.** The doubled one refuses R 181
+     on its 2n vertices; the single one still builds 253.
+   - **`WaterSkirtCoversTheChordSag` runs every depth and every gap, unthinned,** on a new
+     `StressSceneTests.SceneHeights.Water`: the smooth surface with every height the sea level, so its
+     vertices are the job's water vertices. The sea level is each scene's erosion base level, so the
+     terrarium's water is 68 m inward. The chord sag, at the base surface's radius, covers it there too:
+     the rule's 16 spacings at the node-size spread leave room for a radius 0.7% smaller. The worst
+     water gaps are Earth 6,403 m, the small planet 1,601, the ring 30.0, the terrarium 2.99 and the
+     narrow ring 0.90. The narrow ring's is under the 1 m floor, so the test requires a gap past the
+     floor everywhere else, which is what makes it a test of the sag; the first run asked it of the
+     narrow ring too and failed there, with every skirt covering its gap.
+   - `OceanIndexLayout` checks the winding on every grid triangle of both halves, not only the first.
+   - 236 EditMode tests pass in the Editor, with the eleven `[Explicit]` tools skipped; the seven in
+     `OceanLayoutTests` take about a second.
