@@ -41,8 +41,12 @@ namespace Sonoma.Core.Generation
     // so it can be tested outside the Editor.
     public static class ChunkMeshBuffers
     {
-        public static IndexFormat IndexFormatFor(int resolution) =>
-            ChunkMeshLayout.VertexCount(resolution) > 65536 ? IndexFormat.UInt32 : IndexFormat.UInt16;
+        // For the largest kind the scene can produce: a Coast chunk's two grids with an ocean
+        // (A7). HeightParams and OceanParams refuse every resolution that would need 32 bits, and
+        // ChunkMeshJob writes 16-bit indices.
+        public static IndexFormat IndexFormatFor(int resolution, bool ocean = false) =>
+            ChunkMeshLayout.VertexCount(resolution, ocean ? ChunkKind.Coast : ChunkKind.Land) > 65536
+                ? IndexFormat.UInt32 : IndexFormat.UInt16;
 
         public static VertexAttributeDescriptor[] VertexAttributes() => new[]
         {
@@ -58,18 +62,19 @@ namespace Sonoma.Core.Generation
             new VertexAttributeDescriptor(VertexAttribute.TexCoord3, VertexAttributeFormat.Float32, 4),
         };
 
-        // Index buffers are identical for every chunk of a given resolution and winding, so
-        // they are built once and copied. A GPU index buffer cannot be shared between meshes,
-        // but the source array can.
+        // Index buffers are identical for every chunk of a given resolution, winding and kind, so
+        // they are built once and copied, by the mesh job, which reads them [ReadOnly]: free them
+        // only once no job is in flight. A GPU index buffer cannot be shared between meshes, but
+        // the source array can. doubled is a Coast chunk's (A7).
         static readonly Dictionary<int, NativeArray<ushort>> _cache = new Dictionary<int, NativeArray<ushort>>();
 
-        public static NativeArray<ushort> SharedIndices(int resolution, bool flipWinding)
+        public static NativeArray<ushort> SharedIndices(int resolution, bool flipWinding, bool doubled = false)
         {
-            int key = resolution * 2 + (flipWinding ? 1 : 0);
+            int key = resolution * 4 + (flipWinding ? 2 : 0) + (doubled ? 1 : 0);
             if (_cache.TryGetValue(key, out var cached) && cached.IsCreated)
                 return cached;
 
-            var idx = new NativeArray<ushort>(ChunkMeshLayout.BuildIndices(resolution, flipWinding),
+            var idx = new NativeArray<ushort>(ChunkMeshLayout.BuildIndices(resolution, flipWinding, doubled),
                                               Allocator.Persistent);
             _cache[key] = idx;
             return idx;

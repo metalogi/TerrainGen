@@ -201,10 +201,11 @@ namespace Sonoma.Core.Quadtree
             if (_ocean.Enabled)
                 Debug.Log($"[TerrainRoot] Ocean at {_ocean.SeaLevel:F1} m, overlap {_ocean.TerrainOverlap:F1} m.");
 
-            _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution);
+            _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution,
+                                       _ocean.Enabled ? OceanMaterial : null);
             _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
                                                  skirtFraction, Settings.MaxInFlightJobs,
-                                                 Settings.UploadBudgetMs, _macro);
+                                                 Settings.UploadBudgetMs, _macro, _ocean);
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
