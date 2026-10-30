@@ -703,3 +703,24 @@ measurements, and anything the Editor said that this plan did not.
      the same node on a cube sphere, bit for bit, plus the single submesh and the shared single buffer.
    - 240 EditMode tests pass in the Editor, with the eleven `[Explicit]` tools skipped. No play session
      has run this step's scheduler path; the selector tests drive it through real uploads.
+8. **Step 5 (2026-10-29): `SonomaOcean.shader` and `Ocean.mat`, drawn by nothing until Step 6.** The
+   shader has ForwardLit, DepthOnly and DepthNormals, its own `UnityPerMaterial` with the seven
+   properties the plan names, and the morph and sky from the two includes. ForwardLit is the plan's
+   list.
+   - **The glint's smoothness falls with `log2(distance) / log2(_GlintFarDistance)`,** from
+     `_Smoothness` at a metre to `_FarSmoothness` at the far distance. The Blinn-Phong lobe is
+     normalised by `(n + 8) / 8π`, so a broad far highlight is dimmer than a near one.
+   - **Fresnel without the sky reflects `SampleSH` along the reflected view ray;** with it, the sky
+     ambient. The water's ambient is the terrain's hemisphere formula, which for a flat sea is the sky's.
+   - **Starting values:** shallow `(0.05, 0.35, 0.38)`, deep `(0.02, 0.07, 0.15)` and 20 m, as the plan
+     gives; smoothness 0.9 near and 0.4 far, a far distance of 1,000 km and a Fresnel strength of 0.6.
+     All to be tuned by eye in Step 7.
+   - **Compiled, not only imported.** `ShaderUtil.CompilePass` over every pass, with the sky on and off,
+     under no shadows, `_MAIN_LIGHT_SHADOWS` and `_MAIN_LIGHT_SHADOWS_CASCADE` with
+     `_SHADOWS_SOFT_MEDIUM`, left no shader messages.
+   - **Tests.** `ShaderShadowTests` is a fixture over both shaders, so its three tests are six cases.
+     `ShaderMorphsInEveryPass` checks every pass of both (`ShaderSource.NodeShaders`) and, in each
+     `.shader` file unspliced (`ShaderSource.Raw`), that it includes `SonomaCommon.hlsl` and defines no
+     `SonomaMorphFactor` of its own. `OceanShaderTests` holds the pass set (`OceanHasNoShadowCaster`), the
+     sky feature with `Ocean.mat` running the shader with `_SONOMA_SKY` on, and the colour by depth. 246
+     EditMode tests pass in the Editor.

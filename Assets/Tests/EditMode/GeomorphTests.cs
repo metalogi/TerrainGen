@@ -409,21 +409,34 @@ namespace Sonoma.Tests
                 "SonomaMorphFactor no longer reads _SonomaLodVertical as (Flatten, Anchor); see " +
                 "LodVertical.ShaderParams");
 
-            foreach (string pass in new[] { "ForwardLit", "ShadowCaster", "DepthOnly", "DepthNormals" })
+            // Every pass of every shader drawn on the terrain's nodes morphs, from the one
+            // SonomaMorphFactor in SonomaCommon.hlsl (ocean-a): the sea morphing by any other k than
+            // the ground beside it opens a gap along the coast at every LOD boundary. So neither
+            // shader defines the function itself; each includes it.
+            foreach (var (shader, passes) in ShaderSource.NodeShaders)
             {
-                int start = source.IndexOf("Name \"" + pass + "\"", System.StringComparison.Ordinal);
-                Assert.Greater(start, 0, $"pass {pass} is missing from the shader");
+                string raw = ShaderSource.Raw(shader);
+                StringAssert.DoesNotContain("SonomaMorphFactor(float3", raw,
+                    $"{shader} defines its own SonomaMorphFactor instead of SonomaCommon.hlsl's");
+                StringAssert.Contains("#include \"SonomaCommon.hlsl\"", raw, $"{shader} does not include the morph");
 
-                int end = source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal);
-                Assert.Greater(end, start, $"pass {pass} has no HLSL block");
+                string spliced = ShaderSource.Load(shader);
+                foreach (string pass in passes)
+                {
+                    int start = spliced.IndexOf("Name \"" + pass + "\"", System.StringComparison.Ordinal);
+                    Assert.Greater(start, 0, $"{shader}: pass {pass} is missing");
 
-                string body = source.Substring(start, end - start);
-                Assert.IsTrue(body.Contains("SonomaMorph"),
-                    $"pass {pass} does not apply the geomorph");
-                Assert.IsTrue(body.Contains("TEXCOORD2"),
-                    $"pass {pass} does not read the morph attribute");
-                Assert.IsTrue(body.Contains("TEXCOORD1"),
-                    $"pass {pass} does not read the topology up and elevation the morph flattens by");
+                    int end = spliced.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal);
+                    Assert.Greater(end, start, $"{shader}: pass {pass} has no HLSL block");
+
+                    string body = spliced.Substring(start, end - start);
+                    Assert.IsTrue(body.Contains("SonomaMorph"),
+                        $"{shader}: pass {pass} does not apply the geomorph");
+                    Assert.IsTrue(body.Contains("TEXCOORD2"),
+                        $"{shader}: pass {pass} does not read the morph attribute");
+                    Assert.IsTrue(body.Contains("TEXCOORD1"),
+                        $"{shader}: pass {pass} does not read the topology up and elevation the morph flattens by");
+                }
             }
         }
 
