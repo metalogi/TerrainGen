@@ -747,4 +747,27 @@ measurements, and anything the Editor said that this plan did not.
      scene; `SampleScene` with none. `LodSelectorTests.SelectorCountsChunksByKind` runs the selector's
      tile with a sea at 0 (11 Land, 42 Coast, 32 Ocean of 85), holds each node's kind to its chunk's, the
      tallies to the resident set, and the Dispose report to them; `SelectorDoesNotAllocatePerFrame`
-     still passes. 247 EditMode tests pass in the Editor. No play session has run yet.
+     still passes. 247 EditMode tests pass in the Editor.
+   - **The play check (2026-10-29).** The step 0 driver reran every scene's start pose with the ocean
+     on, the Editor in front. No warning or error in any scene.
+     - **`SampleScene`** is byte-identical to step 0's frame, its reports unchanged and no ocean line.
+     - **The working sets are unchanged.** Each stress scene's start-pose peak equals the same capture
+       with the ocean off (Step 1's): Earth 1,218, small planet 1,254, ring 1,288, narrow ring 884,
+       terrarium 2,240.
+     - **The sea draws where the seafloor did,** with teal shallows at the coast, the deep colour
+       offshore, haze over the far water and, on the planets from orbit, the broad glint. On the ring
+       the water fills exactly step 0's lavender seafloor. Inland basins below sea level fill too, since
+       ocean-a has one sea level everywhere. The colours read dull and grey against the land; tuning is
+       Step 7's.
+     - **What the water costs at each start pose:**
+
+       | scene | resident | Land / Coast / Ocean | vertex memory, with water / without |
+       |---|---|---|---|
+       | `EarthStress` | 1,218 | 168 / 624 / 426 | 171.6 / 113.5 MB |
+       | `SmallPlanetStress` | 1,254 | 276 / 612 / 366 | 173.8 / 116.8 MB |
+       | `RingworldStress` | 1,288 | 420 / 399 / 469 | 157.2 / 120.0 MB |
+       | `NarrowRingStress` | 884 | 6 / 86 / 792 | 90.4 / 82.3 MB |
+       | `TerrariumStress` | 2,240 | 1,577 / 342 / 321 | 240.5 / 208.7 MB |
+
+       From orbit the coarse chunks are large and half of them span a coast, so Earth's water adds 51%.
+       Step 7 measures it at the bottom of a descent, where chunks are small and Coast is rarer.
