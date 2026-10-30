@@ -281,6 +281,7 @@ MonoBehaviour:
   LookSensitivity: 0.15
   RequireRightMouseToLook: 1
   AutoClipPlanes: 1
+  ShowHeightReadout: 1
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -488,6 +489,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Sonoma.Core.Quadtree.TerrainRoot
   Settings: {fileID: 11400000, guid: e21dd7b4ce564430b995f8225eb2f11a, type: 2}
   ChunkMaterial: {fileID: 2100000, guid: 88e937715513481da1cef86466482340, type: 2}
+  OceanMaterial: {fileID: 2100000, guid: 3d7cb65e2af2de249bd37daef28af8c6, type: 2}
   Topology: 2
   Radius: 1194562.5
   TileSize: 1000

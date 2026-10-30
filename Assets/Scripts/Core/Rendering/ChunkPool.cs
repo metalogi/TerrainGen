@@ -24,8 +24,9 @@ namespace Sonoma.Core.Rendering
         // walks only the free stack frees nothing it created.
         readonly List<TerrainChunk> _all = new List<TerrainChunk>();
 
-        public int Created   => _all.Count;
-        public int Available => _free.Count;
+        public int Created    => _all.Count;
+        public int Available  => _free.Count;
+        public int Resolution => _resolution;
 
         // Each kind's sharedMaterials, built once, so assigning them allocates nothing (A7): one
         // per submesh, terrain then water.

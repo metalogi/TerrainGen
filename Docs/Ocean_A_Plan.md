@@ -724,3 +724,27 @@ measurements, and anything the Editor said that this plan did not.
      `SonomaMorphFactor` of its own. `OceanShaderTests` holds the pass set (`OceanHasNoShadowCaster`), the
      sky feature with `Ocean.mat` running the shader with `_SONOMA_SKY` on, and the colour by depth. 246
      EditMode tests pass in the Editor.
+9. **Step 6 (2026-10-29): the ocean is on in the five stress scenes.** Each scene's `TerrainRoot` names
+   `Ocean.mat`, and each settings asset has `Ocean` on, at the sea levels Step 2 set: 0, and 68 m in the
+   terrarium. The scenes were opened and saved by the Editor, which also serialised the fly camera's
+   `ShowHeightReadout` for the first time (its default, on). `SampleScene` is untouched.
+   - **The fly camera flies above the water.** `TopologyFlyCamera.Ground` is `max(terrain, SeaLevel)`
+     with an ocean and the terrain without, and clearance, speed, the clip planes and the clearance
+     reported to `WorldOriginSystem` follow it. The readout keeps the base and ground heights, says
+     Land or Ocean against `SeaLevel` (so the terrarium's shallows below 68 m read Ocean), and adds
+     "Above sea" with an ocean. `Ground` is one `max`, so it has no test of its own.
+   - **The kind counts are tallied each frame, not kept incrementally.** `LodSelector.CountResident`
+     already walks the resident set every frame for `ResidentCount`; it counts each kind there from
+     `NodeState.Kind`, which `OnChunkReady` sets. A replaced or forgotten chunk needs no decrement, so
+     nothing can drift. The tally kept for the report is the one at the peak of the resident chunks'
+     grids, a Coast chunk counted twice, rather than at the peak of the wanted set: the memory figure
+     needs the frame when most vertices existed, and at the wanted set's peak many nodes are not yet
+     built. The report adds the three counts and their vertex memory against the same chunks without
+     water, and prints nothing new in a session with no water chunk, so `SampleScene`'s report is
+     unchanged. `ChunkPool.Resolution` gives it the grid size.
+   - **Tests.** `StressSceneAssetTests.StressScenesHaveTheirOcean` replaces `SeaLevelIsTheErosionBaseLevel`:
+     each stress scene's ocean on, sea level its erosion's base level, no overlap, and `Ocean.mat` in its
+     scene; `SampleScene` with none. `LodSelectorTests.SelectorCountsChunksByKind` runs the selector's
+     tile with a sea at 0 (11 Land, 42 Coast, 32 Ocean of 85), holds each node's kind to its chunk's, the
+     tallies to the resident set, and the Dispose report to them; `SelectorDoesNotAllocatePerFrame`
+     still passes. 247 EditMode tests pass in the Editor. No play session has run yet.

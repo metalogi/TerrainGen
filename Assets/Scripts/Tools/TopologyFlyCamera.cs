@@ -85,7 +85,8 @@ public class TopologyFlyCamera : MonoBehaviour
     // Last frame's heights, kept for the readout. Its text is rebuilt a few times a second rather
     // than every frame, so the digits stay legible and OnGUI allocates no string per frame.
     const float ReadoutInterval = 0.1f;
-    double   _aboveBase, _groundHeight;
+    double   _aboveBase, _groundHeight, _seaLevel;
+    bool     _hasOcean;
     float4   _biomeWeights;
     string   _readout = "";
     float    _readoutHeight = 66f;
@@ -180,8 +181,9 @@ public class TopologyFlyCamera : MonoBehaviour
     }
 
     // Height above the base surface (the sphere, cylinder or plane before any terrain), the
-    // ground's height above it directly below, and the clearance between the two. All three are
-    // last Update's, measured before that frame's move.
+    // ground's height above it directly below, and the clearance above the ground, or above the
+    // sea where it covers the ground. With an ocean, the height above the sea too. All are last
+    // Update's, measured before that frame's move.
     void OnGUI()
     {
         if (!ShowHeightReadout || Event.current.type != EventType.Repaint) return;
@@ -199,11 +201,18 @@ public class TopologyFlyCamera : MonoBehaviour
             _readoutAt = Time.unscaledTime;
             _readout   = "Above base surface  " + FormatLength(_aboveBase) +
                          "\nGround above base   " + FormatLength(_groundHeight) +
-                         "\nClearance           " + FormatLength(_aboveBase - _groundHeight);
+                         "\nClearance           " + FormatLength(_aboveBase - Ground(_groundHeight, _hasOcean, _seaLevel));
             int lines = 3;
-            if (Terrain != null && Terrain.HasContinents)
+            // Land or Ocean by the ground against the scene's sea level, the erosion's base level:
+            // 68 m in the terrarium, where "above 0" called its shallows land.
+            if (Terrain != null && (Terrain.HasContinents || _hasOcean))
             {
-                _readout += "\nSurface             " + (_groundHeight > 0.0 ? "Land" : "Ocean");
+                _readout += "\nSurface             " + (_groundHeight > _seaLevel ? "Land" : "Ocean");
+                lines++;
+            }
+            if (_hasOcean)
+            {
+                _readout += "\nAbove sea           " + FormatLength(_aboveBase - _seaLevel);
                 lines++;
             }
             if (math.csum(_biomeWeights) > 0f)
@@ -380,6 +389,16 @@ public class TopologyFlyCamera : MonoBehaviour
         _aboveBase    = elevation;
         _groundHeight = Terrain.HeightAt(basePoint);
         _biomeWeights = Terrain.BiomeWeightsAt(basePoint);
-        return (float)(_aboveBase - _groundHeight);
+        _hasOcean     = Terrain.HasOcean;
+        _seaLevel     = Terrain.SeaLevel;
+        return (float)(_aboveBase - Ground(_groundHeight, _hasOcean, _seaLevel));
     }
+
+    // What the camera flies above (ocean-a, C10): the terrain, or over the sea the water, which
+    // in a scene with an ocean is drawn wherever the terrain is below it. Clearance, speed, the
+    // automatic clip planes and the clearance reported to WorldOriginSystem all follow it, so a
+    // camera skimming the sea is not flying at the speed of one hundreds of metres above the
+    // seabed, with its near plane a hundredth of that out. Without an ocean it is the terrain.
+    public static double Ground(double terrainHeight, bool ocean, double seaLevel) =>
+        ocean ? math.max(terrainHeight, seaLevel) : terrainHeight;
 }

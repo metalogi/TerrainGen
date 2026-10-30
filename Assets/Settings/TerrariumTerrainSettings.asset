@@ -42,6 +42,6 @@ MonoBehaviour:
   HazeColor: {r: 0.5, g: 0.6, b: 0.75, a: 1}
   HazeVisibility: 30000
   HazeScaleHeight: 2000
-  Ocean: 0
+  Ocean: 1
   SeaLevel: 68
   OceanTerrainOverlap: 0
