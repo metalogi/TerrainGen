@@ -116,6 +116,12 @@ namespace Sonoma.Core.Quadtree
         }
         public bool HasContinents => Settings != null && Settings.Macro != null && Settings.Macro.Continents != null;
 
+        // The sea (ocean-a), once Start has resolved it: whether the scene draws one, and its level
+        // above the base surface. The level is the scene's sea level with or without an ocean, the
+        // erosion's base level, which is what Land and Ocean mean in the fly camera's readout.
+        public bool   HasOcean => _ocean.Enabled;
+        public double SeaLevel => Settings != null ? Settings.SeaLevel : 0.0;
+
         public int ResidentChunks =>_selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
         public int InFlightJobs   => _scheduler != null ? _scheduler.InFlightCount : 0;

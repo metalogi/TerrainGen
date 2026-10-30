@@ -37,13 +37,18 @@ namespace Sonoma.Tests
         LodSelector         _selector;
         LodMath             _lod;
         double3             _camera;
+        Material            _oceanMaterial;
 
         // maxInFlightJobs is 1 only for the queue-ordering test, which needs results to arrive
         // in the order they were popped. Above 1 the scheduler holds several jobs at once and
         // CollectResults walks a Dictionary, so arrival order stops meaning anything.
         //
         // morphStart is overridden only by the relief-report test, to leave no room for terrain.
-        void Build(int maxResidentChunks, int maxInFlightJobs = 16, float morphStart = 0.12f)
+        //
+        // ocean, when enabled, gives the scheduler a sea and the pool a material to draw it with,
+        // for the kind-count test.
+        void Build(int maxResidentChunks, int maxInFlightJobs = 16, float morphStart = 0.12f,
+                   OceanParams ocean = default)
         {
             _surface = SurfaceDef.PlaneGrid(TileSize, 1, 1);
             _roots   = SurfaceMath.BuildRoots(_surface);
@@ -63,8 +68,10 @@ namespace Sonoma.Tests
             _lod = LodMath.Create(_surface, p, SplitFactor, morphStart, 1.2f, 1.5f, MaxDepth);
 
             _host      = new GameObject("LodSelectorTestHost");
-            _pool      = new ChunkPool(_host.transform, null, Resolution);
-            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, 0f, maxInFlightJobs, 100f);
+            if (ocean.Enabled) _oceanMaterial = new Material(Shader.Find("Sonoma/Ocean"));
+            _pool      = new ChunkPool(_host.transform, null, Resolution, _oceanMaterial);
+            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, 0f, maxInFlightJobs, 100f,
+                                                 null, ocean);
             _selector  = new LodSelector(_surface, _roots, _lod, _scheduler, _pool, maxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
 
@@ -81,8 +88,9 @@ namespace Sonoma.Tests
             _scheduler?.Dispose();
             _pool?.Dispose();
             if (_host != null) UnityEngine.Object.DestroyImmediate(_host);
+            if (_oceanMaterial != null) UnityEngine.Object.DestroyImmediate(_oceanMaterial);
 
-            _selector = null; _scheduler = null; _pool = null; _host = null;
+            _selector = null; _scheduler = null; _pool = null; _host = null; _oceanMaterial = null;
             ChunkMeshBuffers.DisposeCache();
         }
 
@@ -316,6 +324,43 @@ namespace Sonoma.Tests
             Assert.Greater(peak, first, "descending should have grown the working set");
 
             LogAssert.Expect(LogType.Warning, new Regex(Regex.Escape($"peaked at {peak} chunks")));
+            _selector.Dispose();
+        }
+
+        // ocean-a, Step 6: with a sea through the middle of this tile's relief, the selector counts
+        // its resident chunks by kind -- each chunk's own kind, as the mesh job decided it and the
+        // chunk took its materials -- and at Dispose reports the tally at the peak of their grids,
+        // a Coast chunk's two counted, with the vertex memory they hold. Kinds do not enter
+        // selection, so the tree is the one the same tile builds with no sea.
+        [Test]
+        public void SelectorCountsChunksByKind()
+        {
+            var sea = new OceanParams { Enabled = true, SeaLevel = 0.0, SeaLevelFloat = 0f };
+            Build(maxResidentChunks: 0, ocean: sea);
+            _camera = new double3(0.0, 100.0, 0.0);
+            DriveToSteadyState();
+            _selector.Run(_camera);   // a frame with nothing landing, so the tally is current
+
+            var counts = new int[3];
+            foreach (var node in _selector.ResidentNodes())
+            {
+                Assert.IsTrue(_selector.TryGetState(node, out var s));
+                Assert.AreEqual(s.Kind, s.Chunk.Kind, $"{node}: the selector's kind is not the chunk's");
+                counts[(int)s.Kind]++;
+            }
+            Assert.AreEqual(counts[(int)ChunkKind.Land],  _selector.ResidentLand,  "Land");
+            Assert.AreEqual(counts[(int)ChunkKind.Coast], _selector.ResidentCoast, "Coast");
+            Assert.AreEqual(counts[(int)ChunkKind.Ocean], _selector.ResidentOcean, "Ocean");
+            Assert.AreEqual(_selector.ResidentCount, counts[0] + counts[1] + counts[2], "the kinds partition the resident set");
+            Assert.Greater(counts[(int)ChunkKind.Coast], 0, "no chunk is Coast, so the sea is not through the relief");
+            Assert.Greater(counts[(int)ChunkKind.Land] + counts[(int)ChunkKind.Ocean], 0, "every chunk is Coast");
+            TestContext.WriteLine($"Land {counts[0]}, Coast {counts[1]}, Ocean {counts[2]} of {_selector.ResidentCount}");
+
+            // The tree converges on the whole tile at this height, so the peak is this tally.
+            int    grids = LodSelector.GridCount(counts[0], counts[1], counts[2]);
+            double mb    = grids * (double)ChunkMeshLayout.VertexCount(Resolution) * 80.0 / 1048576.0;
+            LogAssert.Expect(LogType.Log, new Regex(Regex.Escape(
+                $"Land {counts[0]}, Coast {counts[1]}, Ocean {counts[2]}. Their {grids} grids hold {mb:F1} MB")));
             _selector.Dispose();
         }
 
