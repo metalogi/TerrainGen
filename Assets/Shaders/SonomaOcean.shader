@@ -27,7 +27,8 @@
 // and elevation before measuring its distance (LodVertical).
 //
 // Shading, per fragment:
-//   colour   by water depth, shallow to deep over _DepthScale metres (A5)
+//   colour   by water depth, shallow to deep over _DepthScale metres (A5). Material colours are
+//            sRGB, so choose them as such: a deep colour dark in linear goes to the haze's grey
 //   diffuse  Lambert on the morphed up
 //   glint    Blinn-Phong, its smoothness falling from _Smoothness close to _FarSmoothness at
 //            _GlintFarDistance with the log of the distance, so the sea from orbit shows a broad

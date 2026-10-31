@@ -603,7 +603,18 @@ These need the user's decision, or a measurement, before the task that depends o
 The plan above is the plan as written. Building it will change some of it; record those changes here
 rather than editing them into the tasks, so the plan still reads as what was decided up front.
 
-1. **`ocean-a`, measured (2026-10-30).** The full record is amendment 10 of `Docs/Ocean_A_Plan.md`.
+1. **`ocean-a` was planned in `Docs/Ocean_A_Plan.md`, and its decisions A1–A6 changed this plan (2026-10-29).**
+   All were taken as recommended. A chunk's kind comes from its own drawn range rather than a bound, so
+   C8 moves to `ocean-c`, reduced to `U`, and no test of that bound exists yet (A1). Ocean chunks are
+   water alone from `ocean-a`, not from `ocean-c`, though still sampled (A2). `SeaLevel` is in
+   `TerrainSettings` and is held equal to erosion's `BaseLevel` (A3). C5's one include became two,
+   `SonomaCommon.hlsl` and `SonomaSky.hlsl`, because the sky needs `Lighting.hlsl` and the depth passes
+   do not (A4). Colour by depth came forward from `ocean-b` (A5). `NarrowRingStress` has an ocean, and
+   Q7 is deferred (A6).
+2. **The mesh job sizes its own buffers, under Burst (2026-10-29).** Step 0's spike showed
+   `Mesh.MeshData`'s buffer and submesh calls work inside a Burst job, which A1 depends on. The
+   baselines are that plan's amendment 3.
+3. **`ocean-a`, measured (2026-10-30).** The full record is amendment 10 of `Docs/Ocean_A_Plan.md`.
    On all five stress scenes the descents' peak working sets match the ocean-free baseline, with Earth
    8 chunks lower because the descent is not frame-locked; upload per chunk did not rise. Vertex memory
    rises by 2–15% at a descent's peak and 15–33% on a coast, and every session stays 17% or more under
