@@ -1,6 +1,8 @@
 using System.Collections.Generic;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
+using Sonoma.Core.Generation;
 using Sonoma.Core.Rendering;
 using Sonoma.Core.Surface;
 
@@ -24,6 +26,7 @@ namespace Sonoma.Core.Quadtree
             public TerrainChunk Chunk;        // null while the node is queued or in flight
             public bool         HasChildren;  // last frame's split decision; feeds hysteresis
             public float        MinHeight, MaxHeight;
+            public ChunkKind    Kind;         // what the chunk draws (ocean-a); not used to select
 
             // NodeDistance for this node, as of the current frame's Want. Cached rather than
             // recomputed because NodeDistance is five trigonometric surface evaluations, and
@@ -71,7 +74,21 @@ namespace Sonoma.Core.Quadtree
         int     _worstReliefDepth;
         double  _worstReliefHalf;
 
+        // Resident chunks by kind (ocean-a), tallied each frame with ResidentCount, and the tally
+        // at the frame their vertex memory peaked: a Coast chunk holds two grids, the others one,
+        // so the peak in chunks is not the peak in memory. Plain fields, so the frame path stays
+        // allocation-free.
+        int _residentLand, _residentCoast, _residentOcean;
+        int _peakLand, _peakCoast, _peakOcean;
+
         public int ResidentCount { get; private set; }
+        public int ResidentLand  => _residentLand;
+        public int ResidentCoast => _residentCoast;
+        public int ResidentOcean => _residentOcean;
+
+        // The grids resident chunks hold, a Coast chunk's two counted: what their vertex memory
+        // scales with, ChunkMeshLayout.VertexCount(R) x 80 B a grid.
+        public static int GridCount(int land, int coast, int ocean) => land + 2 * coast + ocean;
         public int VisibleCount  => _visiblePrev.Count;
         public int WantedCount   => _nodes.Count;
 
@@ -343,6 +360,20 @@ namespace Sonoma.Core.Quadtree
                     $"[LodSelector] the working set peaked at {_peakWanted} chunks this session" +
                     (_maxResident > 0 ? $", under the budget of {_maxResident}." : " (no budget set)."));
 
+            // With an ocean, what the water costs in vertex memory, at its peak. A session with no
+            // water chunk -- every scene without an ocean -- reports nothing new.
+            if (_peakCoast + _peakOcean > 0)
+            {
+                int    grids = GridCount(_peakLand, _peakCoast, _peakOcean);
+                double bytes = (double)ChunkMeshLayout.VertexCount(_pool.Resolution) * UnsafeUtility.SizeOf<TerrainVertex>();
+                int    total = _peakLand + _peakCoast + _peakOcean;
+                Debug.Log(
+                    $"[LodSelector] at the session's peak vertex memory {total} chunks were resident: " +
+                    $"Land {_peakLand}, Coast {_peakCoast}, Ocean {_peakOcean}. Their {grids} grids hold " +
+                    $"{grids * bytes / 1048576.0:F1} MB of vertices, against {total * bytes / 1048576.0:F1} MB " +
+                    "for the same chunks with no water.");
+            }
+
             if (_reliefWarned)
             {
                 double allowed = _lod.MaxHalfRelief(_worstReliefDepth);
@@ -354,12 +385,25 @@ namespace Sonoma.Core.Quadtree
             }
         }
 
+        // Also tallies them by kind, and keeps the tally of the frame their grids peaked.
         int CountResident()
         {
-            int n = 0;
+            _residentLand = _residentCoast = _residentOcean = 0;
             foreach (var kv in _nodes)
-                if (kv.Value.Chunk != null) n++;
-            return n;
+            {
+                if (kv.Value.Chunk == null) continue;
+                switch (kv.Value.Kind)
+                {
+                    case ChunkKind.Coast: _residentCoast++; break;
+                    case ChunkKind.Ocean: _residentOcean++; break;
+                    default:              _residentLand++;  break;
+                }
+            }
+            if (GridCount(_residentLand, _residentCoast, _residentOcean) > GridCount(_peakLand, _peakCoast, _peakOcean))
+            {
+                _peakLand = _residentLand; _peakCoast = _residentCoast; _peakOcean = _residentOcean;
+            }
+            return _residentLand + _residentCoast + _residentOcean;
         }
 
         // Eviction takes complete sibling groups of four, never a lone node: evicting one
@@ -441,6 +485,7 @@ namespace Sonoma.Core.Quadtree
             state.Chunk     = result.Chunk;
             state.MinHeight = result.MinHeight;
             state.MaxHeight = result.MaxHeight;
+            state.Kind      = result.Kind;
             _nodes[result.Node] = state;
 
             WarnIfTerrainIsTooRoughToCloseBoundaries(result);
@@ -523,6 +568,8 @@ namespace Sonoma.Core.Quadtree
             _reliefWarned      = false;
             _peakWanted        = 0;
             _worstReliefExcess = 0.0;
+            _residentLand = _residentCoast = _residentOcean = 0;
+            _peakLand     = _peakCoast     = _peakOcean     = 0;
 
             foreach (var kv in _nodes)
                 if (kv.Value.Chunk != null) _pool.Release(kv.Value.Chunk);

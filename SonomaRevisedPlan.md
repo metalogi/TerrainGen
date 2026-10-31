@@ -288,6 +288,7 @@ Each milestone ends with something runnable and a test that would catch regressi
 - `BiomeDefinition` ScriptableObjects; per-octave amplitude/roughness modulation; splat weights in vertex colour; shader reads them.
 - Optional in this milestone: a simple thermal/hydraulic erosion pass on the macro maps as proof that non-local algorithms fit here.
 - **Continents, between M5b and M5c (added 2026-10-23, done 2026-10-24).** A Voronoi continent map built once at startup, its field in the macro base height, and the detail octaves longer than a per-scene cutoff dropped. Before it the coastlines came from the detail noise's coarsest octaves, which climate never saw. Plan and amendments: `Docs/Continents_Plan.md`. It landed in three branches: `macro-pyramid` (the filter-down M5c's erosion reuses), `continents-a` (Earth and the ring) and `continents-b` (the small planet, the narrow ring and the docs). After it the order is M5c-1, M5c-2, `ocean-a`, `ocean-b`, M6, `ocean-c`.
+- **The ocean, around M6 (`ocean-a` done 2026-10-30).** Not a milestone of this plan, but where it sits matters to M6, whose selector and scheduler `ocean-c` changes. `ocean-a` is a flat, opaque sea on the terrain's own chunks; `ocean-b` adds waves; `ocean-c`, after M6, prunes Ocean nodes. Plans and amendments: `Docs/Ocean_Plan.md`, `Docs/Ocean_A_Plan.md`.
 
 ### M6 — Collision, tooling, polish (medium)
 - Colliders at the finest depths via `Physics.BakeMesh` jobs; NavMesh surface hook.

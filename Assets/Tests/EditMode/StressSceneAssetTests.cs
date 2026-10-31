@@ -48,6 +48,45 @@ namespace Sonoma.Tests
             }
         }
 
+        // ocean-a, the parent plan's test 11: every stress scene has an ocean, at its erosion's base
+        // level (A3) -- one number in two homes, so a retune of one fails here before TerrainRoot
+        // refuses the scene -- with no overlap, and its TerrainRoot draws it with Ocean.mat.
+        // SampleScene has no ocean, no erosion and no ocean material. The scenes are read as text
+        // through SceneConfig, as the other scene checks are.
+        [Test]
+        public void StressScenesHaveTheirOcean()
+        {
+            var scenes = new System.Collections.Generic.List<(string Name, string Asset)>
+                { ("EarthStress", "Assets/Settings/EarthTerrainSettings.asset") };
+            foreach (var sc in All) scenes.Add((sc.Name, sc.Asset));
+            string ocean = AssetDatabase.AssetPathToGUID(OceanMaterial);
+            Assert.IsNotEmpty(ocean, $"{OceanMaterial} is missing");
+
+            foreach (var (name, path) in scenes)
+            {
+                var s = AssetDatabase.LoadAssetAtPath<TerrainSettings>(path);
+                Assert.IsNotNull(s, $"{path} is missing or is not a TerrainSettings");
+                Assert.IsTrue(s.Ocean, $"{path}: Ocean");
+                Assert.IsNotNull(s.Macro != null ? s.Macro.Erosion : null, $"{path}: every stress scene erodes");
+                Assert.AreEqual((double)s.Macro.Erosion.BaseLevel, s.SeaLevel, $"{path}: SeaLevel against BaseLevel");
+                Assert.AreEqual(0f, s.OceanTerrainOverlap, $"{path}: OceanTerrainOverlap");
+                Assert.AreEqual(ocean, SceneConfig.Field(SceneConfig.TerrainRoot(name), "OceanMaterial",
+                                                         @"\{fileID: 2100000, guid: ([0-9a-f]{32}), type: 2\}"),
+                                $"{name}'s TerrainRoot does not draw the sea with {OceanMaterial}");
+            }
+            Assert.AreEqual(68.0, AssetDatabase.LoadAssetAtPath<TerrainSettings>(
+                "Assets/Settings/TerrariumTerrainSettings.asset").SeaLevel, "the terrarium's sea");
+
+            var sample = AssetDatabase.LoadAssetAtPath<TerrainSettings>("Assets/Settings/TerrainSettings.asset");
+            Assert.IsFalse(sample.Ocean, "SampleScene has no ocean");
+            Assert.AreEqual(0.0, sample.SeaLevel, "SampleScene's sea level");
+            Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(SceneConfig.TerrainRoot("SampleScene"),
+                               @"OceanMaterial: \{fileID: [1-9]"),
+                           "SampleScene's TerrainRoot has an ocean material");
+        }
+
+        const string OceanMaterial = "Assets/Materials/Ocean.mat";
+
         // Each scene runs its own asset, on the surface the constants describe.
         [Test]
         public void ScenesRunTheirAssets()

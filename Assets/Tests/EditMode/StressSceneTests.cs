@@ -530,6 +530,13 @@ namespace Sonoma.Tests
                 _texels = new LazyTexels(s, _roots, _mp, continent);
             }
 
+            // The sea surface (ocean-a): a smooth surface with every height the sea level, so a vertex
+            // is ChunkMeshJob's water vertex, the base point offset along the normal by it.
+            public static SceneHeights Water(string scene, in SurfaceDef s, in HeightParams rough, float sea) =>
+                new SceneHeights(scene, s, rough, smooth: true) { _sea = sea };
+
+            float _sea;
+
             public SurfaceDef   Surface => _s;
             public HeightParams Height  => _hp;
             public MacroParams  Macro   => _mp;
@@ -547,6 +554,7 @@ namespace Sonoma.Tests
                 var macro = TerrainHeightFunction.Macro(new TexelReader(_texels), _mp, _hp, n.Quad,
                                                         _mp.Layout.MacroLevel(band), u, v, oct, out _);
                 height = TerrainHeightFunction.Height(p, oct, macro, _hp);
+                if (_sea != 0f) height = _sea;
                 return p + (double3)(normal * height);
             }
 

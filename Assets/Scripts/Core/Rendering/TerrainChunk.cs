@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
+using Sonoma.Core.Generation;
 
 namespace Sonoma.Core.Rendering
 {
@@ -39,10 +40,25 @@ namespace Sonoma.Core.Rendering
         void OnEnable()   { AllActive.Add(this); }
         void OnDisable()  { AllActive.Remove(this); }
 
+        // What the chunk draws (ocean-a, A7): terrain, terrain and water, or water. A chunk the
+        // pool creates starts as Land with the terrain material.
+        public ChunkKind Kind { get; private set; } = ChunkKind.Land;
+
         public void SetMaterial(Material mat)
         {
             if (_mr == null) _mr = GetComponent<MeshRenderer>();
             _mr.sharedMaterial = mat;
+        }
+
+        // Assigns the kind's materials, one per submesh, only when the kind changes: a recycled
+        // chunk of the same kind costs nothing, and nothing allocates per upload. materials is
+        // the pool's cached array for the kind, ChunkPool.Materials.
+        public void SetKind(ChunkKind kind, Material[] materials)
+        {
+            if (kind == Kind) return;
+            if (_mr == null) _mr = GetComponent<MeshRenderer>();
+            _mr.sharedMaterials = materials;
+            Kind = kind;
         }
 
         public void SetMesh(Mesh mesh)

@@ -47,6 +47,32 @@ namespace Sonoma.Core.Generation
         // R <= 181, which is where triangles reach 65,520 and constrains nothing.
         public const int MaxResolutionFor16BitIndices = 253;
 
+        // With an ocean, a Coast chunk holds its terrain and its water, 2(R^2 + 4R) vertices, so
+        // R^2 + 4R <= 32,768: 32,757 at R = 179, and 33,485 at the next odd resolution, 181.
+        // OceanParams.Create refuses more; HeightParams.Create cannot see the ocean.
+        public const int MaxResolutionWithOcean = 179;
+
+        // Per kind (Docs/Ocean_A_Plan.md, A7). A Land chunk is today's terrain mesh; an Ocean
+        // chunk is the water alone, laid out as a terrain mesh is, so it takes the same counts and
+        // the single index buffer; a Coast chunk is the terrain at [0, n) and the water at
+        // [n, 2n), drawn by the doubled buffer as two submeshes. The one-argument VertexCount and
+        // IndexCount stay the terrain grid's.
+        public static int VertexCount(int resolution, ChunkKind kind) =>
+            kind == ChunkKind.Coast ? 2 * VertexCount(resolution) : VertexCount(resolution);
+
+        public static int IndexCount(int resolution, ChunkKind kind) =>
+            kind == ChunkKind.Coast ? 2 * IndexCount(resolution) : IndexCount(resolution);
+
+        // Where a chunk's water vertices start: after the terrain in a Coast chunk, at 0 in an
+        // Ocean one. A Land chunk has none.
+        public static int WaterBase(int resolution, ChunkKind kind) => kind switch
+        {
+            ChunkKind.Coast => VertexCount(resolution),
+            ChunkKind.Ocean => 0,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind),
+                     "ChunkMeshLayout: a Land chunk has no water vertices."),
+        };
+
         // The top vertex of skirt post k on the given edge.
         //
         // The four edges are walked anticlockwise around the chunk as seen from outside --
@@ -95,6 +121,13 @@ namespace Sonoma.Core.Generation
         public static float SkirtDrop(float skirtDepth, float skirtFraction, double relief, double chordSag)
             => (float)(skirtDepth + skirtFraction * relief + chordSag);
 
+        // The water's skirt (A8): the same rule with no relief, since the water has none. What is
+        // left is the floor and the chord sag, whole -- on a smooth surface the sag is the whole
+        // gap. No wave term until ocean-b. With skirts off both arguments are zero, as for the
+        // terrain, and so is the drop.
+        public static float WaterSkirtDrop(float skirtDepth, float skirtFraction, double chordSag)
+            => SkirtDrop(skirtDepth, skirtFraction, 0.0, chordSag);
+
         // How many depths coarser a neighbour can be and still be covered by a skirt. Three,
         // because the atomic swap can hold a parent at coarse LOD, waiting on its children,
         // while its neighbour is already three depths finer.
@@ -135,13 +168,22 @@ namespace Sonoma.Core.Generation
         // and a cylinder, so one fixed winding cannot face outward on all three: with the
         // order below, plane and cylinder face outward and a cube-sphere renders inside out.
         // Pass SurfaceMath.UvFrameIsRightHanded(surface).
-        public static ushort[] BuildIndices(int R, bool flipWinding)
+        public static ushort[] BuildIndices(int R, bool flipWinding) => BuildIndices(R, flipWinding, false);
+
+        // doubled is a Coast chunk's buffer (A7): the single buffer, then the single buffer again
+        // with every index offset by n, so the water winds as the terrain does on every topology.
+        // Its 16-bit limit is on 2n vertices, R 179 rather than 253.
+        public static ushort[] BuildIndices(int R, bool flipWinding, bool doubled)
         {
             if (R > MaxResolutionFor16BitIndices)
                 throw new ArgumentOutOfRangeException(nameof(R),
                     "ChunkMeshLayout: resolution needs 32-bit indices, which are not implemented yet.");
+            if (doubled && 2 * VertexCount(R) > 65536)
+                throw new ArgumentOutOfRangeException(nameof(R),
+                    "ChunkMeshLayout: a Coast chunk at this resolution needs 32-bit indices; with an ocean R is at most 179.");
 
-            var idx = new ushort[IndexCount(R)];
+            int single = IndexCount(R);
+            var idx = new ushort[doubled ? 2 * single : single];
             int t = 0;
             int b = flipWinding ? 2 : 1;    // swap the 2nd and 3rd index of every triangle
             int c = flipWinding ? 1 : 2;
@@ -162,6 +204,13 @@ namespace Sonoma.Core.Generation
 
                 Tri(idx, ref t, t0, t1, b1, b, c);
                 Tri(idx, ref t, t0, b1, b0, b, c);
+            }
+
+            if (doubled)
+            {
+                int n = VertexCount(R);
+                for (int k = 0; k < single; k++)
+                    idx[single + k] = (ushort)(idx[k] + n);
             }
 
             return idx;

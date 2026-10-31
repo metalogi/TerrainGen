@@ -21,6 +21,8 @@ namespace Sonoma.Core.Quadtree
         [Header("Settings")]
         public TerrainSettings Settings;
         public Material ChunkMaterial;
+        [Tooltip("The water's material, for a TerrainSettings with Ocean on.")]
+        public Material OceanMaterial;
 
         [Header("Topology")]
         public SurfaceType Topology = SurfaceType.CubeSphere;
@@ -39,6 +41,7 @@ namespace Sonoma.Core.Quadtree
         ChunkPool           _pool;
         MacroMaps           _macro;
         HeightParams        _params;
+        OceanParams         _ocean;
         LodMath             _lod;
 
         // The morph ranges the vertex shader reads, one entry per depth. A global array
@@ -113,6 +116,12 @@ namespace Sonoma.Core.Quadtree
         }
         public bool HasContinents => Settings != null && Settings.Macro != null && Settings.Macro.Continents != null;
 
+        // The sea (ocean-a), once Start has resolved it: whether the scene draws one, and its level
+        // above the base surface. The level is the scene's sea level with or without an ocean, the
+        // erosion's base level, which is what Land and Ocean mean in the fly camera's readout.
+        public bool   HasOcean => _ocean.Enabled;
+        public double SeaLevel => Settings != null ? Settings.SeaLevel : 0.0;
+
         public int ResidentChunks =>_selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
         public int InFlightJobs   => _scheduler != null ? _scheduler.InFlightCount : 0;
@@ -167,22 +176,42 @@ namespace Sonoma.Core.Quadtree
             float skirtDepth    = Settings.SkirtsEnabled ? Settings.SkirtDepth    : 0f;
             float skirtFraction = Settings.SkirtsEnabled ? Settings.SkirtFraction : 0f;
 
+            // The sea level and the erosion's base level are one number in two homes (ocean-a, A3).
+            // Refused before the macro build, which a mismatch would otherwise run for seconds first.
+            ErosionSettings erosion = Settings.Macro != null ? Settings.Macro.Erosion : null;
+            OceanParams.CheckSeaLevel(Settings.SeaLevel, erosion != null, erosion != null ? erosion.BaseLevel : 0.0);
+            if (Settings.Ocean && OceanMaterial == null)
+            {
+                Debug.LogError("[TerrainRoot] The TerrainSettings have Ocean on and there is no OceanMaterial; " +
+                               "terrain will not generate.");
+                enabled = false;
+                return;
+            }
+
             // Before the scheduler, whose jobs read it; built on workers and waited for, once.
             _macro = BuildMacro();
 
             // The flattened world the LOD measures in, which needs a bound on the terrain's height,
             // and so the macro layer's. Before the selector, which copies the LodMath.
-            _lod = _lod.WithVertical(LodVertical.Create(Surface, Settings.LodVerticalScale,
-                                     _macro.MaxAbsHeight(_params)));
+            double envelope = _macro.MaxAbsHeight(_params);
+            _lod = _lod.WithVertical(LodVertical.Create(Surface, Settings.LodVerticalScale, envelope));
             if (!_lod.Vertical.IsIdentity)
                 Debug.Log($"[TerrainRoot] LOD measures distance with terrain heights scaled by " +
                           $"{_lod.Vertical.Scale:G3}, within a height envelope of " +
                           $"{_lod.Vertical.Envelope / 1000.0:F1} km. See LodVertical.");
 
-            _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution);
+            // The sea, after the macro maps, which bound the terrain's height it must lie within.
+            _ocean = OceanParams.Create(Settings.Ocean, Settings.SeaLevel, Settings.OceanTerrainOverlap,
+                                        Settings.ChunkResolution, envelope, erosion != null,
+                                        erosion != null ? erosion.BaseLevel : 0.0);
+            if (_ocean.Enabled)
+                Debug.Log($"[TerrainRoot] Ocean at {_ocean.SeaLevel:F1} m, overlap {_ocean.TerrainOverlap:F1} m.");
+
+            _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution,
+                                       _ocean.Enabled ? OceanMaterial : null);
             _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
                                                  skirtFraction, Settings.MaxInFlightJobs,
-                                                 Settings.UploadBudgetMs, _macro);
+                                                 Settings.UploadBudgetMs, _macro, _ocean);
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;

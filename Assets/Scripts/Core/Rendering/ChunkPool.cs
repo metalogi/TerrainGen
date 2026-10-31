@@ -16,6 +16,7 @@ namespace Sonoma.Core.Rendering
         readonly Transform      _parent;
         readonly Material       _material;
         readonly int            _resolution;
+        readonly bool           _hasOcean;
         readonly Stack<TerrainChunk> _free = new Stack<TerrainChunk>();
 
         // Every chunk this pool ever made, acquired or not. _free alone is not enough to
@@ -23,15 +24,32 @@ namespace Sonoma.Core.Rendering
         // walks only the free stack frees nothing it created.
         readonly List<TerrainChunk> _all = new List<TerrainChunk>();
 
-        public int Created   => _all.Count;
-        public int Available => _free.Count;
+        public int Created    => _all.Count;
+        public int Available  => _free.Count;
+        public int Resolution => _resolution;
 
-        public ChunkPool(Transform parent, Material material, int resolution)
+        // Each kind's sharedMaterials, built once, so assigning them allocates nothing (A7): one
+        // per submesh, terrain then water.
+        readonly Material[] _land, _coast, _ocean;
+
+        // oceanMaterial is the water's, or null for a scene with no ocean, whose chunks are all Land.
+        public ChunkPool(Transform parent, Material material, int resolution, Material oceanMaterial = null)
         {
             _parent     = parent;
             _material   = material;
             _resolution = resolution;
+            _hasOcean   = oceanMaterial != null;
+            _land       = new[] { material };
+            _coast      = new[] { material, oceanMaterial };
+            _ocean      = new[] { oceanMaterial };
         }
+
+        public Material[] Materials(ChunkKind kind) => kind switch
+        {
+            ChunkKind.Coast => _coast,
+            ChunkKind.Ocean => _ocean,
+            _               => _land,
+        };
 
         public TerrainChunk Acquire()
         {
@@ -57,7 +75,7 @@ namespace Sonoma.Core.Rendering
 
             var mesh = new Mesh { name = "ChunkMesh" };
             mesh.MarkDynamic();
-            mesh.indexFormat = ChunkMeshBuffers.IndexFormatFor(_resolution);
+            mesh.indexFormat = ChunkMeshBuffers.IndexFormatFor(_resolution, _hasOcean);
             chunk.SetMesh(mesh);
 
             _all.Add(chunk);
