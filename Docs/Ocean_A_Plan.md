@@ -771,3 +771,88 @@ measurements, and anything the Editor said that this plan did not.
 
        From orbit the coarse chunks are large and half of them span a coast, so Earth's water adds 51%.
        Step 7 measures it at the bottom of a descent, where chunks are small and Coast is rarer.
+
+10. **Step 7 (2026-10-30): measured on all five stress scenes, and nothing moved that should not have.**
+    Each scene ran step 0's vertical descent with the same timing, then a second session: down to a
+    coast the driver found by walking the surface, 30 s along it holding the sea on one side, then
+    settled views at 50 m, 3 km and 100 km (the terrarium 20 m, 1.2 km and 4 km). The Editor in front,
+    Burst on. No warning or error from the terrain in any session; the only others are the Joystick
+    and Account API notices. The figures come from a temporary driver, deleted after this step.
+    - **Tests:** all 247 pass in the Editor with the tuned material, and the 11 `[Explicit]` tools skip.
+    - **`SampleScene`** is byte-identical to step 0's frame, peak 30, no ocean line. Its one rise, the
+      mesh job from 0.126 to 0.326 ms a chunk, is 22 jobs in 3 s and does not recur in any larger sample.
+    - **The descents, against step 0:**
+
+      | scene | peak, of budget | chunks landed | upload ms a chunk | mesh job ms | fps | at the bottom |
+      |---|---|---|---|---|---|---|
+      | `EarthStress` | 6,750 → 6,742 of 9,400 | 5,532 → 5,524 | 0.128 → 0.107 | 0.206 → 0.207 | 81 → 89 | 59 → 61 |
+      | `SmallPlanetStress` | 6,022 → 6,022 of 8,300 | 4,768 → 4,768 | 0.122 → 0.114 | 0.195 → 0.229 | 85 → 83 | 65 → 59 |
+      | `RingworldStress` | 4,304 → 4,304 of 5,600 | 3,016 → 3,016 | 0.123 → 0.116 | 0.199 → 0.224 | 105 → 102 | 92 → 94 |
+      | `NarrowRingStress` | 3,812 → 3,812 of 4,900 | 3,005 → 2,996 | 0.124 → 0.121 | 0.196 → 0.103 | 106 → 115 | 98 → 105 |
+      | `TerrariumStress` | 2,752 → 2,752 of 4,400 | 512 → 512 | 0.120 → 0.111 | 0.178 → 0.224 | 122 → 117 | 120 → 118 |
+
+      Selection is unchanged, as planned. Four peaks are equal; Earth's is 8 lower, two sibling groups,
+      because the descent is not frame-locked and it ended 4 m from step 0's. The narrow ring descends
+      over open sea (Land 6, Coast 86, Ocean 3,720 at its peak), and its mesh job halves because an
+      Ocean chunk writes only the flat water grid. Elsewhere the job is up to 26% dearer with the water,
+      on worker threads. Upload rose nowhere. Its small falls are within what the machine varies by, so
+      they are not credited to anything.
+    - **Vertex memory at each session's peak,** with water and without:
+
+      | scene | descent: Land / Coast / Ocean | MB | coast flight: Land / Coast / Ocean | MB |
+      |---|---|---|---|---|
+      | `EarthStress` | 5,141 / 972 / 629 | 718.6 / 628.1 (+14%) | 3,515 / 1,878 / 1,809 | 845.8 / 670.9 (+26%) |
+      | `SmallPlanetStress` | 4,625 / 891 / 506 | 644.0 / 561.0 (+15%) | 2,452 / 2,128 / 1,914 | 803.2 / 604.9 (+33%) |
+      | `RingworldStress` | 3,184 / 462 / 658 | 444.0 / 400.9 (+11%) | 1,780 / 901 / 1,927 | 513.2 / 429.3 (+20%) |
+      | `NarrowRingStress` | 6 / 86 / 3,720 | 363.1 / 355.1 (+2%) | 1,275 / 587 / 2,166 | 429.9 / 375.2 (+15%) |
+      | `TerrariumStress` | 2,089 / 342 / 321 | 288.2 / 256.4 (+12%) | 1,365 / 698 / 1,197 | 368.7 / 303.7 (+21%) |
+
+      A coast is the expensive place, and the small planet's +33% is the most any session reached. The
+      coast sessions' peak working sets are 7,234, 6,510, 4,660, 4,072 and 3,292 in the table's order,
+      17% to 25% under budget. They differ from the descents' because the camera is somewhere else:
+      selection does not read the kind.
+    - **Throughput and upload in flight.** 195–303 chunks/s along the coasts and 203–365 down to them,
+      with mean upload 0.12–0.21 ms a frame, and 0.35–0.55 while settling, far under the 1.5 ms budget.
+      That is a mean; no peak frame was measured. Upload per landed chunk reads 0.04–0.06 ms in flight,
+      which is not comparable with a descent's: Earth landed 12,169 chunks on the way down and never
+      held more than 4,093, so most were probably dropped unwanted, without an upload.
+    - **Finding for M6: throughput follows the frame rate.** Jobs are started and collected once a
+      frame with `MaxInFlightJobs` 8, and about 3 to 5 chunks land per frame in every scene. Start-up
+      runs at 283–313 chunks/s against step 0's 291–330, and the terrarium's fall, 330 to 283, is its
+      frame rate, 96 to 82, at 3.44 and 3.45 chunks a frame. So in flight the tree does not reach its
+      depth: at 200 m/s, 50 m up, Earth holds 3,264 chunks against the 7,202 it settles to, and takes
+      22 s to get there (small planet 17 s, ring 9 s, narrow ring 13 s). No flight was measured without
+      water, so this cannot say what the ocean adds, and the terrarium's lower start-up frame rate is
+      unexplained. Frame rate is 47–84 fps along the coasts and 39–61 while settling.
+    - **Rebases in the coast flights** ran to 206 a session and 14 in a second, the slowest 7.31 ms over
+      4,094 chunks, because the driver crosses hundreds of kilometres at low clearance. That is its
+      flight path, not the ocean's: the descents kept to 1–5.
+    - **Land at the eroded terrain, by area at `MaxDepth`,** against the 30% target. A check, not a
+      retune; every scene is within 0.6 of a point:
+
+      | scene | land | highest above the sea | deepest below it |
+      |---|---|---|---|
+      | `EarthStress` | 29.8% | 10,414 m | 14,581 m |
+      | `SmallPlanetStress` | 29.9% | 7,735 m | 9,266 m |
+      | `RingworldStress` | 29.7% | 8,262 m | 12,500 m |
+      | `NarrowRingStress` | 29.9% | 8,985 m | 7,658 m |
+      | `TerrariumStress` | 29.4% (sea at 68 m) | 786 m | 784 m |
+
+    - **`MacroMapExport` writes `<scene>_sea.png`** and logs those figures. `Write` is now internal and
+      returns the path, so a driver can call it.
+    - **`Ocean.mat`, tuned by eye: `_DeepColor` (0.02, 0.07, 0.15) → (0.03, 0.16, 0.33) and
+      `_FarSmoothness` 0.4 → 0.5,** with the shader's defaults to match. The grey Step 6 saw was the
+      colour's own fault. A material colour is sRGB, so the old deep colour was (0.0015, 0.006, 0.02) in
+      linear, nearly black, and what lifted it, haze above all, is neutral. The new one is (0.002, 0.022,
+      0.089), and deep water stays blue from 50 m to 100 km. At 0.4 the far glint flooded whole seas
+      brighter than the land from orbit. At 0.5 it is a patch by the sun, though its core still goes
+      near-white, and the shader has no strength to turn down. Both values were judged on Earth and the
+      narrow ring only; the other three scenes share the material and were not recaptured with it, and
+      the `_sea.png` images on disk still show the old deep colour. The measurements above were taken
+      before the colour changed, and a colour moves none of them.
+    - **A `ProfilerRecorder` sentinel, not a terrain fault.** Four coast phases reported worker times
+      near −1e9 ms. Each was exactly −2^63 ns over the phase's job count: one sample of `long.MinValue`
+      on a Burst job's marker. With it taken out they read as the others do (fine 1.548, 1.867 and 1.572
+      ms, mesh 0.189). Anything that reads these markers has to skip it.
+    - **The hard diagonal edge across the sky in some coast frames** looks like the skybox's own
+      horizon, tilted because the local up is not world Y. It is nothing to do with the sea.

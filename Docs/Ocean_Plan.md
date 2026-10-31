@@ -603,6 +603,15 @@ These need the user's decision, or a measurement, before the task that depends o
 The plan above is the plan as written. Building it will change some of it; record those changes here
 rather than editing them into the tasks, so the plan still reads as what was decided up front.
 
+1. **`ocean-a`, measured (2026-10-30).** The full record is amendment 10 of `Docs/Ocean_A_Plan.md`.
+   On all five stress scenes the descents' peak working sets match the ocean-free baseline, with Earth
+   8 chunks lower because the descent is not frame-locked; upload per chunk did not rise. Vertex memory
+   rises by 2–15% at a descent's peak and 15–33% on a coast, and every session stays 17% or more under
+   its resident budget. Land at the eroded terrain is 29.4–29.9% against the 30% target, so Q2 needs no
+   retune. Chunk throughput follows the frame rate, about 3 to 5 chunks a frame, which leaves the tree
+   short of its depth in a fast low flight: that is for M6. The material's deep colour was too dark
+   in linear space to survive the haze, and was retuned by eye.
+
 ---
 
 ## Out of scope

@@ -40,12 +40,12 @@ Shader "Sonoma/Ocean"
     {
         [Header(Colour by Depth)]
         _ShallowColor ("Shallow Color", Color) = (0.05, 0.35, 0.38, 1)
-        _DeepColor    ("Deep Color",    Color) = (0.02, 0.07, 0.15, 1)
+        _DeepColor    ("Deep Color",    Color) = (0.03, 0.16, 0.33, 1)
         _DepthScale   ("Depth Scale (m)", Float) = 20
 
         [Header(Glint)]
         _Smoothness       ("Smoothness, Near",   Range(0, 1)) = 0.9
-        _FarSmoothness    ("Smoothness, Far",    Range(0, 1)) = 0.4
+        _FarSmoothness    ("Smoothness, Far",    Range(0, 1)) = 0.5
         _GlintFarDistance ("Far Distance (m)",   Float)       = 1000000
 
         [Header(Fresnel)]

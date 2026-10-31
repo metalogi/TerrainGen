@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
@@ -47,6 +48,13 @@ using Sonoma.Core.Surface;
 //   <scene>_wetness.png      wetness, 0 to 1: dark ground through blue to white, ridges dark and
 //                            rivers bright; a river network should read as a branching tree
 //
+// With an ocean (Docs/Ocean_A_Plan.md) one more image shows the sea, and the console the land's
+// share of the surface:
+//
+//   <scene>_sea.png          the height the deepest chunks draw against SeaLevel: sea in the ocean
+//                            material's colours by depth, land hillshaded, the coast in black.
+//                            <scene>_coast.png is the continent field's coast; this is the sea's
+//
 // The three heights share one colour scale -- blue below zero, green through brown to white
 // above, by the largest |total| -- and a hillshade lit from the upper left with the vertical
 // exaggeration logged, so they compare directly. Each image is the top pyramid level, one pixel
@@ -79,7 +87,7 @@ static class MacroMapExport
         try
         {
             EditorUtility.DisplayProgressBar("Export Macro Maps", "Building the maps", 0f);
-            Write(root, t);
+            EditorUtility.RevealInFinder(Write(root, t));
         }
         finally
         {
@@ -106,7 +114,8 @@ static class MacroMapExport
         config = t.Macro.ToConfig();
     }
 
-    static void Write(TerrainRoot root, Sonoma.Systems.Configuration.TerrainSettings t)
+    // Writes every image and returns the path of the total's.
+    internal static string Write(TerrainRoot root, Sonoma.Systems.Configuration.TerrainSettings t)
     {
         SceneSetup(root, t, out SurfaceDef s, out RootQuad[] roots, out HeightParams hp, out MacroConfig config);
         var mp = MacroParams.Create(s, hp, config);
@@ -233,6 +242,9 @@ static class MacroMapExport
                       $"wetness {wetRange}; deepest cut {erosion.MaxCut:F0} m; base height within " +
                       $"+-{erosion.MaxAbsBaseHeight:F0} m; {erosion.TotalMilliseconds:F1} ms of the build.");
         }
+        if (t.Ocean && root.OceanMaterial != null)
+            WriteSea(s, roots, hp, mp, texels, drainage, t.MaxDepth, t.SeaLevel, root.OceanMaterial, tile, w, h,
+                     spacing, folder, scene);
 
         Debug.Log($"[MacroMapExport] {scene}: level {level} of {mp.Layout.LevelCount}, {tile} x {tile} " +
                   $"texels a quad, built in {buildMs:F1} ms. " +
@@ -240,7 +252,7 @@ static class MacroMapExport
                   $"(colour scale +-{heightMax:F0} m, hillshade x{exaggeration:F1}); " +
                   $"temperature {Range(px[3])} C, moisture {Range(px[4])}, ruggedness {Range(px[5])}. " +
                   $"Written to {folder}");
-        EditorUtility.RevealInFinder(Path.Combine(folder, $"{scene}_total.png"));
+        return Path.Combine(folder, $"{scene}_total.png");
     }
 
     // ── Biomes ───────────────────────────────────────────────────────────────
@@ -453,6 +465,88 @@ static class MacroMapExport
                 UnityEngine.Object.DestroyImmediate(tex);
             }
         }
+    }
+
+    // ── The sea ──────────────────────────────────────────────────────────────
+
+    // <scene>_sea.png at every texel of the top level: the height at MaxDepth through HeightAtPoint,
+    // the function TerrainRoot.HeightAt calls, against the sea level. The depth colour is the
+    // shader's, and the land's share weighs each texel by its area, as the continent map does. The
+    // octaves take their time in managed code, so the rows run in parallel; every read is pure.
+    static void WriteSea(SurfaceDef s, RootQuad[] roots, HeightParams hp, MacroParams mp, float4[] texels,
+                         float2[] drainage, int maxDepth, double sea, Material ocean, int tile, int w, int h,
+                         double spacing, string folder, string scene)
+    {
+        int n = tile - 1;
+        var reader  = new ArrayMacroTexels(texels, drainage);
+        var heights = new double[w * h];
+        Array.Fill(heights, double.NaN);
+
+        double[] area = ContinentMap.AreaTable(s, roots[0], n);
+        double   land = 0.0, total = 0.0, highest = 1e-6, deepest = 0.0;
+        for (int q = 0; q < roots.Length; q++)
+        {
+            EditorUtility.DisplayProgressBar("Export Macro Maps", $"The sea, root quad {q + 1} of {roots.Length}",
+                                             (q + 1f) / roots.Length);
+            Place(s, q, out int tx, out int ty);
+            int quad = q;
+            Parallel.For(0, n + 1, j =>
+            {
+                for (int i = 0; i <= n; i++)
+                {
+                    double3 p = SurfaceMath.SurfacePoint(s, roots[quad], i / (double)n, j / (double)n);
+                    heights[(ty * tile + j) * w + tx * tile + i] =
+                        TerrainHeightFunction.HeightAtPoint(s, p, maxDepth, hp, mp, reader);
+                }
+            });
+
+            for (int j = 0; j <= n; j++)
+            for (int i = 0; i <= n; i++)
+            {
+                double above = heights[(ty * tile + j) * w + tx * tile + i] - sea, a = area[j * tile + i];
+                total += a;
+                if (above > 0.0) land += a;
+                highest = math.max(highest, above);
+                deepest = math.max(deepest, -above);
+            }
+        }
+
+        Color  shallowColour = ocean.GetColor("_ShallowColor"), deepColour = ocean.GetColor("_DeepColor");
+        float3 shallow = new float3(shallowColour.r, shallowColour.g, shallowColour.b);
+        float3 deep    = new float3(deepColour.r, deepColour.g, deepColour.b);
+        double depthScale   = ocean.GetFloat("_DepthScale");
+        double exaggeration = Exaggeration(heights, w, h, tile, spacing);
+
+        var pixels = new Color32[w * h];
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            int    at = y * w + x;
+            double v  = heights[at];
+            if (double.IsNaN(v)) { pixels[at] = new Color32(40, 40, 40, 255); continue; }
+
+            bool isLand = v > sea, coast = false;
+            if ((x + 1) % tile != 0 && !double.IsNaN(heights[at + 1])) coast |= (heights[at + 1] > sea) != isLand;
+            if ((y + 1) % tile != 0 && !double.IsNaN(heights[at + w])) coast |= (heights[at + w] > sea) != isLand;
+            pixels[at] = Pixel(coast  ? new float3(0f)
+                             : isLand ? Hypsometric((v - sea) / highest) * Shade(heights, w, tile, x, y, spacing, exaggeration)
+                             :          math.lerp(shallow, deep, (float)(1.0 - math.exp((v - sea) / depthScale))));
+        }
+
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        try
+        {
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(folder, $"{scene}_sea.png"), tex.EncodeToPNG());
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(tex);
+        }
+
+        Debug.Log($"[MacroMapExport] {scene} sea: level {sea:F0} m, land {land / total:P1} of the surface by area at " +
+                  $"depth {maxDepth}, highest {highest:F0} m above it, deepest {deepest:F0} m below.");
     }
 
     static Color32 Pixel(float3 rgb)

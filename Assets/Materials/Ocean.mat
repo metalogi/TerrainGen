@@ -27,13 +27,13 @@ Material:
     m_Ints: []
     m_Floats:
     - _DepthScale: 20
-    - _FarSmoothness: 0.4
+    - _FarSmoothness: 0.5
     - _FresnelStrength: 0.6
     - _GlintFarDistance: 1000000
     - _Smoothness: 0.9
     - _SonomaSky: 1
     m_Colors:
-    - _DeepColor: {r: 0.02, g: 0.07, b: 0.15, a: 1}
+    - _DeepColor: {r: 0.03, g: 0.16, b: 0.33, a: 1}
     - _ShallowColor: {r: 0.05, g: 0.35, b: 0.38, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
