@@ -15,16 +15,27 @@ class ContinentSettingsEditor : Editor
 
     static bool _advanced = true;
     TerrainRoot _root;
+    string      _inputs;   // ContinentDesigner.Inputs now, refreshed on each layout pass
 
     void OnEnable()
     {
         FindRoot();
-        EditorApplication.hierarchyChanged += FindRoot;
+        EditorApplication.hierarchyChanged  += FindRoot;
+        EditorApplication.playModeStateChanged += OnPlayMode;
     }
 
-    void OnDisable() => EditorApplication.hierarchyChanged -= FindRoot;
+    void OnDisable()
+    {
+        EditorApplication.hierarchyChanged  -= FindRoot;
+        EditorApplication.playModeStateChanged -= OnPlayMode;
+    }
 
-    void FindRoot() => _root = ContinentDesigner.FindRoot((ContinentSettings)target);
+    void OnPlayMode(PlayModeStateChange change) => FindRoot();
+
+    // Not in play mode: Regenerate is disabled there, and the chunks churn the hierarchy every
+    // frame. Leaving play mode searches again.
+    void FindRoot() => _root = EditorApplication.isPlayingOrWillChangePlaymode
+                             ? null : ContinentDesigner.FindRoot((ContinentSettings)target);
 
     public override void OnInspectorGUI()
     {
@@ -55,24 +66,35 @@ class ContinentSettingsEditor : Editor
         }
     }
 
-    // Whether the fields below are what the settings above last made.
-    static void Status(ContinentSettings asset)
+    // Whether the fields below are what the settings above last made, and the land it measured
+    // still what the scene would make: the sliders as they were, and every input the measurement
+    // read -- this asset's fields and the scene's other settings -- hashing the same.
+    void Status(ContinentSettings asset)
     {
         if (asset.RegeneratedTargetLand < 0f)
         {
             EditorGUILayout.HelpBox("Never regenerated: the map settings below are set by hand.", MessageType.None);
             return;
         }
-        ContinentConfig k = asset.ToConfig();
-        ContinentConfig d = ContinentDesign.Derive(k, asset.Fragmentation, asset.LandFraction);
-        bool same = asset.RegeneratedTargetLand == asset.TargetLand &&
-                    asset.RegeneratedFragmentation == asset.Fragmentation &&
-                    d.ContinentCount == k.ContinentCount && d.MacroCells == k.MacroCells && d.Separation == k.Separation;
-        if (same)
+        if (asset.RegeneratedTargetLand != asset.TargetLand || asset.RegeneratedFragmentation != asset.Fragmentation)
+        {
+            EditorGUILayout.HelpBox("The settings have changed since the last Regenerate.", MessageType.Warning);
+            return;
+        }
+        if (_root == null)
+        {
+            EditorGUILayout.HelpBox($"Regenerated for {asset.TargetLand:P1} land, and measured {asset.MeasuredLand:P1}. " +
+                                    "Open a scene that uses this asset to check that nothing has changed since.",
+                                    MessageType.None);
+            return;
+        }
+        if (Event.current.type == EventType.Layout) _inputs = ContinentDesigner.Inputs(_root);
+        if (_inputs != null && _inputs == asset.RegeneratedInputs)
             EditorGUILayout.HelpBox($"Regenerated: the map makes {asset.MeasuredLand:P1} land against a target of " +
                                     $"{asset.TargetLand:P1}.", MessageType.Info);
         else
-            EditorGUILayout.HelpBox("The settings or the map settings have changed since the last Regenerate.",
+            EditorGUILayout.HelpBox("The map settings or the scene's terrain settings have changed since the last " +
+                                    $"Regenerate, so its {asset.MeasuredLand:P1} land is no longer measured.",
                                     MessageType.Warning);
     }
 

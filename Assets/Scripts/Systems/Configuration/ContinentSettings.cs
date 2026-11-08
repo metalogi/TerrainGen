@@ -31,9 +31,12 @@ namespace Sonoma.Systems.Configuration
 
         // What the last Regenerate was asked for and what it measured, so the inspector can say
         // whether the fields below still come from the settings above. -1 is never regenerated.
-        [HideInInspector] public float RegeneratedTargetLand    = -1f;
-        [HideInInspector] public float RegeneratedFragmentation = -1f;
-        [HideInInspector] public float MeasuredLand             = -1f;
+        // RegeneratedInputs is a hash of everything the measurement read: these fields and the
+        // scene's terrain, macro and erosion settings (ContinentDesigner.Inputs).
+        [HideInInspector] public float  RegeneratedTargetLand    = -1f;
+        [HideInInspector] public float  RegeneratedFragmentation = -1f;
+        [HideInInspector] public float  MeasuredLand             = -1f;
+        [HideInInspector] public string RegeneratedInputs        = "";
 
         [Header("Map")]
         [Tooltip("The continent map's seed. Offset internally from the macro and detail seeds, so the " +

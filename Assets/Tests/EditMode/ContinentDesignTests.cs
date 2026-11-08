@@ -58,6 +58,14 @@ namespace Sonoma.Tests
             }
             foreach (int n in new[] { 1, 2, 3, 4, 8, 16, 24 })
                 Assert.AreEqual(n, ContinentDesign.ContinentCountFor(ContinentDesign.FragmentationFor(n)), $"{n} continents");
+
+            // A NaN is refused, under the name of the argument that carried it.
+            var bad = Assert.Throws<System.ArgumentOutOfRangeException>(
+                () => ContinentDesign.Derive(ContinentConfig.Default, float.NaN, 0.3f));
+            Assert.AreEqual("fragmentation", bad.ParamName);
+            bad = Assert.Throws<System.ArgumentOutOfRangeException>(
+                () => ContinentDesign.Derive(ContinentConfig.Default, 0.5f, float.NaN));
+            Assert.AreEqual("mapLand", bad.ParamName);
         }
 
         // A sphere small enough to build in a test, with Earth's seeds and spread: 2,000 micro cells

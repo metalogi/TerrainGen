@@ -51,8 +51,10 @@ namespace Sonoma.Core.Generation
         // The configuration the two settings make from the current one.
         public static ContinentConfig Derive(in ContinentConfig current, float fragmentation, float mapLand)
         {
-            if (float.IsNaN(fragmentation) || float.IsNaN(mapLand))
-                throw new ArgumentOutOfRangeException(nameof(fragmentation), "ContinentDesign: the settings must be numbers.");
+            if (float.IsNaN(fragmentation))
+                throw new ArgumentOutOfRangeException(nameof(fragmentation), "ContinentDesign: the fragmentation must be a number.");
+            if (float.IsNaN(mapLand))
+                throw new ArgumentOutOfRangeException(nameof(mapLand), "ContinentDesign: the map land share must be a number.");
             var k = current;
             k.LandFraction   = math.clamp(mapLand, 0.01f, 0.99f);
             k.ContinentCount = ContinentCountFor(fragmentation);

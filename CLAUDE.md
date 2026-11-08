@@ -44,7 +44,7 @@ Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain gener
 - `ContinentSettingsEditor` and `ContinentDesigner` are the continent designer, the inspector of every `ContinentSettings` asset. **Regenerate** needs the open scene's `TerrainRoot` to use the asset, and edit mode.
   - **What it writes.** `ContinentDesign.Derive` sets `ContinentCount`, `MacroCells` and `Separation` from `Fragmentation`, and nothing else is touched.
   - **How it calibrates.** It then builds the maps as `TerrainRoot` does, erosion included, and measures the final land at `MaxDepth` with `MacroMapExport.SampleSea`, at every second texel. It steps `LandFraction` by secant until the land is within half a point of `TargetLand`, in at most four builds, and writes the asset with Undo.
-  - **What it shows.** The inspector shows the sea image, the land and agreement, the continents and their shares, the islands, the saturation and the envelope, and it warns on the pinned stress-scene assets.
+  - **What it shows.** The inspector shows the sea image, the land and agreement, the continents and their shares, the islands, the saturation and the envelope, and it warns on the pinned stress-scene assets. It calls the land current only while the sliders and a hash of every input the measurement read (`ContinentDesigner.Inputs`, stored as `RegeneratedInputs`) are unchanged.
 
 ### Important Unity Packages
 - **URP** (17.3.0): Universal Render Pipeline - all rendering uses URP shaders

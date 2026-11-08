@@ -826,6 +826,9 @@ Two sliders on `ContinentSettings`, **`TargetLand`** (the final terrain's land s
    - **What it supersedes.** `ReliefMeasurements.CalibrateLandFraction`, which bisected on the uneroded terrain. `ContinentsSurviveTheDetailNoise` still probes the uneroded terrain, which ocean-a measured 0.1–0.6 points above the eroded, inside its 1.5 points.
    - **What the inspector shows:** the sea image, the land and agreement, the continents and their shares, the islands, micro cells per continent, saturation, the deepest cut and the envelope. It warns under 90% agreement, under 30 micro cells a continent, or with no convergence.
    - **A refusal.** Stage A's or B's plateau check is reported as an error, and the asset is left unchanged.
+   - **Only the winner is finished (PR #21's review).** A try measures the land share alone. The agreement, the continents' shares and the preview texture are worked out once, for the closest try, so a losing try costs its build and its land, and a cancel or an error leaves no texture behind.
+   - **When the measured land is current.** Regenerate stores a hash of everything the measurement read (`ContinentDesigner.Inputs`): the surface, the height parameters and the macro configuration `SceneSetup` makes, which includes this asset's fields, erosion and the biomes, as well as `MaxDepth` and `SeaLevel`. The inspector says "Regenerated" only while the sliders and that hash are unchanged. A change to the seed, the micro cells, `LandFraction` or the scene's terrain settings therefore shows the land as no longer measured. With no scene open it cannot hash the scene, so it says to open one.
+   - **No scene search in play mode.** The inspector finds its `TerrainRoot` on hierarchy changes in edit mode only, and again on leaving play mode.
 5. **Sandbox first.**
    - **The sandbox.** `ContinentSandbox.unity` is `EarthStress` with its own `SandboxTerrainSettings`, `SandboxMacro` and `SandboxContinents`, and Earth's erosion, biomes and materials. No test names it.
    - **The pinned assets.** The four stress scenes' continent assets are named in `ContinentDesigner.PinnedAssets`. The inspector warns on them and asks before regenerating one.
@@ -843,6 +846,7 @@ Two sliders on `ContinentSettings`, **`TargetLand`** (the final terrain's land s
      | 0.7, 0.5 | 70.04% | 5 (27%) | 88.7% | 3, 18.9 s |
      | 0.1, 0.75 | 10.09% | 17 (12%) | 96.5% | 3, 11.1 s |
 
+     Those timings predate the review fix below, so each try then also built a preview and checked agreement. Not re-timed.
    - **Regenerating today's settings changes the map.** At Earth's own settings Regenerate makes six continents where Earth has three, because the separation opens straits that Earth's map closes. So a stress scene regenerated at its current sliders is still a retune.
    - **Agreement at 70% land.** It falls under the 90% that `ContinentsSurviveTheDetailNoise` holds the stress scenes to, and the inspector warns. More coast is more ground for the detail noise to move across sea level.
    - **Not yet done:** the inspector itself, the sliders, the button and the preview drawn, checked by eye in the Editor, and a flight over a regenerated sandbox in play mode.

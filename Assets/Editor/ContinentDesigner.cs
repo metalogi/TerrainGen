@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Reflection;
+using System.Text;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
@@ -57,11 +61,77 @@ static class ContinentDesigner
         return null;
     }
 
-    // One build and its measurement.
-    struct Try
+    // A hash of everything the calibration's measurement reads: the surface, the height
+    // parameters and the macro configuration SceneSetup makes -- the continents, erosion and
+    // biomes among it -- the depth the land is sampled at and the sea level. Regenerate stores it
+    // and the inspector compares it, so a change to any of them, in this asset or the scene's
+    // other settings, shows the measured land as stale. Null when the settings do not resolve.
+    internal static string Inputs(TerrainRoot root)
     {
-        public ContinentConfig Config;
-        public Result          Result;
+        var t = root.Settings;
+        try
+        {
+            MacroMapExport.SceneSetup(root, t, out SurfaceDef s, out _, out HeightParams hp, out MacroConfig config);
+            var sb = new StringBuilder();
+            Dump(sb, s, 0);
+            Dump(sb, hp, 0);
+            Dump(sb, config, 0);
+            Dump(sb, t.MaxDepth, 0);
+            Dump(sb, t.SeaLevel, 0);
+            sb.Append(Stride);
+            return Hash128.Compute(sb.ToString()).ToString();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    // Every field, recursively and in declaration order; floating point by its round-trip form,
+    // since Mono's default ToString drops digits.
+    static void Dump(StringBuilder sb, object o, int depth)
+    {
+        if (o == null) { sb.Append("null;"); return; }
+        if (depth > 8) throw new InvalidOperationException("ContinentDesigner: the configuration nests too deeply to hash.");
+        switch (o)
+        {
+            case float f:  sb.Append(f.ToString("R", CultureInfo.InvariantCulture)).Append(';'); return;
+            case double d: sb.Append(d.ToString("R", CultureInfo.InvariantCulture)).Append(';'); return;
+            case string s: sb.Append('"').Append(s).Append("\";"); return;
+            case Array a:
+                sb.Append('[');
+                foreach (object e in a) Dump(sb, e, depth + 1);
+                sb.Append("];");
+                return;
+        }
+        Type type = o.GetType();
+        if (type.IsPrimitive || type.IsEnum)
+        {
+            sb.Append(Convert.ToString(o, CultureInfo.InvariantCulture)).Append(';');
+            return;
+        }
+        sb.Append('{');
+        foreach (FieldInfo f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                                    .OrderBy(f => f.MetadataToken))
+        {
+            sb.Append(f.Name).Append('=');
+            Dump(sb, f.GetValue(o), depth + 1);
+        }
+        sb.Append("};");
+    }
+
+    // One build's land, and what the winner's result is finished from. The agreement, the pieces
+    // and the preview are worked out for the winner alone, so a losing try costs its build and
+    // the land share, and leaves no texture behind.
+    sealed class Build
+    {
+        public ContinentConfig    Config;
+        public MacroParams        Macro;
+        public ContinentParams    Continent;
+        public ContinentMap       Map;
+        public MacroMapExport.Sea Sea;
+        public double             FinalLand, Milliseconds, Envelope, MaxCut;
+        public bool               Eroded;
     }
 
     internal static Result Regenerate(TerrainRoot root, ContinentSettings asset)
@@ -77,7 +147,8 @@ static class ContinentDesigner
         float map    = math.clamp(target + offset, 0.01f, 0.99f);
         float map0   = float.NaN, final0 = float.NaN;
 
-        Try? best = null;
+        Build best = null;
+        int builds = 0;
         var log = new List<string>();
         try
         {
@@ -89,17 +160,13 @@ static class ContinentDesigner
 
                 var k = ContinentDesign.Derive(current, fragmentation, map);
                 config.Continents = k;
-                Try one = Measure(s, roots, hp, config, t, root, k, target);
-                one.Result.Builds = b + 1;
-                log.Add($"map {map:P1} -> final {one.Result.FinalLand:P2}");
-                if (best == null || math.abs(one.Result.FinalLand - target) < math.abs(best.Value.Result.FinalLand - target))
-                {
-                    if (best != null) UnityEngine.Object.DestroyImmediate(best.Value.Result.Preview);
+                Build one = Measure(s, roots, hp, config, t, k);
+                builds = b + 1;
+                log.Add($"map {map:P1} -> final {one.FinalLand:P2}");
+                if (best == null || math.abs(one.FinalLand - target) < math.abs(best.FinalLand - target))
                     best = one;
-                }
-                else UnityEngine.Object.DestroyImmediate(one.Result.Preview);
 
-                float final = (float)one.Result.FinalLand;
+                float final = (float)one.FinalLand;
                 if (math.abs(final - target) <= Tolerance) break;
                 float next = float.IsNaN(map0) ? ContinentDesign.NextMapLand(target, map, final)
                                                : ContinentDesign.NextMapLand(target, map0, final0, map, final);
@@ -109,7 +176,6 @@ static class ContinentDesigner
         catch (InvalidOperationException e)
         {
             // Stage A's or B's plateau check: the seeds landed too sparse for the coast width.
-            if (best != null) UnityEngine.Object.DestroyImmediate(best.Value.Result.Preview);
             return Failed(asset, e.Message, log);
         }
         finally
@@ -117,19 +183,20 @@ static class ContinentDesigner
             EditorUtility.ClearProgressBar();
         }
 
-        Try won = best.Value;
-        Result r = won.Result;
-        r.Tries.AddRange(log);
+        Result r = Finish(best, s, roots, hp, root, target);
+        r.Builds    = builds;
         r.Converged = math.abs(r.FinalLand - target) <= Tolerance;
+        r.Tries.AddRange(log);
 
         Undo.RecordObject(asset, "Regenerate continents");
-        asset.LandFraction             = won.Config.LandFraction;
-        asset.ContinentCount           = won.Config.ContinentCount;
-        asset.MacroCells               = won.Config.MacroCells;
-        asset.Separation               = won.Config.Separation;
+        asset.LandFraction             = best.Config.LandFraction;
+        asset.ContinentCount           = best.Config.ContinentCount;
+        asset.MacroCells               = best.Config.MacroCells;
+        asset.Separation               = best.Config.Separation;
         asset.RegeneratedTargetLand    = target;
         asset.RegeneratedFragmentation = fragmentation;
         asset.MeasuredLand             = (float)r.FinalLand;
+        asset.RegeneratedInputs        = Inputs(root) ?? "";
         EditorUtility.SetDirty(asset);
         r.Written = true;
 
@@ -157,49 +224,56 @@ static class ContinentDesigner
         Last[id] = r;
     }
 
-    // Builds the maps as TerrainRoot.BuildMacro does and measures the sea at every Stride-th
-    // texel: the final land by area, and the share of the area where the final terrain is on the
-    // continent map's side of sea level (ContinentTests' agreement, over texels rather than random
-    // points).
-    static Try Measure(in SurfaceDef s, RootQuad[] roots, in HeightParams hp, in MacroConfig config,
-                       TerrainSettings t, TerrainRoot root, in ContinentConfig k, float target)
+    // Builds the maps as TerrainRoot.BuildMacro does and measures the final land by area at every
+    // Stride-th texel.
+    static Build Measure(in SurfaceDef s, RootQuad[] roots, in HeightParams hp, in MacroConfig config,
+                         TerrainSettings t, in ContinentConfig k)
     {
-        var mp = MacroParams.Create(s, hp, config);
-        var cp = ContinentParams.Create(s, mp, config);
-        var ep = ErosionParams.Create(s, hp, mp, config);
+        var b = new Build { Config = k };
+        b.Macro     = MacroParams.Create(s, hp, config);
+        b.Continent = ContinentParams.Create(s, b.Macro, config);
+        var ep = ErosionParams.Create(s, hp, b.Macro, config);
 
-        float4[]     texels;
-        float2[]     drainage;
-        ContinentMap map;
-        var r = new Result { Target = target };
-        using (var maps = MacroMaps.Build(s, roots, mp, cp, hp, ep))
+        float4[] texels;
+        float2[] drainage;
+        using (var maps = MacroMaps.Build(s, roots, b.Macro, b.Continent, hp, ep))
         {
-            texels   = maps.Texels.ToArray();
-            drainage = maps.Drainage.ToArray();
-            map      = maps.Continents;
-            r.BuildMilliseconds = maps.BuildMilliseconds;
-            r.Envelope          = maps.MaxAbsHeight(hp);
-            r.Eroded            = maps.Erosion != null;
-            r.MaxCut            = maps.Erosion != null ? maps.Erosion.MaxCut : 0.0;
+            texels         = maps.Texels.ToArray();
+            drainage       = maps.Drainage.ToArray();
+            b.Map          = maps.Continents;
+            b.Milliseconds = maps.BuildMilliseconds;
+            b.Envelope     = maps.MaxAbsHeight(hp);
+            b.Eroded       = maps.Erosion != null;
+            b.MaxCut       = maps.Erosion != null ? maps.Erosion.MaxCut : 0.0;
         }
 
-        MacroMapExport.Sea sea = MacroMapExport.SampleSea(s, roots, hp, mp, texels, drainage, t.MaxDepth,
-                                                          t.SeaLevel, Stride, null);
-        r.FinalLand = sea.LandShare;
-        r.Map       = map.Stats;
+        b.Sea       = MacroMapExport.SampleSea(s, roots, hp, b.Macro, texels, drainage, t.MaxDepth, t.SeaLevel, Stride, null);
+        b.FinalLand = b.Sea.LandShare;
+        return b;
+    }
 
+    // The winner's result: its continents' shares, the share of the area where the final terrain
+    // is on the continent map's side of sea level (ContinentTests' agreement, over texels rather
+    // than random points), and the preview.
+    static Result Finish(Build b, in SurfaceDef s, RootQuad[] roots, in HeightParams hp, TerrainRoot root, float target)
+    {
+        var r = new Result
+        {
+            Target = target, FinalLand = b.FinalLand, Map = b.Map.Stats, LandMicroCells = b.Map.Stats.LandCells,
+            BuildMilliseconds = b.Milliseconds, Envelope = b.Envelope, Eroded = b.Eroded, MaxCut = b.MaxCut,
+        };
+
+        // The pieces are sorted largest first, so the first Stats.Continents are the continents.
         double land = 0.0;
-        foreach (double a in map.LandPieces) land += a;
-        int shown = 0;
-        while (shown < map.LandPieces.Length && map.LandPieces[shown] >= ContinentMap.ContinentShare * land) shown++;
-        r.Pieces = new double[shown];
-        for (int i = 0; i < shown; i++) r.Pieces[i] = map.LandPieces[i] / land;
-        r.LandMicroCells = map.Stats.LandCells;
+        foreach (double a in b.Map.LandPieces) land += a;
+        r.Pieces = new double[b.Map.Stats.Continents];
+        for (int i = 0; i < r.Pieces.Length; i++) r.Pieces[i] = b.Map.LandPieces[i] / land;
 
         // Agreement, each texel weighted by its area as the sea's land share is.
-        int full = mp.Layout.Cells(mp.Layout.LevelCount - 1);
+        MacroMapExport.Sea sea = b.Sea;
+        int full = b.Macro.Layout.Cells(b.Macro.Layout.LevelCount - 1);
         double[] area = ContinentMap.AreaTable(s, roots[0], full);
-        var tables = new ArrayContinentTables(map);
+        var tables = new ArrayContinentTables(b.Map);
         double agree = 0.0, total = 0.0;
         for (int y = 0; y < sea.Height; y++)
         for (int x = 0; x < sea.Width; x++)
@@ -208,17 +282,18 @@ static class ContinentDesigner
             if (double.IsNaN(h) || !MacroMapExport.PixelPoint(s, roots, sea, x, y, out double3 p)) continue;
             double a = area[(y % sea.Tile) * Stride * (full + 1) + (x % sea.Tile) * Stride];
             total += a;
-            if ((ContinentField.Sample(p, tables, cp).S > 0.0) == (h > sea.Level)) agree += a;
+            if ((ContinentField.Sample(p, tables, b.Continent).S > 0.0) == (h > sea.Level)) agree += a;
         }
         r.Agreement = total > 0.0 ? agree / total : 0.0;
 
+        Color32[] pixels = MacroMapExport.SeaPixels(sea, root.OceanMaterial, ContinentParams.TopTexelSpacing(hp.S0, b.Macro.Layout));
         var tex = new Texture2D(sea.Width, sea.Height, TextureFormat.RGBA32, false)
         {
             hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp,
         };
-        tex.SetPixels32(MacroMapExport.SeaPixels(sea, root.OceanMaterial, ContinentParams.TopTexelSpacing(hp.S0, mp.Layout)));
+        tex.SetPixels32(pixels);
         tex.Apply();
         r.Preview = tex;
-        return new Try { Config = k, Result = r };
+        return r;
     }
 }
