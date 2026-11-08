@@ -856,3 +856,49 @@ measurements, and anything the Editor said that this plan did not.
       ms, mesh 0.189). Anything that reads these markers has to skip it.
     - **The hard diagonal edge across the sky in some coast frames** looks like the skybox's own
       horizon, tilted because the local up is not world Y. It is nothing to do with the sea.
+11. **PR #20's review (2026-11-07): ten findings, every one true of 2cf5ec4, nine fixed and one in
+    part.** The review read the code only; each finding was checked against it before acting.
+    - **The scheduler owns its index buffers (1).** It took them from `ChunkMeshBuffers`' static
+      cache, which any `TerrainRoot`'s teardown freed whole, so a second root destroyed in an additive
+      scene would have freed arrays a live scheduler still handed to every job. Main rebuilt a missing
+      buffer on each upload, so this was new in `ocean-a`. The scheduler now builds both and frees them
+      in `Dispose`, and `TerrainRoot` no longer clears the cache, which only the tests use.
+    - **The fly camera stays above the sea (2).** `Ground` changed how clearance was measured but
+      nothing stopped a move, so holding Q over open sea went through the water, and from below the
+      world vanished. A move that leaves the camera under `SeaClearance`, a metre, above the sea is
+      lifted back along the local up (`TopologyFlyCamera.SeaLift`). Only the sea is a floor; the
+      terrain never was one. This plan's definition of done and `CLAUDE.md` said so already.
+    - **The water's skirt keeps its chord sag with no `SkirtFraction` (3).** It took the terrain's
+      `SkirtChordSag`, which gives the sag up in a scene with no fraction so `SampleScene`'s terrain
+      keeps its bits. The water has no bits to keep and its gap is the sag. `WaterChordSag` gives the
+      whole sag whenever skirts are on; skirts off reach the scheduler as a zero depth and fraction,
+      which a scene could also set with skirts on, so the scheduler now takes `SkirtsEnabled` itself.
+      No shipped scene changes: all five have a fraction, and there the two sags are the same bits.
+    - **The kind tallies are taken after eviction (4).** `CountResident` ran, and set the peak, before
+      the budget pass, which lowered `ResidentCount` but not the kinds. A frame that evicts now counts
+      again, and the peak is recorded once eviction is done.
+    - **Materials per kind are tested (5).** `SelectorCountsChunksByKind` gives the pool two distinct
+      materials and checks every resident chunk's: terrain, water, or terrain then water, one per
+      submesh, with a Coast chunk's submesh 0 indexing the terrain grid and submesh 1 the water's.
+    - **The mesh with no ocean is held to main's (6).** `OceanOffBuildsTodaysMesh` compared the new job
+      with itself, so a change to code both paths share passed it. `FrozenChunkMeshJob` is main's job
+      before `ocean-a`, Burst-compiled as the real one is, with the buffers set as main's scheduler set
+      them; the test compares vertices, indices, the submesh and both bounds byte for byte on a cube
+      sphere, a plane grid and a cylinder, with a fraction and a chord sag, and over a macro layer with
+      biomes. The Coast chunk's terrain half is still compared too.
+    - **`CLAUDE.md`'s design decision on water (7)** said a separate system. It now says the sea is
+      outside the heightmap, drawn on the terrain's own chunks.
+    - **`HeightBounds`' slots are named (8, in part).** The review proposed a result struct in a
+      `NativeReference`, since `[3]` and `[4]` are read only by a test. They stay: that test holds the
+      job's own drawn-range scan to an independent one, and a scan that forgot the coarse heights would
+      rarely change a chunk's kind. The six slots have names on `ChunkMeshJob` instead.
+    - **The kind is stored once (9).** `NodeState.Kind` and `Result.Kind` duplicated the chunk's own
+      `Kind`, which `Upload` sets before the selector sees it; `CountResident` reads the chunk.
+    - **`IndexFormatFor` is main's again (10).** Its `ocean` argument could not change the result, since
+      every accepted resolution is 16-bit and the job sets the format itself.
+    - **Tests:** all 249 pass in the Editor, two of them new:
+      `OceanLayoutTests.WaterSkirtKeepsItsSagWithoutAFraction` and
+      `EarthSettingsAssetTests.FlyCameraIsLiftedAboveTheSea`. With a mutation in the skirt code both
+      paths share (the skirt's morph target left where it was), `OceanOffBuildsTodaysMesh` now fails
+      at the cube sphere's vertex 81, where the self-comparison it replaced passed. The camera's lift
+      has not been flown in play.

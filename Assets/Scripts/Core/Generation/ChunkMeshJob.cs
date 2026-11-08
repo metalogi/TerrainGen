@@ -54,10 +54,13 @@ namespace Sonoma.Core.Generation
 
         public Mesh.MeshData Mesh;
 
-        // [0] min, [1] max of the fine heights: the selector's bounding sphere. [2] the terrain
-        // skirt's drop. [3] lo, [4] hi: the drawn range, fine heights and morph targets (A1).
-        // [5] the ChunkKind, as a float. (A9)
+        // Min and max of the fine heights: the selector's bounding sphere. The terrain skirt's
+        // drop. Lo and hi: the drawn range, fine heights and morph targets (A1); only a test reads
+        // them, to hold the job's own scan to an independent one. The ChunkKind, as a float. (A9)
+        // HeightBoundsCount floats, in these slots.
         [WriteOnly] public NativeArray<float> HeightBounds;
+        public const int MinHeightSlot = 0, MaxHeightSlot = 1, SkirtDropSlot = 2,
+                         DrawnLoSlot = 3, DrawnHiSlot = 4, KindSlot = 5, HeightBoundsCount = 6;
 
         // The box round every position the mesh can draw, in chunk-local space: grid and skirt
         // vertices and their morph targets, terrain and water. [0] = min, [1] = max. The culling
@@ -127,12 +130,12 @@ namespace Sonoma.Core.Generation
                 bmax = math.max(bmax, math.max(v.Position, v.MorphPosition.xyz));
             }
 
-            HeightBounds[0] = minH;
-            HeightBounds[1] = maxH;
-            HeightBounds[2] = drop;
-            HeightBounds[3] = lo;
-            HeightBounds[4] = hi;
-            HeightBounds[5] = (float)kind;
+            HeightBounds[MinHeightSlot] = minH;
+            HeightBounds[MaxHeightSlot] = maxH;
+            HeightBounds[SkirtDropSlot] = drop;
+            HeightBounds[DrawnLoSlot]   = lo;
+            HeightBounds[DrawnHiSlot]   = hi;
+            HeightBounds[KindSlot]      = (float)kind;
             VertexBounds[0] = bmin;
             VertexBounds[1] = bmax;
         }

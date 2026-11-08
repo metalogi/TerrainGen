@@ -75,14 +75,19 @@ namespace Sonoma.Core.Quadtree
         readonly MacroMaps    _macro;
         readonly bool         _ownsMacro;
         readonly OceanParams  _ocean;
+        readonly bool         _skirts;
 
         // What the mesh job sizes its buffers with (S1): the vertex layout, allocated once for the
-        // scheduler's life rather than a Temp per chunk, and the shared index buffers for this
-        // resolution and winding, single and doubled. All read [ReadOnly] by every job in flight.
-        // Not readonly: Dispose on a readonly field frees a copy, and a second Dispose would
-        // free the array again.
+        // scheduler's life rather than a Temp per chunk, and the index buffers for this resolution
+        // and winding, single and doubled. All read [ReadOnly] by every job in flight.
+        //
+        // The scheduler owns all three. The index buffers used to be ChunkMeshBuffers' static
+        // cache, which TerrainRoot.OnDestroy freed whole: a second TerrainRoot destroyed while
+        // this one lived, in an additive scene, would free arrays this scheduler still hands to
+        // every job. Not readonly: Dispose on a readonly field frees a copy, and a second Dispose
+        // would free the array again.
         NativeArray<VertexAttributeDescriptor> _attributes;
-        readonly NativeArray<ushort> _indices, _doubledIndices;
+        NativeArray<ushort> _indices, _doubledIndices;
 
         readonly List<Request>                _heap     = new List<Request>();
         // Where each queued node sits in _heap, maintained by every swap. It is what makes
@@ -106,13 +111,12 @@ namespace Sonoma.Core.Quadtree
             public readonly NodeId       Node;
             public readonly TerrainChunk Chunk;
             public readonly float        MinHeight, MaxHeight;
-            // What the chunk draws (ocean-a, A9). It does not enter selection.
-            public readonly ChunkKind    Kind;
 
-            public Result(NodeId node, TerrainChunk chunk, float minHeight, float maxHeight,
-                          ChunkKind kind = ChunkKind.Land)
+            // What the chunk draws (ocean-a, A9) is the chunk's own Kind, set before it is handed
+            // over. It does not enter selection.
+            public Result(NodeId node, TerrainChunk chunk, float minHeight, float maxHeight)
             {
-                Node = node; Chunk = chunk; MinHeight = minHeight; MaxHeight = maxHeight; Kind = kind;
+                Node = node; Chunk = chunk; MinHeight = minHeight; MaxHeight = maxHeight;
             }
         }
 
@@ -128,10 +132,14 @@ namespace Sonoma.Core.Quadtree
         //
         // ocean is the sea, default for none (ocean-a). With one the mesh job decides each chunk's
         // kind and the pool must have been given the ocean material.
+        //
+        // skirts is TerrainSettings.SkirtsEnabled. Skirts off arrive as a zero depth and fraction,
+        // which a scene could also set with skirts on, and the water's chord sag must tell the two
+        // apart: see ChunkMeshLayout.WaterChordSag.
         public GenerationScheduler(in SurfaceDef surface, RootQuad[] roots, in HeightParams p,
                                    ChunkPool pool, float skirtDepth, float skirtFraction,
                                    int maxInFlight, float uploadBudgetMs, MacroMaps macro = null,
-                                   OceanParams ocean = default)
+                                   OceanParams ocean = default, bool skirts = true)
         {
             _surface        = surface;
             _roots          = roots;
@@ -146,13 +154,18 @@ namespace Sonoma.Core.Quadtree
             _ownsMacro      = macro == null;
             _macro          = macro ?? MacroMaps.Disabled();
             _ocean          = ocean;
+            _skirts         = skirts;
             _attributes     = new NativeArray<VertexAttributeDescriptor>(
                                   ChunkMeshBuffers.VertexAttributes(), Allocator.Persistent);
-            _indices        = ChunkMeshBuffers.SharedIndices(_resolution, _flipWinding);
+            _indices        = new NativeArray<ushort>(ChunkMeshLayout.BuildIndices(_resolution, _flipWinding),
+                                                      Allocator.Persistent);
             // Without an ocean no chunk is Coast and the doubled buffer is never read, so it is not
-            // built: at R above 179 it cannot be.
-            _doubledIndices = ocean.Enabled ? ChunkMeshBuffers.SharedIndices(_resolution, _flipWinding, true)
-                                            : _indices;
+            // built: at R above 179 it cannot be. The job still needs a constructed array, so it
+            // gets the single one again.
+            _doubledIndices = ocean.Enabled
+                ? new NativeArray<ushort>(ChunkMeshLayout.BuildIndices(_resolution, _flipWinding, true),
+                                          Allocator.Persistent)
+                : _indices;
         }
 
         // Requests a node, or re-prices one already queued.
@@ -236,7 +249,7 @@ namespace Sonoma.Core.Quadtree
                 CoarseHeights = new NativeArray<float>(coarse,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 Splats        = new NativeArray<uint>(samples,    Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
                 CoarseSplats  = new NativeArray<uint>(coarse,     Allocator.Persistent, NativeArrayOptions.UninitializedMemory),
-                HeightBounds  = new NativeArray<float>(6,         Allocator.Persistent),
+                HeightBounds  = new NativeArray<float>(ChunkMeshJob.HeightBoundsCount, Allocator.Persistent),
                 VertexBounds  = new NativeArray<float3>(2,        Allocator.Persistent),
                 MeshData      = Mesh.AllocateWritableMeshData(1),
             };
@@ -266,13 +279,14 @@ namespace Sonoma.Core.Quadtree
                 Splats = p.CoarseSplats,
             }.Schedule(coarse, 64);
 
-            float sag  = ChunkMeshLayout.SkirtChordSag(_surface, _skirtFraction,
-                             LodMath.NominalSize(_params.S0, node.Depth), R);
+            double nominal  = LodMath.NominalSize(_params.S0, node.Depth);
+            float  sag      = ChunkMeshLayout.SkirtChordSag(_surface, _skirtFraction, nominal, R);
+            float  waterSag = _ocean.Enabled ? ChunkMeshLayout.WaterChordSag(_surface, _skirts, nominal, R) : 0f;
             var mesh = new ChunkMeshJob
             {
                 Resolution = R, Anchor = p.Anchor, Depth = node.Depth,
                 SkirtDepth = _skirtDepth, SkirtFraction = _skirtFraction, ChordSag = sag,
-                Ocean = _ocean, WaterSkirtDrop = ChunkMeshLayout.WaterSkirtDrop(_skirtDepth, _skirtFraction, sag),
+                Ocean = _ocean, WaterSkirtDrop = ChunkMeshLayout.WaterSkirtDrop(_skirtDepth, _skirtFraction, waterSag),
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
                 Splats = p.Splats,
                 CoarseBasePoints = p.CoarsePoints, CoarseBaseNormals = p.CoarseNormals,
@@ -325,7 +339,7 @@ namespace Sonoma.Core.Quadtree
 
             // The job wrote the indices and submeshes, for the kind it decided (S1); the chunk
             // takes that kind's materials, one per submesh.
-            var kind  = (ChunkKind)(int)p.HeightBounds[5];
+            var kind  = (ChunkKind)(int)p.HeightBounds[ChunkMeshJob.KindSlot];
             var chunk = _pool.Acquire();
             var mesh  = chunk.Mesh;
 
@@ -337,7 +351,7 @@ namespace Sonoma.Core.Quadtree
             // used to be a cube round the base anchor padded by the absolute elevation: kilometres
             // of pad on a 20 m chunk, which made the deepest chunks' bounds hundreds of times
             // their size.
-            float minH = p.HeightBounds[0], maxH = p.HeightBounds[1];
+            float minH = p.HeightBounds[ChunkMeshJob.MinHeightSlot], maxH = p.HeightBounds[ChunkMeshJob.MaxHeightSlot];
             float3 lo = p.VertexBounds[0], hi = p.VertexBounds[1];
             mesh.bounds = new Bounds((Vector3)(0.5f * (lo + hi)), (Vector3)(hi - lo));
 
@@ -346,7 +360,7 @@ namespace Sonoma.Core.Quadtree
             chunk.gameObject.name = $"Chunk_q{p.Node.Quad}_d{p.Node.Depth}_{p.Node.X}_{p.Node.Y}";
 
             p.DisposeBuffers();
-            ChunkReady?.Invoke(new Result(p.Node, chunk, minH, maxH, kind));
+            ChunkReady?.Invoke(new Result(p.Node, chunk, minH, maxH));
         }
 
         // Play-mode teardown. Every in-flight job must be completed before its buffers are
@@ -366,10 +380,12 @@ namespace Sonoma.Core.Quadtree
             _heapAt.Clear();
             _wanted.Clear();
 
-            // After the jobs above, never before: they read it. The shared index buffers are
-            // ChunkMeshBuffers' to free, after this.
+            // After the jobs above, never before: they read them. Without an ocean the doubled
+            // buffer is the single one, freed once.
             if (_ownsMacro) _macro.Dispose();
             if (_attributes.IsCreated) _attributes.Dispose();
+            if (_ocean.Enabled && _doubledIndices.IsCreated) _doubledIndices.Dispose();
+            if (_indices.IsCreated) _indices.Dispose();
         }
 
         // ── Indexed binary min-heap ──────────────────────────────────────────

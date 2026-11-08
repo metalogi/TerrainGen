@@ -211,7 +211,8 @@ namespace Sonoma.Core.Quadtree
                                        _ocean.Enabled ? OceanMaterial : null);
             _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
                                                  skirtFraction, Settings.MaxInFlightJobs,
-                                                 Settings.UploadBudgetMs, _macro, _ocean);
+                                                 Settings.UploadBudgetMs, _macro, _ocean,
+                                                 Settings.SkirtsEnabled);
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
@@ -418,7 +419,6 @@ namespace Sonoma.Core.Quadtree
             _macro?.Dispose();
             _macro = null;
             _pool?.Dispose();
-            ChunkMeshBuffers.DisposeCache();
         }
     }
 }

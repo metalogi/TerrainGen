@@ -16,7 +16,6 @@ namespace Sonoma.Core.Rendering
         readonly Transform      _parent;
         readonly Material       _material;
         readonly int            _resolution;
-        readonly bool           _hasOcean;
         readonly Stack<TerrainChunk> _free = new Stack<TerrainChunk>();
 
         // Every chunk this pool ever made, acquired or not. _free alone is not enough to
@@ -38,8 +37,7 @@ namespace Sonoma.Core.Rendering
             _parent     = parent;
             _material   = material;
             _resolution = resolution;
-            _hasOcean   = oceanMaterial != null;
-            _land       = new[] { material };
+            _land      = new[] { material };
             _coast      = new[] { material, oceanMaterial };
             _ocean      = new[] { oceanMaterial };
         }
@@ -75,7 +73,7 @@ namespace Sonoma.Core.Rendering
 
             var mesh = new Mesh { name = "ChunkMesh" };
             mesh.MarkDynamic();
-            mesh.indexFormat = ChunkMeshBuffers.IndexFormatFor(_resolution, _hasOcean);
+            mesh.indexFormat = ChunkMeshBuffers.IndexFormatFor(_resolution);
             chunk.SetMesh(mesh);
 
             _all.Add(chunk);

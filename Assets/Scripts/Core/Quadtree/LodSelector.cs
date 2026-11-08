@@ -26,7 +26,6 @@ namespace Sonoma.Core.Quadtree
             public TerrainChunk Chunk;        // null while the node is queued or in flight
             public bool         HasChildren;  // last frame's split decision; feeds hysteresis
             public float        MinHeight, MaxHeight;
-            public ChunkKind    Kind;         // what the chunk draws (ocean-a); not used to select
 
             // NodeDistance for this node, as of the current frame's Want. Cached rather than
             // recomputed because NodeDistance is five trigonometric surface evaluations, and
@@ -74,10 +73,10 @@ namespace Sonoma.Core.Quadtree
         int     _worstReliefDepth;
         double  _worstReliefHalf;
 
-        // Resident chunks by kind (ocean-a), tallied each frame with ResidentCount, and the tally
-        // at the frame their vertex memory peaked: a Coast chunk holds two grids, the others one,
-        // so the peak in chunks is not the peak in memory. Plain fields, so the frame path stays
-        // allocation-free.
+        // Resident chunks by kind (ocean-a), tallied each frame with ResidentCount after eviction,
+        // and the tally at the frame their vertex memory peaked: a Coast chunk holds two grids, the
+        // others one, so the peak in chunks is not the peak in memory. Plain fields, so the frame
+        // path stays allocation-free.
         int _residentLand, _residentCoast, _residentOcean;
         int _peakLand, _peakCoast, _peakOcean;
 
@@ -120,6 +119,7 @@ namespace Sonoma.Core.Quadtree
 
             ReleaseUnwanted();
             EvictToBudget();
+            RecordPeakKinds();
 
             for (int q = 0; q < _roots.Length; q++)
                 AssignVisible(new NodeId(q, 0, 0, 0));
@@ -293,6 +293,7 @@ namespace Sonoma.Core.Quadtree
             foreach (var kv in _nodes)
                 if (kv.Value.Chunk != null && IsCollapsible(kv.Key)) _collapsible.Add(kv.Key);
 
+            bool evicted = false;
             while (ResidentCount > _maxResident && _collapsible.Count > 0)
             {
                 int best = 0;
@@ -305,7 +306,13 @@ namespace Sonoma.Core.Quadtree
                 _collapsible.RemoveAt(_collapsible.Count - 1);
 
                 ResidentCount -= 4;
+                evicted = true;
             }
+
+            // A collapse releases four chunks of any kind, so the kinds are counted again, or the
+            // tallies and the peak Run records after this would include chunks gone this frame.
+            // Only on a frame that evicted, which is rare.
+            if (evicted) ResidentCount = CountResident();
         }
 
         // The budget is too small when the *wanted set* does not fit in it, and that is what
@@ -385,25 +392,32 @@ namespace Sonoma.Core.Quadtree
             }
         }
 
-        // Also tallies them by kind, and keeps the tally of the frame their grids peaked.
+        // Also tallies them by kind, from the chunk itself, which GenerationScheduler.Upload gave
+        // its kind before handing it over.
         int CountResident()
         {
             _residentLand = _residentCoast = _residentOcean = 0;
             foreach (var kv in _nodes)
             {
-                if (kv.Value.Chunk == null) continue;
-                switch (kv.Value.Kind)
+                var chunk = kv.Value.Chunk;
+                if (chunk == null) continue;
+                switch (chunk.Kind)
                 {
                     case ChunkKind.Coast: _residentCoast++; break;
                     case ChunkKind.Ocean: _residentOcean++; break;
                     default:              _residentLand++;  break;
                 }
             }
+            return _residentLand + _residentCoast + _residentOcean;
+        }
+
+        // Keeps the tally of the frame the resident chunks' grids peaked, once eviction is done.
+        void RecordPeakKinds()
+        {
             if (GridCount(_residentLand, _residentCoast, _residentOcean) > GridCount(_peakLand, _peakCoast, _peakOcean))
             {
                 _peakLand = _residentLand; _peakCoast = _residentCoast; _peakOcean = _residentOcean;
             }
-            return _residentLand + _residentCoast + _residentOcean;
         }
 
         // Eviction takes complete sibling groups of four, never a lone node: evicting one
@@ -485,7 +499,6 @@ namespace Sonoma.Core.Quadtree
             state.Chunk     = result.Chunk;
             state.MinHeight = result.MinHeight;
             state.MaxHeight = result.MaxHeight;
-            state.Kind      = result.Kind;
             _nodes[result.Node] = state;
 
             WarnIfTerrainIsTooRoughToCloseBoundaries(result);
