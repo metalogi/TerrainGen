@@ -18,6 +18,9 @@ namespace Sonoma.Tests
         [SetUp]
         public void OnlyWhenAsked() => ContinentTests.MeasuringToolsOnly();
 
+        [OneTimeTearDown]
+        public void PutTheCopiesBack() => Measuring.Restore();
+
         // The macro cells scaled so each continent keeps today's 2.25 land cells (ContinentDesign.
         // MacroCellsFor), with no separation and with two: a separation of 0.5 already did most of
         // what 2 does on Earth (2026-11-07). An earlier run with today's fixed 30 cells, and with no
