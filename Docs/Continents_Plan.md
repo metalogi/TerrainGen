@@ -832,7 +832,7 @@ Two sliders on `ContinentSettings`, **`TargetLand`** (the final terrain's land s
 5. **Sandbox first.**
    - **The sandbox.** `ContinentSandbox.unity` is `EarthStress` with its own `SandboxTerrainSettings`, `SandboxMacro` and `SandboxContinents`, and Earth's erosion, biomes and materials. No test names it.
    - **The pinned assets.** The four stress scenes' continent assets are named in `ContinentDesigner.PinnedAssets`. The inspector warns on them and asks before regenerating one.
-   - **Retuning a pinned scene.** Regenerate it, then rerun `ReliefMeasurements` (`MacroReliefFactor`, `ErodedMaps`, `ErodedCombinedRelief`, `WorkingSets`) and the skirt sample, and re-pin `MacroTests.StressMacros`.
+   - **Retuning a pinned scene.** It is done in the Editor, in item 7's five steps.
    - **What should move.** C_m should barely move, since the coasts' steepness is kept. Erosion's envelope and combined relief can grow with larger continents, whose rivers drain more area. More, smaller continents mean more coastline, and so more Coast chunks and vertex memory.
 6. **Verified (2026-11-07).**
    - **The suite.** All 253 EditMode tests pass in batchmode, Burst included, and 191 pure ones out of the Editor. No shipped asset changed.
@@ -850,6 +850,39 @@ Two sliders on `ContinentSettings`, **`TargetLand`** (the final terrain's land s
    - **Regenerating today's settings changes the map.** At Earth's own settings Regenerate makes six continents where Earth has three, because the separation opens straits that Earth's map closes. So a stress scene regenerated at its current sliders is still a retune.
    - **Agreement at 70% land.** It falls under the 90% that `ContinentsSurviveTheDetailNoise` holds the stress scenes to, and the inspector warns. More coast is more ground for the detail noise to move across sea level.
    - **Not yet done:** the inspector itself, the sliders, the button and the preview drawn, checked by eye in the Editor, and a flight over a regenerated sandbox in play mode.
+7. **Retuning in the Editor (2026-11-08).** Regenerating one of the four pinned assets is a retune: the suite fails until its figures are measured again and re-pinned. The measuring tools used to run only through an out-of-Editor harness, since under the Editor's Mono all of them took 53 minutes. **Tools → Sonoma → Measure Open Scene** (`Assets/Editor/MeasureOpenScene.cs`) now runs them in the Editor.
+   - **The workflow.**
+     1. **Regenerate** the scene's continent asset in its inspector.
+     2. **Update the copy** in `MacroTests.StressMacros`: `SceneContinentConfig` with the new `landFraction`, and, for a regenerated scene, its `continentCount`, `macroCells` and `separation`. Set `LandTarget` too if the target is not 0.30. The menu item measures the asset whether or not the copy has caught up, and says which fields still differ.
+     3. **Run the menu item** with the scene open. It writes everything the tools print to `Logs/Measurements/<scene>.txt` and logs each pinned constant's new value beside the current one.
+     4. **Re-pin** what it marks RE-PIN: `ReliefFactor`, `ErodedMaxAbsBaseHeight` (to the bit), `ErodedCombinedRelief`, `SkirtFraction` (`EarthScaleTests` or `StressSceneTests`), and the worst-case working sets (`EarthScaleTests.WorstWorkingSet` and `FreshCornerWorkingSet`, or the scene's `Worst`) against their budgets. Update the comments that record each figure. "May lower" means the pin still covers the measurement.
+     5. **Run the suite.**
+   - **How it reaches the tools.** The Editor assembly cannot reference the test assembly. So the menu item sets the switches the harness used, in-process (`Environment.SetEnvironmentVariable`): `SONOMA_MEASURE`, `SONOMA_SCENES`, and the open scene's `ContinentSettings`, its `TargetLand` and its surface, as text (`Sonoma.Tests.Measuring` lists them). It then runs the tools through `TestRunnerApi`. For the length of the run, the tools swap that config into the scene's `StressMacros` entry and drop its cached builds. Each fixture's `OneTimeTearDown` puts the copy back. It clears the variables when the run ends, and on any domain reload.
+   - **Which scenes.** A pinned scene, or a copy of one whose terrain and macro settings are the same field for field apart from the continent asset. `ContinentSandbox` is measured as `EarthStress` with `SandboxContinents`. Anything else is refused with the reason, since the tools reach a scene's terrain only through `StressMacros` and `StressSceneTests`.
+   - **Which tools.** The default runs the five that produce pinned figures: `ErodedMaps`, `ErodedMacroReliefFactor`, `ErodedCombinedRelief`, `ErodedSkirtShares` and `WorkingSets`. **Measure Open Scene (Every Tool)** adds the detail C, the uneroded C_m and skirt shares, `CalibrateLandFraction` (which Regenerate superseded) and the two in `ContinentTests`. Each tool prints a `PIN|…` line per constant, which is what the summary reads. `WorkingSets` measures again at the build's eroded envelope where that differs from the pinned one, and also prints Earth's held set at its pinned camera, (76/512, 0).
+   - **Progress and cancelling.** A cancelable progress bar moves between depths and slices of nodes. Cancel stops the current tool at its next step and skips the rest. The tools carry `[Timeout]`, since the Test Runner's default is 180 s.
+   - **In Burst.** In the Editor `MeasuringScans` (Editor-only) puts three things on Burst:
+     - the eroded build, through `MacroMaps.Build`, to the bit the managed builder (`ErodedMapsMatchTheManagedBuild`);
+     - the eroded C_m scan, a Burst job;
+     - the combined relief scan, through the real `HeightSampleJob`, as `WorkingSetTests` measures.
+     The managed scans stay the reference, and are what the harness runs. `MeasuringScanTests.BurstScansMatchTheManagedScans` holds the two together node for node on the narrow ring's eroded maps, at depths 0, 3, 8 and 14. C_m is asserted to the bit, and the combined relief to two float ULPs at the envelope. It came out to the bit on all 192 nodes, and takes 10 s.
+   - **On every core.** The eroded skirt shares draw their transient edges in parallel over maps built whole (`StressSceneTests.TransientEdges(parallel: true)`): the same edges by the same seeds, and so the same worst shares. The uneroded ones read texels made on demand into a dictionary, and stay serial.
+   - **Timings in the Editor** (2026-11-08, Burst on, the default five tools):
+
+     | | `ContinentSandbox` | `EarthStress` |
+     |---|---|---|
+     | `ErodedCombinedRelief`, the eroded build included | 151 s | 156–185 s |
+     | `ErodedMacroReliefFactor` | 13 s | 13–16 s |
+     | `ErodedMaps`, built already | 0 s | 0 s |
+     | `ErodedSkirtShares` | 348 s, serial | 121–144 s, parallel |
+     | `WorkingSets` | 0 s | 0 s |
+     | the whole run | 518 s | 298–348 s |
+
+     The `EarthStress` ranges are two runs. The tools run in NUnit's order, by name, so the combined relief builds the maps the others reuse. Out of the Editor, managed under .NET 8, the same tools on Earth took 266 s, 26 s and 27 s (parallel), and on the narrow ring 148, 19 and 50 s (serial).
+   - **What it printed.**
+     - **`EarthStress`.** It reproduced every pinned figure nothing has moved since: C_m 63.71 at depth 12, so `ReliefFactor` 96; `ErodedMaxAbsBaseHeight` 7,042.6650390625 m, to the bit; working sets 8,222 at the pinned camera and 7,002 fresh at the corner. The combined relief, 0.5998 at depth 19 against the 0.7495 recorded, and the worst skirt share, 0.590, have both fallen since the gully term went in (M5c-2). Their pins, 1.1243 and 1, still cover them. The harness's managed run printed the same figures.
+     - **The narrow ring**, in the harness, also matched: C_m 54.88, `ErodedMaxAbsBaseHeight` 3,250.10205078125, the share 0.790 and the working set 4,320.
+     - **The sandbox**, regenerated to 6 continents and a target of 0.156, would re-pin Earth. `ErodedMaxAbsBaseHeight` is 7,030.40576171875, and `SkirtFraction` is 1.2, for a share of 0.736 against the 0.667 that 1 covers. The other figures fall.
 
 ---
 
