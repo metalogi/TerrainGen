@@ -480,7 +480,7 @@ namespace Sonoma.Tests
                 // cutoff takes the envelope to 36.6 km and the move to 29 km (the replica,
                 // ReliefMeasurements.WorkingSets, 2026-10-24).
                 if (c.u == 0.0 && c.v == 0.0)
-                    Assert.AreEqual(7002, _selector.WantedCount,
+                    Assert.AreEqual(EarthScaleTests.FreshCornerWorkingSet, _selector.WantedCount,
                         "the fresh working set at the face corner has moved; flattened at SplitFactor 4 it is 7,002");
             }
         }

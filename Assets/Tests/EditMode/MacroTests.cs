@@ -451,6 +451,13 @@ namespace Sonoma.Tests
             {
                 if (_sceneErosion.TryGetValue(m.Scene, out var built)) return built;
                 var hp = SceneParams(m, RoughParams(m.Scene));
+                if (Measuring.Fast != null)
+                {
+                    // In the Editor, the Burst build: the same texels, seconds where this is a minute.
+                    built = Measuring.Fast.ErodedBuild(m, hp);
+                    _sceneErosion.Add(m.Scene, built);
+                    return built;
+                }
                 var c  = m.ErodedConfig;
                 var mp = MacroParams.Create(m.Surface, hp, c);
                 var ep = ErosionParams.Create(m.Surface, hp, mp, c);
@@ -460,6 +467,13 @@ namespace Sonoma.Tests
                 _sceneErosion.Add(m.Scene, built);
                 return built;
             }
+        }
+
+        // Drops a scene's cached builds, for Measuring's swap of its continent copy.
+        internal static void ForgetBuilds(string scene)
+        {
+            lock (_sceneErosion) _sceneErosion.Remove(scene);
+            lock (_sceneContinents) _sceneContinents.Remove(scene);
         }
 
         // A scene's continents, built once per domain in managed code -- about a second a scene

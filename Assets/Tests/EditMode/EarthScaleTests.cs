@@ -29,6 +29,13 @@ namespace Sonoma.Tests
         internal const float  SkirtDepth    = 1f;
         internal const float  SkirtFraction = 1f;     // of each chunk's relief + chord sag
 
+        // The worst-case working set, held, at the pinned camera (76/512, 0) 2 m up, and the fresh one at
+        // the face corner, which LodSelectorTests holds the real selector to: WorkingSetFitsTheResidentBudget
+        // and LodSelectorTests.EarthReplicaWantsWhatTheSelectorWants say where they came from.
+        internal const int    WorstWorkingSet       = 8222;
+        internal const int    FreshCornerWorkingSet = 7002;
+        internal const double WorstU                = 76.0 / 512.0;
+
         // The LOD measures in a world with every height scaled by this (LodVertical), so Earth at
         // HeightScale 20,000 spends the relief allowance, and wants the chunks, that it did at
         // 4,000 -- the relief M5b sized SplitFactor 4 and the budget for. Five times the relief
@@ -243,7 +250,7 @@ namespace Sonoma.Tests
             var p     = Params(OctaveCount);
             var lod   = Lod(p);
 
-            SurfaceMath.SurfaceFrame(s, roots[0], 76.0 / 512.0, 0.0, out double3 ground, out float3 up);
+            SurfaceMath.SurfaceFrame(s, roots[0], WorstU, 0.0, out double3 ground, out float3 up);
 
             // From 10,000 km down to the ground, roughly two steps an octave of altitude. The
             // camera is flattened as TerrainRoot flattens it before handing it to the selector.
@@ -256,7 +263,7 @@ namespace Sonoma.Tests
             }
 
             int wanted = Select(s, roots, lod, lod.Vertical.MapPoint(s, ground + (double3)up * 2.0));
-            Assert.AreEqual(8222, wanted, 82,
+            Assert.AreEqual(WorstWorkingSet, wanted, WorstWorkingSet / 100,
                 "the worst-case working set has moved by more than 1%; re-measure it and re-check " +
                 "MaxResidentChunks against the new figure");
             Assert.GreaterOrEqual(wanted, peak, "the descent found a worse working set above the ground");

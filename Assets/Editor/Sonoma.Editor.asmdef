@@ -4,7 +4,9 @@
     "references": [
         "Sonoma.Core",
         "Unity.Mathematics",
-        "Unity.Burst"
+        "Unity.Burst",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

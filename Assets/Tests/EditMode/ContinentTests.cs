@@ -81,14 +81,21 @@ namespace Sonoma.Tests
         }
 
         // The measuring tools run only when asked for: [Explicit] did not keep them out of an Editor
-        // run, where they took 53 minutes and three hit the Test Runner's 180 s timeout. Set
-        // SONOMA_MEASURE=1 and run them through the out-of-Editor harness; elsewhere they skip.
+        // run, where they took 53 minutes and three hit the Test Runner's 180 s timeout. In the
+        // Editor, Tools > Sonoma > Measure Open Scene sets SONOMA_MEASURE=1 and the scene, runs them
+        // and gathers what they print; out of it, set SONOMA_MEASURE=1 for the harness. Elsewhere
+        // they skip. Then the scene they measure (Measuring.Apply).
         internal static void MeasuringToolsOnly()
         {
-            if (Environment.GetEnvironmentVariable("SONOMA_MEASURE") != "1")
-                Assert.Ignore("A measuring tool, minutes outside the Editor and up to 40 under its Mono: set " +
+            if (Environment.GetEnvironmentVariable(Measuring.MeasureVar) != "1")
+                Assert.Ignore("A measuring tool: run it from Tools > Sonoma > Measure Open Scene in the Editor, or set " +
                               "SONOMA_MEASURE=1 and run it through the out-of-Editor harness.");
+            if (Measuring.Cancelled) Assert.Ignore("The measurement was cancelled.");
+            Measuring.Apply();
         }
+
+        [OneTimeTearDown]
+        public void PutTheCopiesBack() => Measuring.Restore();
 
         // The stress scenes with continents. The tests below also run the probe on the synthetic
         // scene, which keeps it honest whatever this returns.
@@ -135,7 +142,7 @@ namespace Sonoma.Tests
         // the weights. M5b's land is the 30% above its own sea level, the height's 70th percentile,
         // as the ocean plan set it; its base height is M5b's BaseHeightScale with no continents and
         // no cutoff.
-        [Test, Explicit("Evidence for the lapse-rate decision, printed.")]
+        [Test, Explicit("Evidence for the lapse-rate decision, printed."), Timeout(24 * 60 * 60 * 1000)]
         public void ClimateOverLand()
         {
             MeasuringToolsOnly();
@@ -198,7 +205,7 @@ namespace Sonoma.Tests
         }
 
         // The retuning tool: 100,000 points per continent scene, printed.
-        [Test, Explicit("A retuning tool: about a minute a scene outside the Editor.")]
+        [Test, Explicit("A retuning tool: about a minute a scene outside the Editor."), Timeout(24 * 60 * 60 * 1000)]
         public void ContinentsSurviveTheDetailNoiseAtFullSample()
         {
             MeasuringToolsOnly();
