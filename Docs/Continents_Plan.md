@@ -869,20 +869,20 @@ Two sliders on `ContinentSettings`, **`TargetLand`** (the final terrain's land s
    - **On every core.** The eroded skirt shares draw their transient edges in parallel over maps built whole (`StressSceneTests.TransientEdges(parallel: true)`): the same edges by the same seeds, and so the same worst shares. The uneroded ones read texels made on demand into a dictionary, and stay serial.
    - **Timings in the Editor** (2026-11-08, Burst on, the default five tools):
 
-     | | `ContinentSandbox` | `EarthStress` |
-     |---|---|---|
-     | `ErodedCombinedRelief`, the eroded build included | 151 s | 156–185 s |
-     | `ErodedMacroReliefFactor` | 13 s | 13–16 s |
-     | `ErodedMaps`, built already | 0 s | 0 s |
-     | `ErodedSkirtShares` | 348 s, serial | 121–144 s, parallel |
-     | `WorkingSets` | 0 s | 0 s |
-     | the whole run | 518 s | 298–348 s |
+     | | `ContinentSandbox` | `EarthStress` | `NarrowRingStress` |
+     |---|---|---|---|
+     | `ErodedCombinedRelief`, the eroded build included | 151–166 s | 156–185 s | 135 s |
+     | `ErodedMacroReliefFactor` | 13 s | 13–16 s | 11 s |
+     | `ErodedMaps`, built already | 0 s | 0 s | 0 s |
+     | `ErodedSkirtShares` | 348 s serial, 128 s parallel | 121–144 s, parallel | 99 s, parallel |
+     | `WorkingSets` | 0 s | 0 s | 0 s |
+     | the whole run | 518 s serial, 311 s parallel | 298–348 s | 250 s |
 
-     The `EarthStress` ranges are two runs. The tools run in NUnit's order, by name, so the combined relief builds the maps the others reuse. Out of the Editor, managed under .NET 8, the same tools on Earth took 266 s, 26 s and 27 s (parallel), and on the narrow ring 148, 19 and 50 s (serial).
+     The `EarthStress` ranges are two runs, and the sandbox's two figures are from before and after the skirt shares went parallel. The tools run in NUnit's order, by name, so the combined relief builds the maps the others reuse. Out of the Editor, managed under .NET 8, the same tools on Earth took 266 s, 26 s and 27 s (parallel), and on the narrow ring 148, 19 and 50 s (serial).
    - **What it printed.**
      - **`EarthStress`.** It reproduced every pinned figure nothing has moved since: C_m 63.71 at depth 12, so `ReliefFactor` 96; `ErodedMaxAbsBaseHeight` 7,042.6650390625 m, to the bit; working sets 8,222 at the pinned camera and 7,002 fresh at the corner. The combined relief, 0.5998 at depth 19 against the 0.7495 recorded, and the worst skirt share, 0.590, have both fallen since the gully term went in (M5c-2). Their pins, 1.1243 and 1, still cover them. The harness's managed run printed the same figures.
-     - **The narrow ring**, in the harness, also matched: C_m 54.88, `ErodedMaxAbsBaseHeight` 3,250.10205078125, the share 0.790 and the working set 4,320.
-     - **The sandbox**, regenerated to 6 continents and a target of 0.156, would re-pin Earth. `ErodedMaxAbsBaseHeight` is 7,030.40576171875, and `SkirtFraction` is 1.2, for a share of 0.736 against the 0.667 that 1 covers. The other figures fall.
+     - **The narrow ring**, in the harness and in the Editor, also matched: C_m 54.88, `ErodedMaxAbsBaseHeight` 3,250.10205078125, the share 0.790 and the working set 4,320. In the Editor its combined relief came out 0.7449, under its pin of 0.8046.
+     - **The sandbox**, regenerated to 6 continents and a target of 0.156, would re-pin Earth. `ErodedMaxAbsBaseHeight` is 7,030.40576171875, and `SkirtFraction` is 1.2, for a share of 0.736 against the 0.667 that 1 covers. The other figures fall. Measured again once the tests read the continents from the asset files (`ContinentAssets`), with its asset read from disk in place of Earth's, it printed the same figures.
 
 ---
 
