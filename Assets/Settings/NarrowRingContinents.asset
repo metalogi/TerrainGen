@@ -12,22 +12,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 65377d2f9a8f44008611278d8c174264, type: 3}
   m_Name: NarrowRingContinents
   m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.ContinentSettings
-  TargetLand: 0.3
-  Fragmentation: 0.43620858
-  RegeneratedTargetLand: -1
-  RegeneratedFragmentation: -1
-  MeasuredLand: -1
-  RegeneratedInputs: 
+  TargetLand: 0.482
+  Fragmentation: 0.633
+  RegeneratedTargetLand: 0.482
+  RegeneratedFragmentation: 0.633
+  MeasuredLand: 0.4790059
+  RegeneratedInputs: 4c8d11c9ef8bc9c69aa6c49ccac3934e
   Seed: 1
-  MacroCells: 30
+  MacroCells: 31
   MicroCells: 5000
-  ContinentCount: 4
+  ContinentCount: 7
   DecayMin: 0.5
   DecayMax: 0.75
   ElevationFloor: 0.1
   ScoreNoise: 0.25
-  Separation: 0
-  LandFraction: 0.3
+  Separation: 2
+  LandFraction: 0.52141273
   WarpAmplitude: 0.5
   WarpWavelength: 2
   CoastWidth: 0.8

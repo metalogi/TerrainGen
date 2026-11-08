@@ -223,13 +223,15 @@ namespace Sonoma.Tests
         //
         // Skirts: on 200 edges per depth and per gap the side above had to cover at most 0.677
         // of its relief, at a gap of three. With continents, on 400 (ReliefMeasurements.SkirtShares,
-        // 2026-10-24), it is 0.788 (0.340 and 0.538 at one and two), so SkirtFraction is 1.2,
-        // half again over that, rounded up.
+        // 2026-10-24), it was 0.788 (0.340 and 0.538 at one and two), so SkirtFraction was 1.2.
+        // Retuned to 48% land in seven continents (2026-11-08), the eroded terrain's worst is
+        // 0.910 (0.337 and 0.521; ReliefMeasurements.ErodedSkirtShares), so it is 1.4, half again
+        // over that, rounded up.
         internal static readonly Scene NarrowRing = new Scene
         {
             Name = "NarrowRingStress", Asset = "Assets/Settings/NarrowRingTerrainSettings.asset",
             Surface = SurfaceDef.Cylinder(1194562.5, 187500.0, 40, 1),
-            MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4000f, SkirtFraction = 1.2f,
+            MaxDepth = 14, OctaveCount = 19, Budget = 4900, HeightScale = 4000f, SkirtFraction = 1.4f,
             MorphStart = 0.13f, Persistence = 0.7f,
             RoughnessCrossover = 5000.0, FinePersistence = 0.5f, TenMetreFeature = 0.657, TenMetreOnOneSlope = 0.1221,
             GullyDamping = 8f, GullyStartWavelength = 3000.0, WetFloorDamping = 2f, BeltSlope = 0.33,
