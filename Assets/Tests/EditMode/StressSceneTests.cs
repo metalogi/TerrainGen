@@ -538,6 +538,8 @@ namespace Sonoma.Tests
             float _sea;
 
             public SurfaceDef   Surface => _s;
+            // Over maps built whole every read is a plain array read, safe from any thread.
+            public bool         ThreadSafe => _texels.IsBuilt;
             public HeightParams Height  => _hp;
             public MacroParams  Macro   => _mp;
             public int QuadCount => _roots.Length;
@@ -610,6 +612,8 @@ namespace Sonoma.Tests
 
             public float2 Drainage(int index) => _drainage != null ? _drainage[index] : default;
 
+            public bool IsBuilt => _built != null;
+
             // What MacroGenerator.Build stores there: the texel, or the one it is a copy of.
             public float4 Texel(int index)
             {
@@ -642,20 +646,39 @@ namespace Sonoma.Tests
         // thinFrom, when set, takes one gap per depth from that depth on, cycling through them, for
         // the suite's time: the chord sag, and the roots, are at the shallow depths, and deeper
         // down a gap's ratio to the relief changes slowly with depth.
+        //
+        // parallel measures the edges on every core, the same edges in the same order: each draws
+        // from its own seed. Only over maps built whole (SceneHeights.ThreadSafe), since LazyTexels
+        // makes texels on demand into a dictionary.
         internal static System.Collections.Generic.List<TransientEdge> TransientEdges(
-            SceneHeights w, int maxDepth, int edgesPerDepth, uint seed, int minDepth = 1, int thinFrom = int.MaxValue)
+            SceneHeights w, int maxDepth, int edgesPerDepth, uint seed, int minDepth = 1, int thinFrom = int.MaxValue,
+            bool parallel = false)
         {
-            var list = new System.Collections.Generic.List<TransientEdge>();
+            var draws = new System.Collections.Generic.List<(int d, int gap, int e)>();
             for (int d = minDepth; d <= maxDepth; d++)
             for (int gap = 1; gap <= ChunkMeshLayout.SkirtDepthGap && gap <= d; gap++)
             for (int e = 0; e < edgesPerDepth; e++)
+                if (d < thinFrom || gap == 1 + d % ChunkMeshLayout.SkirtDepthGap) draws.Add((d, gap, e));
+
+            var found = new TransientEdge?[draws.Count];
+            void Draw(int k)
             {
-                if (d >= thinFrom && gap != 1 + d % ChunkMeshLayout.SkirtDepthGap) continue;
+                var (d, gap, e) = draws[k];
                 var rng = new Unity.Mathematics.Random(seed + (uint)(d * 7919 + gap * 104729 + e * 15485863));
                 // A plane grid's outer edges and a cylinder's rims have no neighbour; draw again.
                 for (int attempt = 0; attempt < 16; attempt++)
-                    if (TryMeasure(w, d, gap, ref rng, out TransientEdge edge)) { list.Add(edge); break; }
+                    if (TryMeasure(w, d, gap, ref rng, out TransientEdge edge)) { found[k] = edge; break; }
             }
+            if (parallel)
+            {
+                Assert.IsTrue(w.ThreadSafe, "TransientEdges: only heights over maps built whole can be read in parallel");
+                System.Threading.Tasks.Parallel.For(0, draws.Count, Draw);
+            }
+            else
+                for (int k = 0; k < draws.Count; k++) Draw(k);
+
+            var list = new System.Collections.Generic.List<TransientEdge>(draws.Count);
+            foreach (var edge in found) if (edge.HasValue) list.Add(edge.Value);
             return list;
         }
 

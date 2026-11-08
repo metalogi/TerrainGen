@@ -221,14 +221,17 @@ namespace Sonoma.Tests
         // The worst share each depth gap needs, printed, and the worst of all.
         static double WorstShares(MacroTests.SceneMacro m, StressSceneTests.SceneHeights w, string label)
         {
+            // Depth by depth, so the progress bar moves; over maps built whole (the eroded scenes) on
+            // every core. The edges, and so the worst shares, are the same either way.
             var worst = new double[ChunkMeshLayout.SkirtDepthGap + 1];
-            int k = 0, total = 400 * (m.MaxDepth + 1) * ChunkMeshLayout.SkirtDepthGap;
-            Measuring.Step($"{m.Scene}: transient edges", 0f, 1f);
-            foreach (var e in StressSceneTests.TransientEdges(w, m.MaxDepth, 400, 0x5C1A7u))
+            for (int d = 1; d <= m.MaxDepth; d++)
             {
-                worst[e.Gap] = math.max(worst[e.Gap], Share(w, e.Depth, e.GapFine, e.ReliefFine));
-                worst[e.Gap] = math.max(worst[e.Gap], Share(w, e.Depth - e.Gap, e.GapCoarse, e.ReliefCoarse));
-                if (++k % 50 == 0) Measuring.Tick((float)k / total);
+                StepDepth(m, d);
+                foreach (var e in StressSceneTests.TransientEdges(w, d, 400, 0x5C1A7u, minDepth: d, parallel: w.ThreadSafe))
+                {
+                    worst[e.Gap] = math.max(worst[e.Gap], Share(w, e.Depth, e.GapFine, e.ReliefFine));
+                    worst[e.Gap] = math.max(worst[e.Gap], Share(w, e.Depth - e.Gap, e.GapCoarse, e.ReliefCoarse));
+                }
             }
             double all = 0.0;
             string prefix = label.Length > 0 ? $"{m.Scene}{label} depth gap" : $"{m.Scene} depth gap";
@@ -311,7 +314,7 @@ namespace Sonoma.Tests
                     moved = measured != pinned;
                     if (moved)
                     {
-                        PrintWorkingSets(m, "", pin: false);
+                        PrintWorkingSets(m, " at the pinned envelope", pin: false);
                         m.ErodedMaxAbsBaseHeight = measured;
                     }
                 }
