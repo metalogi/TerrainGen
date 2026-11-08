@@ -229,7 +229,8 @@ static class MacroMapExport
             WriteContinents(s, roots, mp.Layout, map, tile, w, h, cp.MicroSpacing, folder, scene);
             ContinentStats st = map.Stats;
             Debug.Log($"[MacroMapExport] {scene} continents: {st.MacroCells} macro and {st.MicroCells:N0} micro cells, " +
-                      $"{st.LandCells:N0} land, {st.LandFraction:P1} of the map by area; micro spacing " +
+                      $"{st.LandCells:N0} land, {st.LandFraction:P1} of the map by area, in {st.Continents} continents " +
+                      $"(the largest {st.LargestContinent:P0} of the land) and {st.Islands} islands; micro spacing " +
                       $"{cp.MicroSpacing / 1000.0:F1} km, {cp.MicroCellTexels(hp.S0, mp.Layout):F1} texels; " +
                       $"saturation {st.SaturationRadius:F2} ({st.WarpedSaturation:F2} warped) micro spacings; detail " +
                       $"octaves from {hp.FirstOctave}.");
@@ -477,61 +478,10 @@ static class MacroMapExport
                          float2[] drainage, int maxDepth, double sea, Material ocean, int tile, int w, int h,
                          double spacing, string folder, string scene)
     {
-        int n = tile - 1;
-        var reader  = new ArrayMacroTexels(texels, drainage);
-        var heights = new double[w * h];
-        Array.Fill(heights, double.NaN);
-
-        double[] area = ContinentMap.AreaTable(s, roots[0], n);
-        double   land = 0.0, total = 0.0, highest = 1e-6, deepest = 0.0;
-        for (int q = 0; q < roots.Length; q++)
-        {
-            EditorUtility.DisplayProgressBar("Export Macro Maps", $"The sea, root quad {q + 1} of {roots.Length}",
-                                             (q + 1f) / roots.Length);
-            Place(s, q, out int tx, out int ty);
-            int quad = q;
-            Parallel.For(0, n + 1, j =>
-            {
-                for (int i = 0; i <= n; i++)
-                {
-                    double3 p = SurfaceMath.SurfacePoint(s, roots[quad], i / (double)n, j / (double)n);
-                    heights[(ty * tile + j) * w + tx * tile + i] =
-                        TerrainHeightFunction.HeightAtPoint(s, p, maxDepth, hp, mp, reader);
-                }
-            });
-
-            for (int j = 0; j <= n; j++)
-            for (int i = 0; i <= n; i++)
-            {
-                double above = heights[(ty * tile + j) * w + tx * tile + i] - sea, a = area[j * tile + i];
-                total += a;
-                if (above > 0.0) land += a;
-                highest = math.max(highest, above);
-                deepest = math.max(deepest, -above);
-            }
-        }
-
-        Color  shallowColour = ocean.GetColor("_ShallowColor"), deepColour = ocean.GetColor("_DeepColor");
-        float3 shallow = new float3(shallowColour.r, shallowColour.g, shallowColour.b);
-        float3 deep    = new float3(deepColour.r, deepColour.g, deepColour.b);
-        double depthScale   = ocean.GetFloat("_DepthScale");
-        double exaggeration = Exaggeration(heights, w, h, tile, spacing);
-
-        var pixels = new Color32[w * h];
-        for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++)
-        {
-            int    at = y * w + x;
-            double v  = heights[at];
-            if (double.IsNaN(v)) { pixels[at] = new Color32(40, 40, 40, 255); continue; }
-
-            bool isLand = v > sea, coast = false;
-            if ((x + 1) % tile != 0 && !double.IsNaN(heights[at + 1])) coast |= (heights[at + 1] > sea) != isLand;
-            if ((y + 1) % tile != 0 && !double.IsNaN(heights[at + w])) coast |= (heights[at + w] > sea) != isLand;
-            pixels[at] = Pixel(coast  ? new float3(0f)
-                             : isLand ? Hypsometric((v - sea) / highest) * Shade(heights, w, tile, x, y, spacing, exaggeration)
-                             :          math.lerp(shallow, deep, (float)(1.0 - math.exp((v - sea) / depthScale))));
-        }
+        Sea sample = SampleSea(s, roots, hp, mp, texels, drainage, maxDepth, sea, 1,
+            q => EditorUtility.DisplayProgressBar("Export Macro Maps", $"The sea, root quad {q + 1} of {roots.Length}",
+                                                  (q + 1f) / roots.Length));
+        Color32[] pixels = SeaPixels(sample, ocean, spacing);
 
         var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
         try
@@ -545,8 +495,117 @@ static class MacroMapExport
             UnityEngine.Object.DestroyImmediate(tex);
         }
 
-        Debug.Log($"[MacroMapExport] {scene} sea: level {sea:F0} m, land {land / total:P1} of the surface by area at " +
-                  $"depth {maxDepth}, highest {highest:F0} m above it, deepest {deepest:F0} m below.");
+        Debug.Log($"[MacroMapExport] {scene} sea: level {sea:F0} m, land {sample.LandShare:P1} of the surface by area at " +
+                  $"depth {maxDepth}, highest {sample.Highest:F0} m above it, deepest {sample.Deepest:F0} m below.");
+    }
+
+    // The sea, sampled: the height the deepest chunks draw at every stride-th texel of the top
+    // level, laid out as the images are (NaN off the cross), and the land's share by area.
+    internal struct Sea
+    {
+        public double[] Heights;
+        public int      Tile, Width, Height, Stride;
+        public double   Level, LandShare, Highest, Deepest;
+    }
+
+    // Through HeightAtPoint, the function TerrainRoot.HeightAt calls, weighting each texel by its
+    // area as the continent map does. The octaves take their time in managed code, so the rows run
+    // in parallel; every read is pure. The continent designer samples at a stride of two to
+    // calibrate quickly; the export at one. The top level's cells are a power of two, so any
+    // power-of-two stride lands on texels and keeps every quad's edge rows.
+    internal static Sea SampleSea(SurfaceDef s, RootQuad[] roots, HeightParams hp, MacroParams mp, float4[] texels,
+                                  float2[] drainage, int maxDepth, double sea, int stride, Action<int> progress)
+    {
+        int full = mp.Layout.Cells(mp.Layout.LevelCount - 1), n = full / stride, tile = n + 1;
+        Tiles(s, out int tilesX, out int tilesY);
+        var o = new Sea { Tile = tile, Width = tilesX * tile, Height = tilesY * tile, Stride = stride, Level = sea,
+                          Highest = 1e-6 };
+        int w = o.Width;
+        var reader = new ArrayMacroTexels(texels, drainage);
+        o.Heights  = new double[o.Width * o.Height];
+        Array.Fill(o.Heights, double.NaN);
+
+        double[] area = ContinentMap.AreaTable(s, roots[0], full);
+        double   land = 0.0, total = 0.0;
+        for (int q = 0; q < roots.Length; q++)
+        {
+            progress?.Invoke(q);
+            Place(s, q, out int tx, out int ty);
+            int quad = q;
+            double[] heights = o.Heights;
+            Parallel.For(0, n + 1, j =>
+            {
+                for (int i = 0; i <= n; i++)
+                {
+                    double3 p = SurfaceMath.SurfacePoint(s, roots[quad], i / (double)n, j / (double)n);
+                    heights[(ty * tile + j) * w + tx * tile + i] =
+                        TerrainHeightFunction.HeightAtPoint(s, p, maxDepth, hp, mp, reader);
+                }
+            });
+
+            for (int j = 0; j <= n; j++)
+            for (int i = 0; i <= n; i++)
+            {
+                double above = heights[(ty * tile + j) * w + tx * tile + i] - sea;
+                double a     = area[j * stride * (full + 1) + i * stride];
+                total += a;
+                if (above > 0.0) land += a;
+                o.Highest = math.max(o.Highest, above);
+                o.Deepest = math.max(o.Deepest, -above);
+            }
+        }
+        o.LandShare = land / total;
+        return o;
+    }
+
+    // The sea's image: sea in the ocean material's colours by depth, land hillshaded, the coast in
+    // black. spacing is the full top level's texel spacing; the stride is applied here. With no
+    // ocean material, Ocean.mat's own colours.
+    internal static Color32[] SeaPixels(in Sea sea, Material ocean, double spacing)
+    {
+        Color  shallowColour = ocean != null ? ocean.GetColor("_ShallowColor") : new Color(0.05f, 0.35f, 0.38f);
+        Color  deepColour    = ocean != null ? ocean.GetColor("_DeepColor")    : new Color(0.03f, 0.16f, 0.33f);
+        float3 shallow = new float3(shallowColour.r, shallowColour.g, shallowColour.b);
+        float3 deep    = new float3(deepColour.r, deepColour.g, deepColour.b);
+        double depthScale = ocean != null ? ocean.GetFloat("_DepthScale") : 20.0;
+
+        double[] heights = sea.Heights;
+        int    w = sea.Width, h = sea.Height, tile = sea.Tile;
+        double level = sea.Level, step = spacing * sea.Stride;
+        double exaggeration = Exaggeration(heights, w, h, tile, step);
+
+        var pixels = new Color32[w * h];
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            int    at = y * w + x;
+            double v  = heights[at];
+            if (double.IsNaN(v)) { pixels[at] = new Color32(40, 40, 40, 255); continue; }
+
+            bool isLand = v > level, coast = false;
+            if ((x + 1) % tile != 0 && !double.IsNaN(heights[at + 1])) coast |= (heights[at + 1] > level) != isLand;
+            if ((y + 1) % tile != 0 && !double.IsNaN(heights[at + w])) coast |= (heights[at + w] > level) != isLand;
+            pixels[at] = Pixel(coast  ? new float3(0f)
+                             : isLand ? Hypsometric((v - level) / sea.Highest) * Shade(heights, w, tile, x, y, step, exaggeration)
+                             :          math.lerp(shallow, deep, (float)(1.0 - math.exp((v - level) / depthScale))));
+        }
+        return pixels;
+    }
+
+    // The surface point of a sampled pixel's texel, or false off the cross: what the designer
+    // reads the continent map at, to compare it with the sea.
+    internal static bool PixelPoint(in SurfaceDef s, RootQuad[] roots, in Sea sea, int x, int y, out double3 p)
+    {
+        p = default;
+        int tx = x / sea.Tile, ty = y / sea.Tile, n = sea.Tile - 1;
+        for (int q = 0; q < roots.Length; q++)
+        {
+            Place(s, q, out int qx, out int qy);
+            if (qx != tx || qy != ty) continue;
+            p = SurfaceMath.SurfacePoint(s, roots[q], (x % sea.Tile) / (double)n, (y % sea.Tile) / (double)n);
+            return true;
+        }
+        return false;
     }
 
     static Color32 Pixel(float3 rgb)

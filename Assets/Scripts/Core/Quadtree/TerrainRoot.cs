@@ -313,7 +313,8 @@ namespace Sonoma.Core.Quadtree
             {
                 ContinentStats st = maps.Continents.Stats;
                 Debug.Log($"[TerrainRoot] Continents '{Settings.Macro.Continents.name}': {st.MacroCells} macro and " +
-                          $"{st.MicroCells:N0} micro cells, {st.LandCells:N0} land, {st.LandFraction:P1} of the map by area; " +
+                          $"{st.MicroCells:N0} micro cells, {st.LandCells:N0} land, {st.LandFraction:P1} of the map by area, " +
+                          $"in {st.Continents} continents (the largest {st.LargestContinent:P0} of the land) and {st.Islands} islands; " +
                           $"coverage {st.CoverageRadius / 1000.0:F0} km, saturation {st.SaturationRadius:F2} micro spacings " +
                           $"({st.WarpedSaturation:F2} warped); detail octaves from {_params.FirstOctave}; stages A " +
                           $"{st.StageAMilliseconds:F1} ms, B {st.StageBMilliseconds:F1} ms, C {st.StageCMilliseconds:F1} ms.");

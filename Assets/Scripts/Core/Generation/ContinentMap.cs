@@ -95,6 +95,12 @@ namespace Sonoma.Core.Generation
         public double SaturationRadius;       // micro spacings: the farthest any texel inside a quad is from its micro seed, unwarped
         public double WarpedSaturation;       // micro spacings: the farthest any warped field point inside a quad is from its own class, where the other is capped
         public double StageAMilliseconds, StageBMilliseconds, StageCMilliseconds;
+
+        // The land's connected pieces over the micro cells' adjacency (ContinentMap.LandPieces):
+        // pieces of at least ContinentMap.ContinentShare of the land are continents, the rest
+        // islands. What the continent designer reads, and what the build logs.
+        public int    Continents, Islands;
+        public double LargestContinent;       // the largest piece's share of the land
     }
 
     // Stage A of the continents (Docs/Continents_Plan.md, K3): the Voronoi continent map, built once
@@ -110,12 +116,14 @@ namespace Sonoma.Core.Generation
     // over its output run here, in texel order, for both. UnityEngine-free, for the harness.
     public sealed class ContinentMap
     {
-        public const int Candidates     = 8;
-        const int        BruteForceUpTo = 128;   // seeds placed before the bucket grid pays
+        public const int    Candidates     = 8;
+        const int           BruteForceUpTo = 128;   // seeds placed before the bucket grid pays
+        public const double ContinentShare = 0.01;  // of the land: a smaller piece is an island
 
         public double3[] MacroSeeds;
         public double[]  MacroElevation;     // BFS: 1 at a centre, decaying outwards, 0 where it never reached
         public bool[]    MacroCentre;
+        public int[]     MacroOwner;         // the centre whose spread set each cell's elevation, -1 where none did
         public int[][]   Adjacency;          // ascending
         public double3[] MicroSeeds;
         public int[]     MicroParent;
@@ -126,6 +134,7 @@ namespace Sonoma.Core.Generation
         public int[]     CellStart;          // CSR over Grid's buckets, Count + 1 entries
         public int[]     Items;
         public double    BlendRadius2;       // E's kernel radius squared: (1.5 x CoverageRadius)^2
+        public double[]  LandPieces;         // m^2, each connected piece of land, largest first
         public ContinentStats Stats;
 
         // Kept from the build, in ScanIndex order over the top level's stored texels, only when
@@ -450,6 +459,7 @@ namespace Sonoma.Core.Generation
 
             double[] area = AreaTable(s, roots[0], n);
             var adjacent  = new bool[macroCount * macroCount];
+            var microNear = new List<int2>();    // micro cells meeting at neighbouring texels, in texel order
             MicroArea     = new double[microCount];
             double cover2 = 0.0, sat2 = 0.0, total = 0.0;
 
@@ -471,8 +481,18 @@ namespace Sonoma.Core.Generation
 
                 // Two macro cells touch where neighbouring texels of one quad take different
                 // seeds. Edge rows are stored by both quads, so links across quad edges come free.
-                if (i < n) Touch(adjacent, macroCount, t.Macro, scan.Get(k + 1).Macro);
-                if (j < n) Touch(adjacent, macroCount, t.Macro, scan.Get(k + w).Macro);
+                if (i < n)
+                {
+                    ContinentTexel r = scan.Get(k + 1);
+                    Touch(adjacent, macroCount, t.Macro, r.Macro);
+                    if (r.Micro != t.Micro) microNear.Add(new int2(t.Micro, r.Micro));
+                }
+                if (j < n)
+                {
+                    ContinentTexel u = scan.Get(k + w);
+                    Touch(adjacent, macroCount, t.Macro, u.Macro);
+                    if (u.Micro != t.Micro) microNear.Add(new int2(t.Micro, u.Micro));
+                }
 
                 // Shared edge texels count once, for their owner.
                 if (!layout.EdgeSource(s, q, top, i, j, out _, out _, out _))
@@ -505,7 +525,8 @@ namespace Sonoma.Core.Generation
             }
 
             Spread(cp);
-            Classify(cp, total);
+            Classify(cp, total, microNear);
+            FindLandPieces(microNear);
 
             Stats.MacroCells       = macroCount;
             Stats.MicroCells       = microCount;
@@ -528,8 +549,9 @@ namespace Sonoma.Core.Generation
         {
             int count = MacroSeeds.Length;
             MacroCentre = new bool[count];
+            MacroOwner  = new int[count];
             var order = new int[count];
-            for (int i = 0; i < count; i++) order[i] = i;
+            for (int i = 0; i < count; i++) { order[i] = i; MacroOwner[i] = -1; }
 
             var queue = new Queue<int>();
             for (int c = 0; c < cp.ContinentCount; c++)
@@ -538,6 +560,7 @@ namespace Sonoma.Core.Generation
                 (order[c], order[pick]) = (order[pick], order[c]);
                 MacroElevation[order[c]] = 1.0;
                 MacroCentre[order[c]]    = true;
+                MacroOwner[order[c]]     = order[c];
                 queue.Enqueue(order[c]);
             }
 
@@ -550,6 +573,7 @@ namespace Sonoma.Core.Generation
                     if (e > MacroElevation[nb] && e > cp.ElevationFloor)
                     {
                         MacroElevation[nb] = e;
+                        MacroOwner[nb]     = MacroOwner[cur];
                         queue.Enqueue(nb);
                     }
                 }
@@ -559,8 +583,11 @@ namespace Sonoma.Core.Generation
         // Each micro cell's score is its parent macro cell's elevation plus noise at its own seed;
         // the highest-scoring cells are land until their area reaches LandFraction of the whole.
         // By rank, scores descending and ties to the lower index, rather than by comparing with the
-        // last cell's score, which would also take every later cell that ties it.
-        void Classify(in ContinentParams cp, double totalArea)
+        // last cell's score, which would also take every later cell that ties it. With a
+        // separation, a cell that meets a cell of another centre's domain loses it from its score,
+        // so the border is the last ground to become land and neighbouring continents keep a
+        // strait two cells wide; at 0 the scores are what they were without it.
+        void Classify(in ContinentParams cp, double totalArea, List<int2> near)
         {
             var tables = new ArrayContinentTables(this);
             int count  = MicroSeeds.Length;
@@ -571,6 +598,16 @@ namespace Sonoma.Core.Generation
                 MicroParent[i] = NearestMacro(tables, MicroSeeds[i], out _);
                 MicroScore[i]  = MacroElevation[MicroParent[i]]
                                + cp.ScoreNoise * LatticeNoise.Fbm(MicroSeeds[i] / cp.MacroSpacing, 3, 0.5f, 2f, cp.ScoreSeed);
+            }
+            if (cp.Separation > 0.0)
+            {
+                var border = new bool[count];
+                foreach (int2 e in near)
+                {
+                    int a = MacroOwner[MicroParent[e.x]], c = MacroOwner[MicroParent[e.y]];
+                    if (a >= 0 && c >= 0 && a != c) border[e.x] = border[e.y] = true;
+                }
+                for (int i = 0; i < count; i++) if (border[i]) MicroScore[i] -= cp.Separation;
             }
 
             var order = new int[count];
@@ -589,6 +626,52 @@ namespace Sonoma.Core.Generation
 
             Stats.LandCells    = cells;
             Stats.LandFraction = land / totalArea;
+        }
+
+        // The land's connected pieces: a union-find over land micro cells that meet at neighbouring
+        // texels, roots always the lower index, then each piece's area summed in cell order and the
+        // pieces sorted largest first, ties to the lower root. Stats only: nothing here feeds the
+        // field, so the tables are what they were without it.
+        void FindLandPieces(List<int2> near)
+        {
+            int count  = MicroSeeds.Length;
+            var parent = new int[count];
+            for (int i = 0; i < count; i++) parent[i] = i;
+            foreach (int2 e in near)
+            {
+                if (MicroLand[e.x] == 0 || MicroLand[e.y] == 0) continue;
+                int a = Root(parent, e.x), c = Root(parent, e.y);
+                if (a < c) parent[c] = a; else if (c < a) parent[a] = c;
+            }
+
+            var area = new double[count];
+            double land = 0.0;
+            for (int i = 0; i < count; i++)
+            {
+                if (MicroLand[i] == 0) continue;
+                area[Root(parent, i)] += MicroArea[i];
+                land += MicroArea[i];
+            }
+            var roots = new List<int>();
+            for (int i = 0; i < count; i++) if (MicroLand[i] != 0 && parent[i] == i) roots.Add(i);
+            roots.Sort((a, c) => area[a] != area[c] ? area[c].CompareTo(area[a]) : a.CompareTo(c));
+
+            LandPieces = new double[roots.Count];
+            int continents = 0;
+            for (int r = 0; r < roots.Count; r++)
+            {
+                LandPieces[r] = area[roots[r]];
+                if (land > 0.0 && LandPieces[r] >= ContinentShare * land) continents++;
+            }
+            Stats.Continents       = continents;
+            Stats.Islands          = roots.Count - continents;
+            Stats.LargestContinent = roots.Count > 0 && land > 0.0 ? LandPieces[0] / land : 0.0;
+        }
+
+        static int Root(int[] parent, int i)
+        {
+            while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+            return i;
         }
     }
 

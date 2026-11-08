@@ -15,6 +15,7 @@ namespace Sonoma.Core.Generation
         public float  DecayMin, DecayMax;      // BFS decay per step
         public float  ElevationFloor;          // the BFS stops spreading below it
         public float  ScoreNoise;              // micro score noise amplitude
+        public float  Separation;              // score taken off micro cells where two centres' domains meet; 0 none
         public float  LandFraction;            // land share of the map by area, not of the final terrain
         public float  WarpAmplitude, WarpWavelength, CoastWidth;   // in micro spacings
         public float  LandHeight, OceanDepth;  // metres
@@ -46,7 +47,7 @@ namespace Sonoma.Core.Generation
                 throw new ArgumentOutOfRangeException(nameof(ContinentCount),
                     "ContinentConfig: there cannot be more continents than macro cells.");
             if (!IsFinite(DecayMin) || !IsFinite(DecayMax) || !IsFinite(ElevationFloor) ||
-                !IsFinite(ScoreNoise) || !IsFinite(LandFraction) || !IsFinite(WarpAmplitude) ||
+                !IsFinite(ScoreNoise) || !IsFinite(Separation) || !IsFinite(LandFraction) || !IsFinite(WarpAmplitude) ||
                 !IsFinite(WarpWavelength) || !IsFinite(CoastWidth) || !IsFinite(LandHeight) ||
                 !IsFinite(OceanDepth) || !IsFinite(InteriorRise) || !IsFinite(CoarseOctaveAmplitude) ||
                 double.IsNaN(DetailCutoff) || double.IsInfinity(DetailCutoff))
@@ -59,6 +60,9 @@ namespace Sonoma.Core.Generation
             if (ElevationFloor < 0f)
                 throw new ArgumentOutOfRangeException(nameof(ElevationFloor),
                     "ContinentConfig: the elevation floor must not be negative.");
+            if (Separation < 0f)
+                throw new ArgumentOutOfRangeException(nameof(Separation),
+                    "ContinentConfig: the separation must not be negative.");
             if (!(LandFraction > 0f) || !(LandFraction < 1f))
                 throw new ArgumentOutOfRangeException(nameof(LandFraction),
                     "ContinentConfig: the land fraction must be in (0, 1).");
@@ -102,7 +106,7 @@ namespace Sonoma.Core.Generation
         public double WarpWavelength;    // metres
         public double LandHeight, OceanDepth, InteriorRise;
         public double Bound;             // ContinentConfig.Bound
-        public double DecayMin, DecayMax, ElevationFloor, ScoreNoise, LandFraction;
+        public double DecayMin, DecayMax, ElevationFloor, ScoreNoise, Separation, LandFraction;
         public uint   PlacementSeed;     // Unity.Mathematics.Random.CreateFromIndex
         public uint   WarpSeed;          // three LatticeNoise channels, a stride apart
         public uint   ScoreSeed;
@@ -161,6 +165,7 @@ namespace Sonoma.Core.Generation
                 DecayMax       = k.DecayMax,
                 ElevationFloor = k.ElevationFloor,
                 ScoreNoise     = k.ScoreNoise,
+                Separation     = k.Separation,
                 LandFraction   = k.LandFraction,
                 PlacementSeed  = seed,
                 WarpSeed       = seed + ChannelStride,

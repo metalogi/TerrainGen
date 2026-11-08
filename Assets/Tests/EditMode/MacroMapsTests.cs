@@ -169,6 +169,10 @@ namespace Sonoma.Tests
                 Assert.AreEqual(managed.BlendRadius2,           burst.BlendRadius2,           $"{c.Name}: blend radius");
                 Assert.AreEqual(managed.Stats.SaturationRadius, burst.Stats.SaturationRadius, $"{c.Name}: saturation");
                 Assert.AreEqual(managed.Stats.LandFraction,     burst.Stats.LandFraction,     $"{c.Name}: land fraction");
+                CollectionAssert.AreEqual(managed.LandPieces,   burst.LandPieces,             $"{c.Name}: land pieces");
+                CollectionAssert.AreEqual(managed.MacroOwner,   burst.MacroOwner,             $"{c.Name}: owners");
+                Assert.AreEqual(managed.Stats.Continents,       burst.Stats.Continents,       $"{c.Name}: continents");
+                Assert.AreEqual(managed.Stats.Islands,          burst.Stats.Islands,          $"{c.Name}: islands");
             }
         }
 
@@ -622,7 +626,8 @@ namespace Sonoma.Tests
                     Assert.AreEqual(want.DecayMax,              k.DecayMax,              $"{m.ContinentAsset}: DecayMax");
                     Assert.AreEqual(want.ElevationFloor,        k.ElevationFloor,        $"{m.ContinentAsset}: ElevationFloor");
                     Assert.AreEqual(want.ScoreNoise,            k.ScoreNoise,            $"{m.ContinentAsset}: ScoreNoise");
-                    Assert.AreEqual(want.LandFraction,          k.LandFraction,          $"{m.ContinentAsset}: LandFraction");
+                    Assert.AreEqual(want.Separation,            k.Separation,            $"{m.ContinentAsset}: Separation");
+                    Assert.AreEqual(want.LandFraction,         k.LandFraction,          $"{m.ContinentAsset}: LandFraction");
                     Assert.AreEqual(want.WarpAmplitude,         k.WarpAmplitude,         $"{m.ContinentAsset}: WarpAmplitude");
                     Assert.AreEqual(want.WarpWavelength,        k.WarpWavelength,        $"{m.ContinentAsset}: WarpWavelength");
                     Assert.AreEqual(want.CoastWidth,            k.CoastWidth,            $"{m.ContinentAsset}: CoastWidth");

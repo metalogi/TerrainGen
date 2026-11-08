@@ -14,6 +14,27 @@ namespace Sonoma.Systems.Configuration
     [CreateAssetMenu(fileName = "Continents", menuName = "Sonoma/Continent Settings")]
     public class ContinentSettings : ScriptableObject
     {
+        // The continent designer's two settings (Assets/Editor/ContinentSettingsEditor.cs). Its
+        // Regenerate button turns them into the fields below, through ContinentDesign.Derive and a
+        // measured calibration of LandFraction. The terrain never reads them: ToConfig leaves them
+        // out, so a scene runs the fields below whatever these say. An asset written before the
+        // designer reads its initial values, which are what its four continents and 30% land are.
+        [Header("Design")]
+        [Tooltip("The final terrain's land share by area, after the detail noise and erosion: what " +
+                 "Regenerate calibrates LandFraction to reach.")]
+        [Range(0.05f, 0.95f)]
+        public float TargetLand = 0.3f;
+        [Tooltip("0 is one supercontinent, 1 is many small continents. Sets ContinentCount, " +
+                 "MacroCells and Separation when Regenerate runs.")]
+        [Range(0f, 1f)]
+        public float Fragmentation = ContinentDesign.FragmentationFor(4);
+
+        // What the last Regenerate was asked for and what it measured, so the inspector can say
+        // whether the fields below still come from the settings above. -1 is never regenerated.
+        [HideInInspector] public float RegeneratedTargetLand    = -1f;
+        [HideInInspector] public float RegeneratedFragmentation = -1f;
+        [HideInInspector] public float MeasuredLand             = -1f;
+
         [Header("Map")]
         [Tooltip("The continent map's seed. Offset internally from the macro and detail seeds, so the " +
                  "same value in all three correlates none of them.")]
@@ -40,6 +61,10 @@ namespace Sonoma.Systems.Configuration
         [Header("Land")]
         [Tooltip("Noise added to each micro cell's elevation before the land threshold.")]
         public float ScoreNoise = 0.25f;
+        [Tooltip("Score taken off the micro cells where two continent centres' domains meet, so " +
+                 "neighbouring continents keep a strait between them rather than merging. 0 is none.")]
+        [Min(0f)]
+        public float Separation = 0f;
         [Tooltip("The land share of the MAP by area. The detail noise floods more land than it " +
                  "raises, so the final terrain comes out lower; each scene's value is calibrated so " +
                  "the final terrain reaches its target.")]
@@ -82,6 +107,7 @@ namespace Sonoma.Systems.Configuration
             DecayMax              = DecayMax,
             ElevationFloor        = ElevationFloor,
             ScoreNoise            = ScoreNoise,
+            Separation            = Separation,
             LandFraction          = LandFraction,
             WarpAmplitude         = WarpAmplitude,
             WarpWavelength        = WarpWavelength,

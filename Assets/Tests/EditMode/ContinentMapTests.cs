@@ -308,6 +308,8 @@ namespace Sonoma.Tests
             Add("negative cutoff",          k => { k.DetailCutoff = -1.0; return k; });
             Add("negative coarse amplitude", k => { k.CoarseOctaveAmplitude = -1f; return k; });
             Add("NaN score noise",          k => { k.ScoreNoise = float.NaN; return k; });
+            Add("negative separation",      k => { k.Separation = -1f; return k; });
+            Add("NaN separation",           k => { k.Separation = float.NaN; return k; });
             Add("infinite land height",     k => { k.LandHeight = float.PositiveInfinity; return k; });
 
             var s = SurfaceDef.CubeSphere(6371000.0);

@@ -794,6 +794,59 @@ editing the tasks, so the plan still reads as what was decided up front.
    - The narrow ring's macro build is the slowest of the five, because its three levels hold the most texels (991,480). Stage B there is the costliest stage of any scene.
    - All 168 EditMode tests are green in the Editor, the Burst continent checks and the new assets' holds included.
 
+### The continent designer, `continent-designer` (2026-11-07)
+
+Two sliders on `ContinentSettings`, **`TargetLand`** (the final terrain's land share) and **`Fragmentation`** (0 one supercontinent, 1 many small continents), and a **Regenerate** button in its inspector that turns them into the low-level fields. The runtime is unchanged: `ToConfig` leaves the two out, so a scene runs the fields the button wrote, and every scene keeps its bits until someone regenerates it.
+
+1. **What Regenerate changes, and what it keeps.** `ContinentDesign.Derive` sets `ContinentCount`, `MacroCells`, `Separation` and `LandFraction`, and keeps everything else to the bit (`ContinentDesignTests.DeriveKeepsEverythingElseToTheBit`).
+   - **What it keeps:** the micro cells, the coast's width and warp, the heights and the cutoff. These decide how steep the coasts are, which is what C_m and the LOD relief allowance price. They also set K2's plateau limit and K10's texel limit.
+   - **The count** is `round(24^f)`: 1, 2, 5, 11 and 24 at a fragmentation of 0, ¼, ½, ¾ and 1. The shipped scenes' four is f = 0.436, a ContinentSettings' initial value, so an asset written before the designer opens at its own count.
+   - **The macro cells** are `ceil(2.25 N / LandFraction)`, between 30 and 400. Each continent then keeps today's 2.25 land macro cells (30 × 0.3 / 4), so the BFS crosses a continent in the same number of hops at any count, and the decay range that suits four suits all of them.
+2. **The separation, a new field (`ContinentConfig.Separation`, default 0).**
+   - **Why.** The first sweep (`ContinentDesignSweep`, Earth, Stage A, macro cells scaled) found that neighbouring centres' land merges. At a map land share of 0.5 or more every count from 1 to 24 made one supercontinent, its largest piece 96–100% of the land. At 0.3, 8 centres made one continent of 83%.
+   - **What it does.** The spread now records each macro cell's owner, the centre whose wave set its elevation (`ContinentMap.MacroOwner`). With a separation, a micro cell that meets a micro cell of another owner's domain loses it from its score. Separation 2 puts those borders below every other cell, so neighbouring continents keep a strait two micro cells wide (640 km on Earth) until the land needs it.
+   - **What it bought.** With it the count follows N at every share from 0.1 to 0.7. On Earth:
+
+     | map land | N 1 | N 4 | N 8 | N 24 |
+     |---|---|---|---|---|
+     | 0.3 | 3 continents, largest 96% | 6, 37% | 11, 19% | 24, 11% |
+     | 0.5 | 2, 98% | 4, 33% | 13, 16% | 23, 12% |
+     | 0.7 | 2, 97% | 5, 32% | 8, 24% | 17, 13% |
+
+     The small planet's map is Earth's, as a scale-free map should be. The ring and the narrow ring follow N as closely. A separation of 0.5 already does most of what 2 does.
+   - **The default.** At 0 the classification is what it was, so every shipped map keeps its bits, and their pinned figures still hold.
+   - **The BFS floor.** It changed nothing in the sweep, at 0.1 or at 0, and Derive leaves it alone.
+3. **Land pieces in `ContinentStats`.**
+   - **How.** `ContinentMap.Finish` collects the micro cells that meet at neighbouring texels, in the same pass as the macro adjacency. After the land is chosen, a union-find gives the connected pieces of land, largest first (`LandPieces`).
+   - **The counts.** A piece of at least 1% of the land is a continent, a smaller one an island (`Stats.Continents`, `Islands`, `LargestContinent`). They are stats only.
+   - **Where they show.** In `TerrainRoot`'s log and the designer's inspector.
+4. **The calibration measures the eroded terrain.** Each try derives the configuration and builds the open scene's maps as `TerrainRoot.BuildMacro` does, continents and erosion in Burst.
+   - **The measurement.** The final land is measured at `MaxDepth` through `HeightAtPoint`, at every second top-level texel, weighted by area. This is the macro map export's sea measurement (`MacroMapExport.SampleSea`), factored out so the two agree.
+   - **The steps.** `ContinentDesign.NextMapLand` steps by secant from the last offset between the map and the final land. It stops within half a point or after four builds, and keeps the closest.
+   - **What it supersedes.** `ReliefMeasurements.CalibrateLandFraction`, which bisected on the uneroded terrain. `ContinentsSurviveTheDetailNoise` still probes the uneroded terrain, which ocean-a measured 0.1–0.6 points above the eroded, inside its 1.5 points.
+   - **What the inspector shows:** the sea image, the land and agreement, the continents and their shares, the islands, micro cells per continent, saturation, the deepest cut and the envelope. It warns under 90% agreement, under 30 micro cells a continent, or with no convergence.
+   - **A refusal.** Stage A's or B's plateau check is reported as an error, and the asset is left unchanged.
+5. **Sandbox first.**
+   - **The sandbox.** `ContinentSandbox.unity` is `EarthStress` with its own `SandboxTerrainSettings`, `SandboxMacro` and `SandboxContinents`, and Earth's erosion, biomes and materials. No test names it.
+   - **The pinned assets.** The four stress scenes' continent assets are named in `ContinentDesigner.PinnedAssets`. The inspector warns on them and asks before regenerating one.
+   - **Retuning a pinned scene.** Regenerate it, then rerun `ReliefMeasurements` (`MacroReliefFactor`, `ErodedMaps`, `ErodedCombinedRelief`, `WorkingSets`) and the skirt sample, and re-pin `MacroTests.StressMacros`.
+   - **What should move.** C_m should barely move, since the coasts' steepness is kept. Erosion's envelope and combined relief can grow with larger continents, whose rivers drain more area. More, smaller continents mean more coastline, and so more Coast chunks and vertex memory.
+6. **Verified (2026-11-07).**
+   - **The suite.** All 253 EditMode tests pass in batchmode, Burst included, and 191 pure ones out of the Editor. No shipped asset changed.
+   - **Regenerate.** It was run headlessly on `ContinentSandbox`, from a throwaway script that restored the asset:
+
+     | target land, fragmentation | final land | continents (largest) | agreement | builds, time |
+     |---|---|---|---|---|
+     | 0.3, 0.436 (4 centres) | 29.55% | 6 (37%) | 95.8% | 1, 6.3 s |
+     | 0.3, 0 | 29.52% | 2 (98%) | 93.2% | 2, 8.0 s |
+     | 0.3, 1 | 30.48% | 25 (9%) | 91.3% | 2, 9.2 s |
+     | 0.7, 0.5 | 70.04% | 5 (27%) | 88.7% | 3, 18.9 s |
+     | 0.1, 0.75 | 10.09% | 17 (12%) | 96.5% | 3, 11.1 s |
+
+   - **Regenerating today's settings changes the map.** At Earth's own settings Regenerate makes six continents where Earth has three, because the separation opens straits that Earth's map closes. So a stress scene regenerated at its current sliders is still a retune.
+   - **Agreement at 70% land.** It falls under the 90% that `ContinentsSurviveTheDetailNoise` holds the stress scenes to, and the inspector warns. More coast is more ground for the detail noise to move across sea level.
+   - **Not yet done:** the inspector itself, the sliders, the button and the preview drawn, checked by eye in the Editor, and a flight over a regenerated sandbox in play mode.
+
 ---
 
 ## Out of scope
