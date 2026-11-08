@@ -221,11 +221,13 @@ static class MeasureOpenScene
             _scene = scene; _measuredAs = measuredAs; _asset = asset; _tools = tools;
         }
 
+        bool Mine => _run == this;
+
         public void RunStarted(ITestAdaptor testsToRun) { }
 
         public void TestStarted(ITestAdaptor test)
         {
-            if (test.IsSuite) return;
+            if (!Mine || test.IsSuite) return;
             if (EditorUtility.DisplayCancelableProgressBar($"Measuring {_scene}", $"{test.Name} ({_results.Count + 1} of {_tools})",
                                                            (float)_results.Count / _tools))
                 Cancel();
@@ -233,7 +235,7 @@ static class MeasureOpenScene
 
         public void TestFinished(ITestResultAdaptor result)
         {
-            if (result.Test.IsSuite) return;
+            if (!Mine || result.Test.IsSuite) return;
             _results.Add(result);
             Debug.Log($"[Measure] {result.Name}: {result.ResultState} in {result.Duration:F1} s");
             if (Environment.GetEnvironmentVariable(CancelledVar) == "1") Cancel();
@@ -249,6 +251,9 @@ static class MeasureOpenScene
 
         public void RunFinished(ITestResultAdaptor run)
         {
+            // The framework went on calling a run's callbacks in later runs after they were
+            // unregistered, the whole suite included; a run answers only to its own events.
+            if (!Mine) { TestRunnerApi.UnregisterTestCallback(this); return; }
             try { Report(); }
             finally
             {
