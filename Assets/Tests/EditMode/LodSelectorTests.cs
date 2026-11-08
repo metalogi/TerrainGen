@@ -77,7 +77,7 @@ namespace Sonoma.Tests
                 _terrainMaterial = new Material(_oceanMaterial) { name = "Ground" };
             }
             _pool      = new ChunkPool(_host.transform, _terrainMaterial, Resolution, _oceanMaterial);
-            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, 0f, maxInFlightJobs, 100f,
+            _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, true, 1f, 0f, maxInFlightJobs, 100f,
                                                  null, ocean);
             _selector  = new LodSelector(_surface, _roots, _lod, _scheduler, _pool, maxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;
@@ -100,7 +100,6 @@ namespace Sonoma.Tests
 
             _selector = null; _scheduler = null; _pool = null; _host = null;
             _oceanMaterial = null; _terrainMaterial = null;
-            ChunkMeshBuffers.DisposeCache();
         }
 
         // One frame: the selector decides, then the scheduler lands whatever finished. That
@@ -443,7 +442,7 @@ namespace Sonoma.Tests
 
             _host      = new GameObject("LodSelectorTestHost");
             _pool      = new ChunkPool(_host.transform, null, EarthScaleTests.Resolution);
-            _scheduler = new GenerationScheduler(s, roots, p, _pool, EarthScaleTests.SkirtDepth,
+            _scheduler = new GenerationScheduler(s, roots, p, _pool, true, EarthScaleTests.SkirtDepth,
                                                  EarthScaleTests.SkirtFraction, 8, 1.5f);
 
             // The pinned camera, the corner the first replica named, a face centre, and two

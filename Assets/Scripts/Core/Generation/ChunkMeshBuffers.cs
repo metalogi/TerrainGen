@@ -1,6 +1,4 @@
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine.Rendering;
 
@@ -36,9 +34,9 @@ namespace Sonoma.Core.Generation
         public float4 MorphNormalElevation;
     }
 
-    // The Unity-side half of the mesh layout: the vertex descriptor set and the shared index
-    // buffers. The arithmetic lives in ChunkMeshLayout, which has no UnityEngine dependency
-    // so it can be tested outside the Editor.
+    // The Unity-side half of the mesh layout: the vertex descriptor set and the index format.
+    // The arithmetic lives in ChunkMeshLayout, which has no UnityEngine dependency so it can be
+    // tested outside the Editor.
     public static class ChunkMeshBuffers
     {
         public static IndexFormat IndexFormatFor(int resolution) =>
@@ -58,29 +56,8 @@ namespace Sonoma.Core.Generation
             new VertexAttributeDescriptor(VertexAttribute.TexCoord3, VertexAttributeFormat.Float32, 4),
         };
 
-        // Index buffers are identical for every chunk of a given resolution, winding and kind, so
-        // the tests build them once here; doubled is a Coast chunk's (A7). GenerationScheduler
-        // builds and owns its own, because a static cache freed by one TerrainRoot's teardown
-        // would be freed under another's jobs.
-        static readonly Dictionary<int, NativeArray<ushort>> _cache = new Dictionary<int, NativeArray<ushort>>();
-
-        public static NativeArray<ushort> SharedIndices(int resolution, bool flipWinding, bool doubled = false)
-        {
-            int key = resolution * 4 + (flipWinding ? 2 : 0) + (doubled ? 1 : 0);
-            if (_cache.TryGetValue(key, out var cached) && cached.IsCreated)
-                return cached;
-
-            var idx = new NativeArray<ushort>(ChunkMeshLayout.BuildIndices(resolution, flipWinding, doubled),
-                                              Allocator.Persistent);
-            _cache[key] = idx;
-            return idx;
-        }
-
-        public static void DisposeCache()
-        {
-            foreach (var kv in _cache)
-                if (kv.Value.IsCreated) kv.Value.Dispose();
-            _cache.Clear();
-        }
+        // There is no shared index cache: GenerationScheduler builds and owns its index buffers,
+        // because a static cache one TerrainRoot's teardown freed would be freed under another's
+        // jobs. The tests keep theirs in ChunkJobRunner.
     }
 }

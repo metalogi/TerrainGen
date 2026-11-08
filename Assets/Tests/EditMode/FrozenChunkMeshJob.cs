@@ -17,6 +17,11 @@ namespace Sonoma.Tests
     // tested. The caller sets the buffer parameters, the indices and the submesh, as main's
     // GenerationScheduler did (ChunkJobRunner.Build with beforeOcean). Do not edit it to follow
     // ChunkMeshJob: it is the record of what the mesh was.
+    //
+    // The layout it reads is frozen too, in FrozenLayout below: the index buffer, the skirt rows,
+    // the coarse grid and the skirt drop. Reading ChunkMeshLayout's, which both sides call, would
+    // let a change there move both alike, and the comparison would check the change against
+    // itself (PR #20's second review, finding 3).
     [BurstCompile(CompileSynchronously = true)]
     internal struct FrozenChunkMeshJob : IJob
     {
@@ -45,7 +50,7 @@ namespace Sonoma.Tests
         {
             int R  = Resolution;
             int g  = R + 2;
-            int cg = ChunkMeshLayout.CoarseGridSize(R);
+            int cg = FrozenLayout.CoarseGridSize(R);
 
             var verts = Mesh.GetVertexData<TerrainVertex>();
 
@@ -85,15 +90,15 @@ namespace Sonoma.Tests
                 };
             }
 
-            float drop = ChunkMeshLayout.SkirtDrop(SkirtDepth, SkirtFraction, maxH - minH, ChordSag);
+            float drop = FrozenLayout.SkirtDrop(SkirtDepth, SkirtFraction, maxH - minH, ChordSag);
             for (int edge = 0; edge < 4; edge++)
             for (int k = 0; k < R; k++)
             {
-                int top = ChunkMeshLayout.SkirtTopIndex(R, edge, k);
+                int top = FrozenLayout.SkirtTopIndex(R, edge, k);
                 var v   = verts[top];
                 v.Position -= v.TopoElevation.xyz * drop;
                 v.MorphPosition = new float4(v.MorphPosition.xyz - v.TopoElevation.xyz * drop, Depth);
-                verts[ChunkMeshLayout.SkirtBottomIndex(R, edge, k)] = v;
+                verts[FrozenLayout.SkirtBottomIndex(R, edge, k)] = v;
             }
 
             float3 lo = float.MaxValue, hi = float.MinValue;
@@ -128,6 +133,68 @@ namespace Sonoma.Tests
             float3 baseN = CoarseBaseNormals[cj * cg + ci];
             if (math.dot(n, baseN) < 0f) n = -n;
             return math.lengthsq(n) > 1e-12f ? math.normalize(n) : baseN;
+        }
+    }
+
+    // The parts of ChunkMeshLayout the mesh on main was built from, as they stood at 0da8c16, for
+    // FrozenChunkMeshJob and the buffers ChunkJobRunner sets around it. Frozen for the job's
+    // reason; do not edit them to follow ChunkMeshLayout.
+    internal static class FrozenLayout
+    {
+        public static int CoarseGridSize(int resolution) => (resolution - 1) / 2 + 3;
+        public static int VertexCount(int resolution) => resolution * resolution + 4 * resolution;
+        public static int SkirtBase(int resolution, int edge) => resolution * resolution + edge * resolution;
+        public static int TriangleCount(int resolution) =>
+            (resolution - 1) * (resolution - 1) * 2 + 8 * (resolution - 1);
+        public static int IndexCount(int resolution) => TriangleCount(resolution) * 3;
+
+        public static int SkirtTopIndex(int R, int edge, int k) => edge switch
+        {
+            0 => k,                                  // South (j = 0),   walking +u
+            1 => k * R + (R - 1),                    // East  (i = R-1), walking +v
+            2 => (R - 1) * R + (R - 1 - k),          // North (j = R-1), walking -u
+            _ => (R - 1 - k) * R,                    // West  (i = 0),   walking -v
+        };
+
+        public static int SkirtBottomIndex(int R, int edge, int k) => SkirtBase(R, edge) + k;
+
+        public static float SkirtDrop(float skirtDepth, float skirtFraction, double relief, double chordSag)
+            => (float)(skirtDepth + skirtFraction * relief + chordSag);
+
+        public static ushort[] BuildIndices(int R, bool flipWinding)
+        {
+            var idx = new ushort[IndexCount(R)];
+            int t = 0;
+            int b = flipWinding ? 2 : 1;    // swap the 2nd and 3rd index of every triangle
+            int c = flipWinding ? 1 : 2;
+
+            for (int j = 0; j < R - 1; j++)
+            for (int i = 0; i < R - 1; i++)
+            {
+                int i00 = j * R + i, i10 = i00 + 1, i01 = i00 + R, i11 = i01 + 1;
+                Tri(idx, ref t, i00, i11, i10, b, c);
+                Tri(idx, ref t, i00, i01, i11, b, c);
+            }
+
+            for (int edge = 0; edge < 4; edge++)
+            for (int k = 0; k < R - 1; k++)
+            {
+                int t0 = SkirtTopIndex(R, edge, k),    t1 = SkirtTopIndex(R, edge, k + 1);
+                int b0 = SkirtBottomIndex(R, edge, k), b1 = SkirtBottomIndex(R, edge, k + 1);
+
+                Tri(idx, ref t, t0, t1, b1, b, c);
+                Tri(idx, ref t, t0, b1, b0, b, c);
+            }
+
+            return idx;
+        }
+
+        static void Tri(ushort[] idx, ref int t, int a, int second, int third, int b, int c)
+        {
+            idx[t]     = (ushort)a;
+            idx[t + b] = (ushort)second;
+            idx[t + c] = (ushort)third;
+            t += 3;
         }
     }
 }

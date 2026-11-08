@@ -73,20 +73,32 @@ namespace Sonoma.Core.Generation
             int g  = R + 2;
             int cg = ChunkMeshLayout.CoarseGridSize(R);
 
-            // The heights first: the fine range, and the drawn range, which adds the morph targets.
-            // A morphing vertex lies between its height and its target's, and a triangle between
-            // its vertices, so every frame of every morph state lies in [lo, hi].
+            // The heights first: the fine range, and with an ocean the drawn range, which adds the
+            // morph targets. A morphing vertex lies between its height and its target's, and a
+            // triangle between its vertices, so every frame of every morph state lies in [lo, hi].
             float minH = float.MaxValue, maxH = float.MinValue;
-            float lo   = float.MaxValue, hi   = float.MinValue;
             for (int j = 0; j < R; j++)
             for (int i = 0; i < R; i++)
             {
-                float h  = Heights[Sample(i, j, g)];
-                float hc = CoarseHeights[CoarseSample(i, j, cg)];
+                float h = Heights[Sample(i, j, g)];
                 minH = math.min(minH, h);
                 maxH = math.max(maxH, h);
-                lo   = math.min(lo, math.min(h, hc));
-                hi   = math.max(hi, math.max(h, hc));
+            }
+
+            // Only the kind reads the drawn range, so a scene with no ocean skips it and keeps the
+            // fine range there. The morph targets are the coarse cells from the first vertex's to
+            // the last's, each read once, rather than once per vertex that lands on it.
+            float lo = minH, hi = maxH;
+            if (Ocean.Enabled)
+            {
+                int2 first = CoarseCell(0, 0), last = CoarseCell(R - 1, R - 1);
+                for (int cj = first.y; cj <= last.y; cj++)
+                for (int ci = first.x; ci <= last.x; ci++)
+                {
+                    float hc = CoarseHeights[cj * cg + ci];
+                    lo = math.min(lo, hc);
+                    hi = math.max(hi, hc);
+                }
             }
 
             ChunkKind kind = Ocean.Enabled
@@ -165,9 +177,9 @@ namespace Sonoma.Core.Generation
                 if (math.dot(n, baseN) < 0f) n = -n;
                 n = math.lengthsq(n) > 1e-12f ? math.normalize(n) : baseN;
 
-                int ci = ((i & ~1) + 2) / 2;
-                int cj = ((j & ~1) + 2) / 2;
-                int cs = cj * cg + ci;
+                int2 cell = CoarseCell(i, j);
+                int  ci = cell.x, cj = cell.y;
+                int  cs = cj * cg + ci;
 
                 verts[j * R + i] = new TerrainVertex
                 {
@@ -237,8 +249,10 @@ namespace Sonoma.Core.Generation
         // Index into the (R+2) x (R+2) sampled grid for chunk vertex (i, j), i and j in -1 .. R.
         static int Sample(int i, int j, int g) => (j + 1) * g + (i + 1);
 
-        // Index into the coarse grid of chunk vertex (i, j)'s morph target, the even vertex.
-        static int CoarseSample(int i, int j, int cg) => (((j & ~1) + 2) / 2) * cg + ((i & ~1) + 2) / 2;
+        // The coarse grid cell of chunk vertex (i, j)'s morph target, the even vertex, and its index:
+        // the one statement of that rule in the job (ChunkJobRunner restates it for the tests).
+        static int2 CoarseCell(int i, int j) => new int2(((i & ~1) + 2) / 2, ((j & ~1) + 2) / 2);
+        static int CoarseSample(int i, int j, int cg) { int2 c = CoarseCell(i, j); return c.y * cg + c.x; }
 
         float3 Local(int s) =>
             (float3)(BasePoints[s] + (double3)(BaseNormals[s] * Heights[s]) - Anchor);

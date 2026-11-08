@@ -45,7 +45,7 @@ namespace Sonoma.Tests
         }
 
         [TearDown]
-        public void TearDown() => ChunkMeshBuffers.DisposeCache();
+        public void TearDown() => ChunkJobRunner.DisposeIndices();
 
         // The milestone's headline test.
         //
