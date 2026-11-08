@@ -92,12 +92,50 @@ namespace Sonoma.Tests
             public float      RuggednessCentre;               // as the asset holds it
             public float      SceneLapseRate = LapseRate;     // degrees C per km, as the asset holds it
 
-            // The continent map (Docs/Continents_Plan.md): the ContinentSettings asset and its copy,
-            // or none. MacroMapsTests holds the copy to the asset.
+            // The continent map (Docs/Continents_Plan.md): the ContinentSettings asset, or none. A
+            // stress scene's continents are read from the asset file itself (ContinentAssets), so a
+            // scene regenerated in the continent designer is tested as it is; there is no copy to
+            // keep. A scene with no asset, the synthetic one, sets Continents directly. Read once a
+            // test run (ReloadContinentAssets), and set for a while by Measuring's swap.
             public string           ContinentAsset;
-            public ContinentConfig? Continents;
-            // The final terrain's land share the map's LandFraction is calibrated to (K3).
-            public double           LandTarget = 0.30;
+
+            public ContinentConfig? Continents
+            {
+                get { ReadContinents(); return _continents; }
+                set { _continents = value; _continentsRead = true; }
+            }
+
+            // The final terrain's land share the map's LandFraction is calibrated to (K3): the asset's
+            // TargetLand, or 0.30 for a scene with none.
+            public double LandTarget
+            {
+                get { ReadContinents(); return _landTarget ?? 0.30; }
+                set { _landTarget = value; }
+            }
+
+            ContinentConfig? _continents;
+            double?          _landTarget;
+            bool             _continentsRead;
+            DateTime         _continentStamp;
+
+            void ReadContinents()
+            {
+                if (_continentsRead || ContinentAsset == null) return;
+                _continents      = ContinentAssets.Read(ContinentAsset, out float target);
+                _landTarget      = target;
+                _continentStamp  = ContinentAssets.Stamp(ContinentAsset);
+                _continentsRead  = true;
+            }
+
+            // Forgets what was read if the file has changed since, so the next read takes it afresh;
+            // true if it did.
+            internal bool ForgetContinentsIfChanged()
+            {
+                if (ContinentAsset == null || !_continentsRead || ContinentAssets.Stamp(ContinentAsset) == _continentStamp) return false;
+                _continentsRead = false;
+                _landTarget     = null;
+                return true;
+            }
 
             // The macro layer's relief factor, C_m: the base height's half-relief across a node over
             // (node size x (ContinentBound + BaseHeightScale) / S0). MacroReliefFactor for a scene
@@ -185,7 +223,6 @@ namespace Sonoma.Tests
                              // steepening the base height, so 96 from 81 (ReliefMeasurements.ErodedMacroReliefFactor).
                              RuggednessCentre = 0.2f, ReliefFactor = 96.0,
                              ContinentAsset = "Assets/Settings/EarthContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.322f, land: 2000f, ocean: 6000f, cutoff: 1000000.0),
                              // Erosion (2026-10-25, amendment 8): the ring's 21 texels of incision on 28.7 km
                              // texels, 600 km. Breaching at 2,000 m left basins it filled by up to 533 m;
                              // at 4,000 m by 58. On the managed build: under a lake 1.1% of the land, land
@@ -210,7 +247,6 @@ namespace Sonoma.Tests
                              // Eroded (E5): C_m 72.8 at its roughest (depth 16), so 109 from 77.
                              RuggednessCentre = 0.2f, ReliefFactor = 109.0,
                              ContinentAsset = "Assets/Settings/SmallPlanetContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.312f, land: 1000f, ocean: 3000f, cutoff: 250000.0),
                              // Erosion (2026-10-25, amendment 8): the ring's 21 texels of incision on 7.2 km
                              // texels, 150 km; breaching at 4,000 m changed nothing over 2,000. On the managed
                              // build: under a lake 0.9% of the land, at most 65 m filled, land cut 38 m at the
@@ -236,7 +272,6 @@ namespace Sonoma.Tests
                              // Eroded (E5): C_m 52.4 at its roughest (depth 10), so 79 from 73.
                              RuggednessCentre = 0.2f, ReliefFactor = 79.0,
                              ContinentAsset = "Assets/Settings/RingworldContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.351f, land: 1500f, ocean: 4500f, cutoff: 250000.0),
                              // M5c-1's second erosion, to tune with the export. Outlets at sea level, 0,
                              // the continents' coast. The texels are 4.8 km, so incision needs tens of
                              // kilometres: on the managed build (2026-10-25), with diffusion off, 30 km
@@ -276,7 +311,6 @@ namespace Sonoma.Tests
                              // Eroded (E5): C_m 54.9 at its roughest (depth 11), so 82 from 37.
                              RuggednessCentre = 0.2f, ReliefFactor = 82.0,
                              ContinentAsset = "Assets/Settings/NarrowRingContinents.asset",
-                             Continents = SceneContinentConfig(landFraction: 0.300f, land: 600f, ocean: 1800f, cutoff: 150000.0, coastWidth: 0.8f),
                              // Erosion (2026-10-26, amendment 10): the other scenes' 21 texels of incision on
                              // 1.5 km texels, 30 km, with diffusion 0.002 and a 2,000 m breach. Without
                              // breaching 7.4% of the land lay under a lake and rivers cut 0.9x the median; a
@@ -320,18 +354,12 @@ namespace Sonoma.Tests
                                                            BreachDepth = 50f } },
         };
 
-        // A stress scene's continents: K9's defaults with the scene's land fraction, heights and
-        // cutoff, as its ContinentSettings asset holds them. A scene regenerated in the continent
-        // designer also passes what Regenerate wrote (ContinentDesign.Derive): its continent count,
-        // macro cells and separation. Left out, they are the defaults every shipped scene was built
-        // with, 4, 30 and 0.
-        static ContinentConfig SceneContinentConfig(float landFraction, float land, float ocean, double cutoff, float coastWidth = 1f,
-                                                    int continentCount = 4, int macroCells = 30, float separation = 0f)
+        // Each stress scene's continents read afresh if its asset has changed on disk since they were
+        // last read, its cached builds with them (ContinentAssetsAfresh, at the start of a test run).
+        internal static void ReloadContinentAssets()
         {
-            var k = ContinentConfig.Default;
-            k.LandFraction = landFraction; k.LandHeight = land; k.OceanDepth = ocean; k.DetailCutoff = cutoff; k.CoastWidth = coastWidth;
-            k.ContinentCount = continentCount; k.MacroCells = macroCells; k.Separation = separation;
-            return k;
+            foreach (var m in StressMacros)
+                if (m.ForgetContinentsIfChanged()) ForgetBuilds(m.Scene);
         }
 
         internal static SceneMacro For(string scene)

@@ -48,13 +48,13 @@ Sonoma is a Unity 6 (6000.4.4f1) project implementing a procedural terrain gener
 - `MeasureOpenScene` (Tools → Sonoma → Measure Open Scene) re-measures the figures a continent scene pins, so a pinned scene can be retuned without leaving the Editor. The designer amendment of `Docs/Continents_Plan.md`, item 7, has the details and timings.
   - **The retune.**
     1. Regenerate the asset.
-    2. Update its copy in `MacroTests.StressMacros`: `SceneContinentConfig`'s `landFraction`, and for a regenerated scene its `continentCount`, `macroCells` and `separation`, and `LandTarget` if the target is not 0.30.
-    3. Run the menu item.
-    4. Re-pin what it marks RE-PIN.
-    5. Run the suite.
-  - **What it runs.** It sets `SONOMA_MEASURE`, `SONOMA_SCENES` and the open scene's continent asset, target and surface as environment variables in-process (`Sonoma.Tests.Measuring`), because the Editor assembly cannot reference the tests. It runs the five `ReliefMeasurements` tools that produce pinned figures through `TestRunnerApi`; "(Every Tool)" runs all of them and the two in `ContinentTests`.
+    2. Run the menu item.
+    3. Re-pin what it marks RE-PIN.
+    4. Run the suite.
+  - **No continent copies.** The tests read each stress scene's continents and `TargetLand` from the asset file as text (`Sonoma.Tests.ContinentAssets`), pure, so the harness has them too (set `SONOMA_PROJECT` when it runs elsewhere). `MacroMapsTests` holds that reading to `ToConfig`. An asset missing a field is refused: re-save it. `ContinentAssetsAfresh`, a SetUpFixture, re-reads changed files at the start of each run. The macro, erosion and terrain settings are still hand copies.
+  - **What it runs.** It sets `SONOMA_MEASURE`, `SONOMA_SCENES` and the open scene's continent asset path and surface as environment variables in-process (`Sonoma.Tests.Measuring`), because the Editor assembly cannot reference the tests, saving the asset first if it has unsaved changes. It runs the five `ReliefMeasurements` tools that produce pinned figures through `TestRunnerApi`; "(Every Tool)" runs all of them and the two in `ContinentTests`.
   - **What it writes.** All they print goes to `Logs/Measurements/<scene>.txt`. It logs each constant's new value beside the pinned one: `ReliefFactor`, `ErodedMaxAbsBaseHeight`, `ErodedCombinedRelief`, `SkirtFraction` with the worst share, and the worst-case working sets against their budgets.
-  - **Which scenes.** It measures the asset, not the copy, and says where the copy differs. A copy of a pinned scene whose terrain and macro settings differ only in the continent asset is measured as that scene: `ContinentSandbox` as `EarthStress`. Anything else is refused.
+  - **Which scenes.** A pinned scene, or a copy of one whose terrain and macro settings differ only in the continent asset, which is measured as that scene: `ContinentSandbox` as `EarthStress`. Anything else is refused.
   - **How long.** In the Editor the eroded build, the C_m scan and the combined relief scan run in Burst (`MeasuringScans`), and the eroded skirt shares on every core. `EarthStress` takes 5 to 6 minutes. The progress bar can cancel.
 
 ### Important Unity Packages

@@ -12,6 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 65377d2f9a8f44008611278d8c174264, type: 3}
   m_Name: EarthContinents
   m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.ContinentSettings
+  TargetLand: 0.3
+  Fragmentation: 0.43620858
+  RegeneratedTargetLand: -1
+  RegeneratedFragmentation: -1
+  MeasuredLand: -1
+  RegeneratedInputs: 
   Seed: 1
   MacroCells: 30
   MicroCells: 5000
@@ -20,6 +26,7 @@ MonoBehaviour:
   DecayMax: 0.75
   ElevationFloor: 0.1
   ScoreNoise: 0.25
+  Separation: 0
   LandFraction: 0.322
   WarpAmplitude: 0.5
   WarpWavelength: 2

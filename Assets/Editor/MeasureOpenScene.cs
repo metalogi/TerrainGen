@@ -20,10 +20,11 @@ using Debug = UnityEngine.Debug;
 // The figures come from the explicit measuring tools in the test assembly (ReliefMeasurements),
 // which this cannot reference, so it talks to them the way the harness does, through environment
 // variables set in this process (Sonoma.Tests.Measuring lists them): SONOMA_MEASURE=1, the scene,
-// and the open scene's ContinentSettings as text, so what is measured is the asset as it is now,
-// saved or not, whether or not MacroTests.StressMacros' copy has caught up. It runs the tools
-// through TestRunnerApi, writes everything they print to Logs/Measurements/<scene>.txt, and logs
-// each pinned constant's new value beside the one the tests pin now.
+// and the path of the open scene's ContinentSettings asset. The tests read continent assets from
+// their files (Sonoma.Tests.ContinentAssets), so it saves the asset first if it has unsaved changes.
+// It runs the tools through TestRunnerApi, writes everything they print to
+// Logs/Measurements/<scene>.txt, and logs each pinned constant's new value beside the one the tests
+// pin now.
 //
 // The tools measure a scene through its entry in MacroTests.StressMacros and StressSceneTests, so
 // the open scene must be one of the four pinned continent scenes, or a copy of one whose terrain
@@ -37,13 +38,12 @@ using Debug = UnityEngine.Debug;
 static class MeasureOpenScene
 {
     // The variables Sonoma.Tests.Measuring reads.
-    const string MeasureVar    = "SONOMA_MEASURE";
-    const string ScenesVar     = "SONOMA_SCENES";
-    const string ContinentsVar = "SONOMA_CONTINENTS";
-    const string LandTargetVar = "SONOMA_LAND_TARGET";
-    const string SurfaceVar    = "SONOMA_SURFACE";
-    const string CancelledVar  = "SONOMA_MEASURE_CANCELLED";
-    static readonly string[] Variables = { MeasureVar, ScenesVar, ContinentsVar, LandTargetVar, SurfaceVar, CancelledVar };
+    const string MeasureVar        = "SONOMA_MEASURE";
+    const string ScenesVar         = "SONOMA_SCENES";
+    const string ContinentAssetVar = "SONOMA_CONTINENT_ASSET";
+    const string SurfaceVar        = "SONOMA_SURFACE";
+    const string CancelledVar      = "SONOMA_MEASURE_CANCELLED";
+    static readonly string[] Variables = { MeasureVar, ScenesVar, ContinentAssetVar, SurfaceVar, CancelledVar };
 
     const string RunningKey = "Sonoma.MeasureOpenScene.Running";
 
@@ -113,15 +113,21 @@ static class MeasureOpenScene
             return;
         }
 
+        // The tests read the asset's file, so unsaved changes would not be measured.
+        string asset = AssetDatabase.GetAssetPath(continents);
+        if (EditorUtility.IsDirty(continents))
+        {
+            AssetDatabase.SaveAssetIfDirty(continents);
+            Debug.Log($"[Measure] Saved {asset}, since the tests read it from its file.");
+        }
+
         ClearVariables();
-        Environment.SetEnvironmentVariable(MeasureVar,    "1");
-        Environment.SetEnvironmentVariable(ScenesVar,     measuredAs);
-        Environment.SetEnvironmentVariable(ContinentsVar, Format(continents.ToConfig()));
-        Environment.SetEnvironmentVariable(LandTargetVar, continents.TargetLand.ToString("R", CultureInfo.InvariantCulture));
-        Environment.SetEnvironmentVariable(SurfaceVar,    Format(root.BuildSurface()));
+        Environment.SetEnvironmentVariable(MeasureVar,        "1");
+        Environment.SetEnvironmentVariable(ScenesVar,         measuredAs);
+        Environment.SetEnvironmentVariable(ContinentAssetVar, asset);
+        Environment.SetEnvironmentVariable(SurfaceVar,        Format(root.BuildSurface()));
         SessionState.SetBool(RunningKey, true);
 
-        string asset = AssetDatabase.GetAssetPath(continents);
         _run = new Collector(scene, measuredAs, asset, tools.Length);
         var api = ScriptableObject.CreateInstance<TestRunnerApi>();
         _run.Api = api;

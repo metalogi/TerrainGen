@@ -20,29 +20,28 @@ namespace Sonoma.Tests
     //
     //   SONOMA_MEASURE=1           run the tools at all (ContinentTests.MeasuringToolsOnly)
     //   SONOMA_SCENES=A,B          only these StressMacros entries
-    //   SONOMA_CONTINENTS=f=v;...  measure with this ContinentConfig in place of the entry's copy:
-    //                              the open scene's asset, so a regenerated asset is measured
-    //                              before its copy is updated, and a sandbox as the scene it copies
-    //   SONOMA_LAND_TARGET=0.3     with SONOMA_CONTINENTS, the asset's TargetLand
-    //   SONOMA_SURFACE=f=v;...     with SONOMA_CONTINENTS, the open scene's surface, which must be
-    //                              the entry's
+    //   SONOMA_CONTINENT_ASSET=p   the open scene's ContinentSettings asset, by its path. The entry's
+    //                              own asset is what the tests read anyway (ContinentAssets); another,
+    //                              a sandbox's, is measured in place of it, as the scene it copies
+    //   SONOMA_SURFACE=f=v;...     with SONOMA_CONTINENT_ASSET, the open scene's surface, which must
+    //                              be the entry's
     //   SONOMA_MEASURE_CANCELLED=1 set here when the progress bar's Cancel is pressed; every tool
     //                              still to run then skips
     internal static class Measuring
     {
-        internal const string MeasureVar     = "SONOMA_MEASURE";
-        internal const string ScenesVar      = "SONOMA_SCENES";
-        internal const string ContinentsVar  = "SONOMA_CONTINENTS";
-        internal const string LandTargetVar  = "SONOMA_LAND_TARGET";
-        internal const string SurfaceVar     = "SONOMA_SURFACE";
-        internal const string CancelledVar   = "SONOMA_MEASURE_CANCELLED";
+        internal const string MeasureVar        = "SONOMA_MEASURE";
+        internal const string ScenesVar         = "SONOMA_SCENES";
+        internal const string ContinentAssetVar = "SONOMA_CONTINENT_ASSET";
+        internal const string SurfaceVar        = "SONOMA_SURFACE";
+        internal const string CancelledVar      = "SONOMA_MEASURE_CANCELLED";
 
         // ── The scene measured ──
         //
-        // With SONOMA_CONTINENTS set, the one scene SONOMA_SCENES names has its continent copy, and
-        // LandTarget, replaced for as long as the tools run, and its cached builds dropped, since
-        // MacroTests caches them by scene name. Restore puts the copy back; each measuring fixture
-        // calls it from its OneTimeTearDown, so the suite never sees the swap.
+        // With SONOMA_CONTINENT_ASSET naming another asset than the entry's, the one scene
+        // SONOMA_SCENES names has its continents and LandTarget replaced by that asset's for as long
+        // as the tools run, and its cached builds dropped, since MacroTests caches them by scene name.
+        // Restore puts the entry's own back; each measuring fixture calls it from its
+        // OneTimeTearDown, so the suite never sees the swap.
 
         sealed class Swap
         {
@@ -54,55 +53,45 @@ namespace Sonoma.Tests
 
         static Swap _swap;
 
-        // Called from MeasuringToolsOnly, after the gate, by every tool: applies the override once,
-        // and says what it measures in the tool's own output.
+        // Called from MeasuringToolsOnly, after the gate, by every tool: applies the swap once, and
+        // says what it measures in the tool's own output.
         internal static void Apply()
         {
-            string text = Environment.GetEnvironmentVariable(ContinentsVar);
-            if (string.IsNullOrWhiteSpace(text)) { Unswap(); return; }
+            string asset = Environment.GetEnvironmentVariable(ContinentAssetVar);
+            if (string.IsNullOrWhiteSpace(asset)) { Unswap(); return; }
 
             string scenes = Environment.GetEnvironmentVariable(ScenesVar);
             if (string.IsNullOrWhiteSpace(scenes) || scenes.Contains(","))
-                Assert.Fail($"{ContinentsVar} replaces one scene's continents: name exactly one in {ScenesVar}.");
-            var    m   = MacroTests.For(scenes.Trim());
-            string key = text + "|" + Environment.GetEnvironmentVariable(LandTargetVar);
-            if (_swap != null && _swap.Key == key && _swap.Entry == m) { Describe(m); return; }
-            Unswap();
+                Assert.Fail($"{ContinentAssetVar} names one scene's continents: name exactly one in {ScenesVar}.");
+            var m = MacroTests.For(scenes.Trim());
+            Assert.IsTrue(m.Continents.HasValue, $"{m.Scene} has no continents to measure");
 
-            Assert.IsTrue(m.Continents.HasValue, $"{m.Scene} has no continents to replace");
             string surface = Environment.GetEnvironmentVariable(SurfaceVar);
             if (!string.IsNullOrWhiteSpace(surface))
             {
-                var open = Parse<SurfaceDef>(surface);
-                string differ = Differences(m.Surface, open);
+                string differ = Differences(m.Surface, Parse<SurfaceDef>(surface));
                 Assert.IsEmpty(differ, $"the open scene's surface is not {m.Scene}'s ({differ}); the measuring tools " +
                                        "can only measure a scene with StressSceneTests' copy of its terrain");
             }
 
-            var config = Parse<ContinentConfig>(text);
-            _swap = new Swap { Entry = m, Continents = m.Continents, LandTarget = m.LandTarget, Key = key };
-            _copyDiffers = Differences(m.Continents.Value, config);
-            m.Continents = config;
-            string target = Environment.GetEnvironmentVariable(LandTargetVar);
-            if (!string.IsNullOrWhiteSpace(target))
+            if (asset == m.ContinentAsset)
             {
-                double t = double.Parse(target, CultureInfo.InvariantCulture);
-                _landTargetDiffers = t != m.LandTarget ? $"LandTarget (copy {m.LandTarget:R}, asset {t:R})" : "";
-                m.LandTarget = t;
+                Unswap();
+                TestContext.WriteLine($"Measuring {m.Scene} with its own {asset}.");
+                return;
             }
-            else _landTargetDiffers = "";
-            MacroTests.ForgetBuilds(m.Scene);
-            Describe(m);
-        }
 
-        static string _copyDiffers = "", _landTargetDiffers = "";
-
-        static void Describe(MacroTests.SceneMacro m)
-        {
-            string differs = string.Join(", ", new[] { _copyDiffers, _landTargetDiffers }.Where(s => s.Length > 0));
-            TestContext.WriteLine($"Measuring {m.Scene} with the open scene's continent asset; " +
-                                  (differs.Length == 0 ? "MacroTests.StressMacros' copy matches it."
-                                                       : $"MacroTests.StressMacros' copy differs in {differs}: update it before re-pinning."));
+            string key = asset + "|" + ContinentAssets.Stamp(asset).Ticks;
+            if (_swap == null || _swap.Key != key || _swap.Entry != m)
+            {
+                Unswap();
+                var config = ContinentAssets.Read(asset, out float target);
+                _swap = new Swap { Entry = m, Continents = m.Continents, LandTarget = m.LandTarget, Key = key };
+                m.Continents = config;
+                m.LandTarget = target;
+                MacroTests.ForgetBuilds(m.Scene);
+            }
+            TestContext.WriteLine($"Measuring {m.Scene} with {asset} in place of {m.ContinentAsset}, TargetLand {m.LandTarget:0.###}.");
         }
 
         internal static void Restore()
@@ -188,7 +177,7 @@ namespace Sonoma.Tests
         // ── Struct text ──
         //
         // A struct's public fields as "Name=value;...", round-trip exact ("R"), and back. The menu
-        // item writes the open scene's ContinentConfig and SurfaceDef this way.
+        // item writes the open scene's SurfaceDef this way.
         internal static string Format<T>(T value) where T : struct
         {
             var parts = new List<string>();

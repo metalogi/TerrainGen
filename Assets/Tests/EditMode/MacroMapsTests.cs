@@ -610,32 +610,19 @@ namespace Sonoma.Tests
                 Assert.AreEqual(m.RuggednessMax,             a.RuggednessMax,    $"{m.Asset}: RuggednessMax");
                 Assert.AreEqual(m.RuggednessCentre,          a.RuggednessCentre, $"{m.Asset}: RuggednessCentre");
 
-                // The continents (Docs/Continents_Plan.md): the asset the scene's copy names, field
-                // for field, or none.
+                // The continents (Docs/Continents_Plan.md): the asset the entry names, or none. The
+                // pure tests read it as text (ContinentAssets), so this holds that reading to Unity's
+                // own, ToConfig, every field to the bit, and TargetLand.
                 if (m.ContinentAsset == null)
-                    Assert.IsNull(a.Continents, $"{m.Asset}: continents the copy does not have");
+                    Assert.IsNull(a.Continents, $"{m.Asset}: continents the entry does not name");
                 else
                 {
                     Assert.AreEqual(m.ContinentAsset, AssetDatabase.GetAssetPath(a.Continents), $"{m.Asset}: Continents");
-                    ContinentConfig k = a.Continents.ToConfig(), want = m.Continents.Value;
-                    Assert.AreEqual(want.Seed,                  k.Seed,                  $"{m.ContinentAsset}: Seed");
-                    Assert.AreEqual(want.MacroCells,            k.MacroCells,            $"{m.ContinentAsset}: MacroCells");
-                    Assert.AreEqual(want.MicroCells,            k.MicroCells,            $"{m.ContinentAsset}: MicroCells");
-                    Assert.AreEqual(want.ContinentCount,        k.ContinentCount,        $"{m.ContinentAsset}: ContinentCount");
-                    Assert.AreEqual(want.DecayMin,              k.DecayMin,              $"{m.ContinentAsset}: DecayMin");
-                    Assert.AreEqual(want.DecayMax,              k.DecayMax,              $"{m.ContinentAsset}: DecayMax");
-                    Assert.AreEqual(want.ElevationFloor,        k.ElevationFloor,        $"{m.ContinentAsset}: ElevationFloor");
-                    Assert.AreEqual(want.ScoreNoise,            k.ScoreNoise,            $"{m.ContinentAsset}: ScoreNoise");
-                    Assert.AreEqual(want.Separation,            k.Separation,            $"{m.ContinentAsset}: Separation");
-                    Assert.AreEqual(want.LandFraction,         k.LandFraction,          $"{m.ContinentAsset}: LandFraction");
-                    Assert.AreEqual(want.WarpAmplitude,         k.WarpAmplitude,         $"{m.ContinentAsset}: WarpAmplitude");
-                    Assert.AreEqual(want.WarpWavelength,        k.WarpWavelength,        $"{m.ContinentAsset}: WarpWavelength");
-                    Assert.AreEqual(want.CoastWidth,            k.CoastWidth,            $"{m.ContinentAsset}: CoastWidth");
-                    Assert.AreEqual(want.LandHeight,            k.LandHeight,            $"{m.ContinentAsset}: LandHeight");
-                    Assert.AreEqual(want.OceanDepth,            k.OceanDepth,            $"{m.ContinentAsset}: OceanDepth");
-                    Assert.AreEqual(want.InteriorRise,          k.InteriorRise,          $"{m.ContinentAsset}: InteriorRise");
-                    Assert.AreEqual(want.DetailCutoff,          k.DetailCutoff,          $"{m.ContinentAsset}: DetailCutoff");
-                    Assert.AreEqual(want.CoarseOctaveAmplitude, k.CoarseOctaveAmplitude, $"{m.ContinentAsset}: CoarseOctaveAmplitude");
+                    ContinentConfig text = ContinentAssets.Read(m.ContinentAsset, out float target);
+                    Assert.IsEmpty(Measuring.Differences(text, a.Continents.ToConfig()),
+                        $"{m.ContinentAsset}: the text reading differs from ToConfig (copy = text, asset = Unity)");
+                    Assert.AreEqual(a.Continents.TargetLand, target, $"{m.ContinentAsset}: TargetLand");
+                    Assert.AreEqual((double)a.Continents.TargetLand, m.LandTarget, $"{m.ContinentAsset}: the entry's LandTarget");
                 }
 
                 // Erosion (M5c-1): the asset the scene's copy names, field for field, or none.
