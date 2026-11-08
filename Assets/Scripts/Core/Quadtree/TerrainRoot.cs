@@ -170,12 +170,6 @@ namespace Sonoma.Core.Quadtree
                     $"Raise OctaveCount to {Settings.MaxDepth + _params.K0 + 1}. " +
                     "See HeightParams.IsOctaveStarved.");
 
-            // Skirts are the fallback for transient states where the tree is briefly more
-            // than one depth apart across an edge. A depth of zero leaves the skirt vertices
-            // in the mesh but flat against the edge, so the vertex layout never changes.
-            float skirtDepth    = Settings.SkirtsEnabled ? Settings.SkirtDepth    : 0f;
-            float skirtFraction = Settings.SkirtsEnabled ? Settings.SkirtFraction : 0f;
-
             // The sea level and the erosion's base level are one number in two homes (ocean-a, A3).
             // Refused before the macro build, which a mismatch would otherwise run for seconds first.
             ErosionSettings erosion = Settings.Macro != null ? Settings.Macro.Erosion : null;
@@ -209,10 +203,14 @@ namespace Sonoma.Core.Quadtree
 
             _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution,
                                        _ocean.Enabled ? OceanMaterial : null);
-            _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, skirtDepth,
-                                                 skirtFraction, Settings.MaxInFlightJobs,
-                                                 Settings.UploadBudgetMs, _macro, _ocean,
-                                                 Settings.SkirtsEnabled);
+            // Skirts are the fallback for transient states where the tree is briefly more
+            // than one depth apart across an edge. Turned off, the scheduler zeroes their drop,
+            // which leaves the skirt vertices in the mesh but flat against the edge, so the
+            // vertex layout never changes.
+            _scheduler = new GenerationScheduler(Surface, Roots, _params, _pool, Settings.SkirtsEnabled,
+                                                 Settings.SkirtDepth, Settings.SkirtFraction,
+                                                 Settings.MaxInFlightJobs, Settings.UploadBudgetMs,
+                                                 _macro, _ocean);
             _selector  = new LodSelector(Surface, Roots, _lod, _scheduler, _pool,
                                          Settings.MaxResidentChunks);
             _scheduler.ChunkReady += _selector.OnChunkReady;

@@ -132,8 +132,8 @@ namespace Sonoma.Core.Generation
         // fraction. SkirtChordSag withholds it from a scene with no fraction so that SampleScene's
         // terrain skirts keep their bits, but the water has no old bits to keep, and its gaps at
         // coarse depths are the chord sag and nothing else: kilometres on Earth. skirtsEnabled is
-        // the setting itself, since skirts off reach the scheduler as a zero depth and fraction,
-        // which a scene with skirts on could also set.
+        // the setting itself, because a zero depth and fraction could also be a scene with skirts
+        // on; GenerationScheduler takes it as a required argument for that reason.
         public static float WaterChordSag(in SurfaceDef s, bool skirtsEnabled, double nominalSize, int resolution)
             => skirtsEnabled ? (float)ChordSag(s, nominalSize, resolution) : 0f;
 

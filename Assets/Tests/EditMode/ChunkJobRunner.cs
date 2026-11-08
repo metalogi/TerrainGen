@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -57,8 +58,8 @@ namespace Sonoma.Tests
             var vertexBounds  = new NativeArray<float3>(2,        Allocator.TempJob);
             var attributes    = new NativeArray<VertexAttributeDescriptor>(
                                     ChunkMeshBuffers.VertexAttributes(), Allocator.TempJob);
-            var indices       = ChunkMeshBuffers.SharedIndices(R, flip);
-            var doubled       = ocean.Enabled ? ChunkMeshBuffers.SharedIndices(R, flip, true) : indices;
+            var indices       = Indices(R, flip);
+            var doubled       = ocean.Enabled ? Indices(R, flip, true) : indices;
 
             var meshData = Mesh.AllocateWritableMeshData(1);
             var data     = meshData[0];
@@ -85,8 +86,10 @@ namespace Sonoma.Tests
 
             if (beforeOcean)
             {
-                data.SetVertexBufferParams(ChunkMeshLayout.VertexCount(R), attributes);
-                data.SetIndexBufferParams(ChunkMeshLayout.IndexCount(R), IndexFormat.UInt16);
+                // Main's counts and main's index buffer, from FrozenLayout, not the live layout the
+                // other path reads.
+                data.SetVertexBufferParams(FrozenLayout.VertexCount(R), attributes);
+                data.SetIndexBufferParams(FrozenLayout.IndexCount(R), IndexFormat.UInt16);
                 data.subMeshCount = 1;
                 new FrozenChunkMeshJob
                 {
@@ -97,8 +100,8 @@ namespace Sonoma.Tests
                     CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
                     Mesh = data, HeightBounds = heightBounds, VertexBounds = vertexBounds,
                 }.Schedule().Complete();
-                indices.CopyTo(data.GetIndexData<ushort>());
-                data.SetSubMesh(0, new SubMeshDescriptor(0, ChunkMeshLayout.IndexCount(R)),
+                data.GetIndexData<ushort>().CopyFrom(FrozenLayout.BuildIndices(R, flip));
+                data.SetSubMesh(0, new SubMeshDescriptor(0, FrozenLayout.IndexCount(R)),
                                 MeshUpdateFlags.DontRecalculateBounds);
             }
             else
@@ -138,8 +141,34 @@ namespace Sonoma.Tests
             return built;
         }
 
+        // The index buffers the mesh job copies, built once per resolution, winding and kind for the
+        // tests. GenerationScheduler builds and owns its own; this cache lived in ChunkMeshBuffers
+        // until nothing but the tests read it (PR #20's second review, finding 5). Tests that run the
+        // jobs call DisposeIndices in their teardown.
+        static readonly Dictionary<int, NativeArray<ushort>> s_indices = new Dictionary<int, NativeArray<ushort>>();
+
+        internal static NativeArray<ushort> Indices(int resolution, bool flipWinding, bool doubled = false)
+        {
+            int key = resolution * 4 + (flipWinding ? 2 : 0) + (doubled ? 1 : 0);
+            if (s_indices.TryGetValue(key, out var cached) && cached.IsCreated)
+                return cached;
+
+            var idx = new NativeArray<ushort>(ChunkMeshLayout.BuildIndices(resolution, flipWinding, doubled),
+                                              Allocator.Persistent);
+            s_indices[key] = idx;
+            return idx;
+        }
+
+        internal static void DisposeIndices()
+        {
+            foreach (var kv in s_indices)
+                if (kv.Value.IsCreated) kv.Value.Dispose();
+            s_indices.Clear();
+        }
+
         // Index into the (R+2) x (R+2) sampled grid, and into the coarse grid of vertex (i, j)'s
-        // morph target: the mesh job's own addressing.
+        // morph target: the mesh job's own addressing, written out again here rather than called,
+        // so the tests' independent checks do not share the rule they check.
         internal static int Sample(int i, int j, int R) => (j + 1) * (R + 2) + (i + 1);
         internal static int CoarseSample(int i, int j, int R) =>
             (((j & ~1) + 2) / 2) * ChunkMeshLayout.CoarseGridSize(R) + ((i & ~1) + 2) / 2;

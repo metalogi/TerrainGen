@@ -538,7 +538,7 @@ namespace Sonoma.Tests
             var host  = new GameObject("MacroMapsTestHost");
             var pool  = new ChunkPool(host.transform, null, 33);
             var maps  = MacroMaps.Build(s, roots, MacroParams.Create(s, hp, Config(3)));
-            var sched = new GenerationScheduler(s, roots, hp, pool, 1f, 0f, 16, 100f, maps);
+            var sched = new GenerationScheduler(s, roots, hp, pool, true, 1f, 0f, 16, 100f, maps);
             try
             {
                 for (int q = 0; q < 6; q++)
@@ -561,7 +561,6 @@ namespace Sonoma.Tests
                 maps.Dispose();
                 pool.Dispose();
                 UnityEngine.Object.DestroyImmediate(host);
-                ChunkMeshBuffers.DisposeCache();
             }
         }
 

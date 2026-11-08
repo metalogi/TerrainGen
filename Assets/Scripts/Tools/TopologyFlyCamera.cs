@@ -174,8 +174,10 @@ public class TopologyFlyCamera : MonoBehaviour
                               + topoUp            * mv.y
                               + transform.forward * mv.z;
             transform.position += worldMove * speed * Time.deltaTime;
-            if (_hasOcean) KeepAboveSea(topoUp);
         }
+        // Every frame, not only on frames that move: a camera placed or dragged under the sea
+        // with no key held would otherwise stay there.
+        if (_hasOcean && Terrain != null) KeepAboveSea();
 
         if (AutoClipPlanes && _camera != null)
             SetClipPlanes(elevation);
@@ -362,7 +364,8 @@ public class TopologyFlyCamera : MonoBehaviour
             _biomeWeights = 0f;
             return renderPos.y;
         }
-        _aboveBase    = AboveBase(RenderToAbsoluteWorld(renderPos), out double3 basePoint);
+        _aboveBase    = AboveBase(RenderToAbsoluteWorld(renderPos), Terrain.Topology, Terrain.Radius,
+                                  out double3 basePoint);
         _groundHeight = Terrain.HeightAt(basePoint);
         _biomeWeights = Terrain.BiomeWeightsAt(basePoint);
         _hasOcean     = Terrain.HasOcean;
@@ -370,25 +373,25 @@ public class TopologyFlyCamera : MonoBehaviour
         return (float)(_aboveBase - Ground(_groundHeight, _hasOcean, _seaLevel));
     }
 
-    // Height above the base surface along its normal, and the base point below. Needs Terrain.
-    double AboveBase(double3 abs, out double3 basePoint)
+    // Height above the base surface along its normal, and the base point below.
+    public static double AboveBase(double3 abs, SurfaceType topology, double radius, out double3 basePoint)
     {
         double elevation;
-        switch (Terrain.Topology)
+        switch (topology)
         {
             case SurfaceType.CubeSphere:
             {
                 double r  = math.length(abs);
-                elevation = r - Terrain.Radius;
-                basePoint = r > 1e-6 ? abs * (Terrain.Radius / r) : new double3(0.0, Terrain.Radius, 0.0);
+                elevation = r - radius;
+                basePoint = r > 1e-6 ? abs * (radius / r) : new double3(0.0, radius, 0.0);
                 break;
             }
             case SurfaceType.Cylinder:
             {
                 double r  = math.length(abs.xy);
-                elevation = Terrain.Radius - r;
-                basePoint = r > 1e-6 ? new double3(abs.xy * (Terrain.Radius / r), abs.z)
-                                     : new double3(Terrain.Radius, 0.0, abs.z);
+                elevation = radius - r;
+                basePoint = r > 1e-6 ? new double3(abs.xy * (radius / r), abs.z)
+                                     : new double3(radius, 0.0, abs.z);
                 break;
             }
             default:
@@ -400,15 +403,36 @@ public class TopologyFlyCamera : MonoBehaviour
     }
 
     // The camera stays above the sea (ocean-a). From below, the water is back-face culled and an
-    // Ocean chunk draws no terrain, so the world vanishes into the skybox. So a move that takes it
-    // under SeaClearance above the water is lifted back along the local up, which is the base
-    // normal the height is measured along. Only the sea is a floor: the terrain never was one, and
-    // the camera can still fly through a hillside as before. _hasOcean and Terrain are this
-    // frame's, set by ComputeElevation before the move.
-    void KeepAboveSea(Vector3 topoUp)
+    // Ocean chunk draws no terrain, so the world vanishes into the skybox. So a camera under
+    // SeaClearance above the water is lifted back, every frame. Only the sea is a floor: the
+    // terrain never was one, and the camera can still fly through a hillside as before. _seaLevel
+    // is this frame's, set by ComputeElevation.
+    void KeepAboveSea()
     {
-        double lift = SeaLift(AboveBase(RenderToAbsoluteWorld(transform.position), out _), _seaLevel);
-        if (lift > 0.0) transform.position += topoUp * (float)lift;
+        double3 abs    = RenderToAbsoluteWorld(transform.position);
+        double3 lifted = LiftAboveSea(abs, Terrain.Topology, Terrain.Radius, _seaLevel);
+        if (math.any(lifted != abs))
+        {
+            double3 render = lifted - WorldOriginSystem.WorldOrigin;
+            transform.position = new Vector3((float)render.x, (float)render.y, (float)render.z);
+        }
+    }
+
+    // An absolute position lifted along the base normal to SeaClearance above the sea, or the
+    // same position where it is already that high. The base normal is the direction the height is
+    // measured along: outward on a sphere, towards the axis inside a cylinder, +Y on a plane. Pure,
+    // so the direction is tested on every topology.
+    public static double3 LiftAboveSea(double3 abs, SurfaceType topology, double radius, double seaLevel)
+    {
+        double lift = SeaLift(AboveBase(abs, topology, radius, out double3 basePoint), seaLevel);
+        if (lift <= 0.0) return abs;
+        double3 up = topology switch
+        {
+            SurfaceType.CubeSphere => basePoint / radius,
+            SurfaceType.Cylinder   => new double3(-basePoint.xy / radius, 0.0),
+            _                      => new double3(0.0, 1.0, 0.0),
+        };
+        return abs + lift * up;
     }
 
     // How far a camera this far above the base surface must rise to be SeaClearance above the sea:

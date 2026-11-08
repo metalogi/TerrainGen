@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using NUnit.Framework;
+using Unity.Mathematics;
 using UnityEditor;
 using Sonoma.Core.Surface;
 using Sonoma.Systems.Configuration;
@@ -138,6 +139,35 @@ namespace Sonoma.Tests
                 "from 200 m under the base surface, all the way back up");
             Assert.Greater(TopologyFlyCamera.SeaClearance, TopologyFlyCamera.MinNearClip,
                 "a camera held at the clearance would clip the water");
+
+            // And the direction, on each topology: a camera under the sea comes back to exactly the
+            // clearance above it, over the same base point, so along the base normal -- outward on a
+            // sphere, towards the axis inside a cylinder, +Y on a plane. Lifting along the camera's
+            // up, world Y or the wrong sign fails all three (PR #20's second review, finding 2).
+            double above = sea + TopologyFlyCamera.SeaClearance;
+            var cases = new[]
+            {
+                (topology: SurfaceType.CubeSphere, radius: 1_592_750.0, at: new double3(-0.3, 0.5, 0.81)),
+                (topology: SurfaceType.Cylinder,   radius: 10_000.0,    at: new double3(0.6, -0.8, 7_000.0)),
+                (topology: SurfaceType.PlaneGrid,  radius: 0.0,         at: new double3(123.0, 0.0, -456.0)),
+            };
+            foreach (var c in cases)
+            {
+                // 200 m under the sea, over the point c.at names: a direction on the sphere and in
+                // the cylinder's cross-section (z along the axis), a position on the plane.
+                double3 under = c.topology == SurfaceType.CubeSphere ? math.normalize(c.at) * (c.radius + sea - 200.0)
+                              : c.topology == SurfaceType.Cylinder   ? new double3(math.normalize(c.at.xy) * (c.radius - (sea - 200.0)), c.at.z)
+                              :                                        new double3(c.at.x, sea - 200.0, c.at.z);
+                TopologyFlyCamera.AboveBase(under, c.topology, c.radius, out double3 baseUnder);
+
+                double3 lifted = TopologyFlyCamera.LiftAboveSea(under, c.topology, c.radius, sea);
+                double  height = TopologyFlyCamera.AboveBase(lifted, c.topology, c.radius, out double3 baseLifted);
+                Assert.AreEqual(above, height, 1e-6, $"{c.topology}: not lifted to the clearance");
+                Assert.Less(math.length(baseLifted - baseUnder), 1e-6, $"{c.topology}: lifted off its base point");
+
+                Assert.IsTrue(math.all(TopologyFlyCamera.LiftAboveSea(lifted, c.topology, c.radius, sea) == lifted),
+                    $"{c.topology}: a camera at the clearance moved");
+            }
         }
 
         // EarthStress rebases by clearance: at a fixed 1000 m its descent at up to 50 km/s would

@@ -133,21 +133,24 @@ namespace Sonoma.Core.Quadtree
         // ocean is the sea, default for none (ocean-a). With one the mesh job decides each chunk's
         // kind and the pool must have been given the ocean material.
         //
-        // skirts is TerrainSettings.SkirtsEnabled. Skirts off arrive as a zero depth and fraction,
-        // which a scene could also set with skirts on, and the water's chord sag must tell the two
-        // apart: see ChunkMeshLayout.WaterChordSag.
+        // skirts is TerrainSettings.SkirtsEnabled, and the one way to turn skirts off: the scheduler
+        // then zeroes skirtDepth and skirtFraction itself, and hangs no water skirt either. It is
+        // required, because a zero depth and fraction alone no longer mean skirts off: the water's
+        // chord sag hangs whenever skirts are on (ChunkMeshLayout.WaterChordSag), so with skirts
+        // defaulting on, a caller turning them off the old way would get a water skirt kilometres
+        // long at coarse depths while the terrain hung none.
         public GenerationScheduler(in SurfaceDef surface, RootQuad[] roots, in HeightParams p,
-                                   ChunkPool pool, float skirtDepth, float skirtFraction,
+                                   ChunkPool pool, bool skirts, float skirtDepth, float skirtFraction,
                                    int maxInFlight, float uploadBudgetMs, MacroMaps macro = null,
-                                   OceanParams ocean = default, bool skirts = true)
+                                   OceanParams ocean = default)
         {
             _surface        = surface;
             _roots          = roots;
             _params         = p;
             _pool           = pool;
             _resolution     = p.Resolution;
-            _skirtDepth     = skirtDepth;
-            _skirtFraction  = skirtFraction;
+            _skirtDepth     = skirts ? skirtDepth    : 0f;
+            _skirtFraction  = skirts ? skirtFraction : 0f;
             _maxInFlight    = math.max(1, maxInFlight);
             _uploadBudgetMs = math.max(0.1f, uploadBudgetMs);
             _flipWinding    = SurfaceMath.UvFrameIsRightHanded(surface);

@@ -14,7 +14,7 @@ namespace Sonoma.Tests
     public class OceanChunkTests
     {
         [TearDown]
-        public void TearDown() => ChunkMeshBuffers.DisposeCache();
+        public void TearDown() => ChunkJobRunner.DisposeIndices();
 
         // An overlap and waves far past any relief here, so every chunk is Coast and draws both grids;
         // a sea far above it, with no overlap, so every chunk is Ocean.

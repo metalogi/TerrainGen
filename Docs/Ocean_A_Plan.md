@@ -902,3 +902,28 @@ measurements, and anything the Editor said that this plan did not.
       paths share (the skirt's morph target left where it was), `OceanOffBuildsTodaysMesh` now fails
       at the cube sphere's vertex 81, where the self-comparison it replaced passed. The camera's lift
       has not been flown in play.
+12. **PR #20's second review (2026-11-08): seven minor findings on 1881f4a, all fixed.**
+    - **The sea lift runs every frame (1),** not only on frames with move input, so a camera placed or
+      dragged under the sea with no key held comes back up.
+    - **The lift's direction is tested (2).** `TopologyFlyCamera.LiftAboveSea` is a pure function of
+      the absolute position, lifting along the base normal: outward on a sphere, towards the axis
+      inside a cylinder, +Y on a plane. `FlyCameraIsLiftedAboveTheSea` lifts a camera from 200 m under
+      the sea on each and holds it to exactly `SeaClearance` above, over the same base point. Lifting
+      along the camera's up, world Y or the wrong sign fails it. The call site in `Update` is the one
+      line still untested.
+    - **The frozen reference shares no live layout (3).** `FrozenChunkMeshJob` read `ChunkMeshLayout`'s
+      index buffer, skirt rows, coarse grid and skirt drop, which both sides call, so a change there
+      would move both alike. They are frozen beside it in `FrozenLayout`, as they stood on main.
+    - **One way to turn skirts off (4).** `GenerationScheduler` takes `skirts` as a required argument
+      and zeroes the depth, the fraction and the water's chord sag itself. `TerrainRoot` passes the
+      settings as they are. A default of on had let a caller passing a zero depth and fraction get the
+      whole chord sag on its water while the terrain hung none.
+    - **The index cache is the tests' (5).** It moved from `ChunkMeshBuffers` in the runtime assembly
+      to `ChunkJobRunner`, and the two teardowns clearing a cache their schedulers no longer filled
+      dropped the call.
+    - **One coarse addressing rule in the job (6).** `ChunkMeshJob.CoarseCell` is it; `WriteTerrain` and
+      `CoarseSample` call it. `ChunkJobRunner` keeps its own statement on purpose, so the tests'
+      independent checks do not share the rule they check.
+    - **No drawn-range scan without an ocean (7).** The scan of the morph targets runs only with an
+      ocean, over the coarse cells once rather than once per vertex. Min and max do not depend on
+      order, so the range and the kinds are the same bits.
