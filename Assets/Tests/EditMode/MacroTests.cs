@@ -321,11 +321,16 @@ namespace Sonoma.Tests
         };
 
         // A stress scene's continents: K9's defaults with the scene's land fraction, heights and
-        // cutoff, as its ContinentSettings asset holds them.
-        static ContinentConfig SceneContinentConfig(float landFraction, float land, float ocean, double cutoff, float coastWidth = 1f)
+        // cutoff, as its ContinentSettings asset holds them. A scene regenerated in the continent
+        // designer also passes what Regenerate wrote (ContinentDesign.Derive): its continent count,
+        // macro cells and separation. Left out, they are the defaults every shipped scene was built
+        // with, 4, 30 and 0.
+        static ContinentConfig SceneContinentConfig(float landFraction, float land, float ocean, double cutoff, float coastWidth = 1f,
+                                                    int continentCount = 4, int macroCells = 30, float separation = 0f)
         {
             var k = ContinentConfig.Default;
             k.LandFraction = landFraction; k.LandHeight = land; k.OceanDepth = ocean; k.DetailCutoff = cutoff; k.CoastWidth = coastWidth;
+            k.ContinentCount = continentCount; k.MacroCells = macroCells; k.Separation = separation;
             return k;
         }
 
