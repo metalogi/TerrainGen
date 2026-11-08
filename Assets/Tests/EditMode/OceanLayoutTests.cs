@@ -294,10 +294,36 @@ namespace Sonoma.Tests
             }
         }
 
-        // The water's drop at this depth, as the scheduler will compute it: the chord sag the
-        // terrain gets, and WaterSkirtDrop.
+        // The water's drop at this depth, as the scheduler computes it with skirts on:
+        // WaterChordSag, and WaterSkirtDrop.
         static double Drop(StressSceneTests.SceneHeights w, int depth, float fraction)
             => ChunkMeshLayout.WaterSkirtDrop(StressSceneTests.SkirtDepth, fraction,
-                   ChunkMeshLayout.SkirtChordSag(w.Surface, fraction, LodMath.NominalSize(w.S0, depth), StressSceneTests.Resolution));
+                   ChunkMeshLayout.WaterChordSag(w.Surface, true, LodMath.NominalSize(w.S0, depth), StressSceneTests.Resolution));
+
+        // The water's skirt keeps its chord sag in a scene with no SkirtFraction, where the
+        // terrain's gives it up so SampleScene keeps its bits: the water has no old bits, and the
+        // sag is its whole gap. With skirts off it hangs nothing, as the terrain's does, and on a
+        // plane there is no sag to keep. The mutation is the water taking the terrain's
+        // SkirtChordSag, which is how it first shipped (PR #20's review, finding 3).
+        [Test]
+        public void WaterSkirtKeepsItsSagWithoutAFraction()
+        {
+            var    sphere  = SurfaceDef.CubeSphere(6_371_000.0);
+            double nominal = 1_250_000.0;   // about a depth-3 node on Earth
+            float  sag     = ChunkMeshLayout.WaterChordSag(sphere, true, nominal, 33);
+
+            Assert.AreEqual((float)ChunkMeshLayout.ChordSag(sphere, nominal, 33), sag, "the whole chord sag");
+            Assert.Greater(sag, 1000f, "a coarse depth on Earth sags kilometres");
+            Assert.AreEqual(0f, ChunkMeshLayout.SkirtChordSag(sphere, 0f, nominal, 33),
+                "the terrain's sag with no fraction, which the water must not take");
+            Assert.AreEqual(1f + sag, ChunkMeshLayout.WaterSkirtDrop(1f, 0f, sag), 1e-3f * sag,
+                "with no fraction the water still drops the floor and the sag");
+
+            Assert.AreEqual(0f, ChunkMeshLayout.WaterChordSag(sphere, false, nominal, 33), "skirts off");
+            Assert.AreEqual(0f, ChunkMeshLayout.WaterSkirtDrop(0f, 0f, ChunkMeshLayout.WaterChordSag(sphere, false, nominal, 33)),
+                "skirts off hang no water skirt");
+            Assert.AreEqual(0f, ChunkMeshLayout.WaterChordSag(SurfaceDef.PlaneGrid(100.0, 2, 2), true, 50.0, 33),
+                "a plane has no sag");
+        }
     }
 }

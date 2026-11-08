@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -37,7 +38,7 @@ namespace Sonoma.Tests
         LodSelector         _selector;
         LodMath             _lod;
         double3             _camera;
-        Material            _oceanMaterial;
+        Material            _oceanMaterial, _terrainMaterial;
 
         // maxInFlightJobs is 1 only for the queue-ordering test, which needs results to arrive
         // in the order they were popped. Above 1 the scheduler holds several jobs at once and
@@ -68,8 +69,14 @@ namespace Sonoma.Tests
             _lod = LodMath.Create(_surface, p, SplitFactor, morphStart, 1.2f, 1.5f, MaxDepth);
 
             _host      = new GameObject("LodSelectorTestHost");
-            if (ocean.Enabled) _oceanMaterial = new Material(Shader.Find("Sonoma/Ocean"));
-            _pool      = new ChunkPool(_host.transform, null, Resolution, _oceanMaterial);
+            // With a sea, two distinct materials, so a chunk given the wrong one, or the right ones
+            // in the wrong order, is told apart. Without, the terrain's stays null, as before.
+            if (ocean.Enabled)
+            {
+                _oceanMaterial   = new Material(Shader.Find("Sonoma/Ocean")) { name = "Water" };
+                _terrainMaterial = new Material(_oceanMaterial) { name = "Ground" };
+            }
+            _pool      = new ChunkPool(_host.transform, _terrainMaterial, Resolution, _oceanMaterial);
             _scheduler = new GenerationScheduler(_surface, _roots, p, _pool, 1f, 0f, maxInFlightJobs, 100f,
                                                  null, ocean);
             _selector  = new LodSelector(_surface, _roots, _lod, _scheduler, _pool, maxResidentChunks);
@@ -89,8 +96,10 @@ namespace Sonoma.Tests
             _pool?.Dispose();
             if (_host != null) UnityEngine.Object.DestroyImmediate(_host);
             if (_oceanMaterial != null) UnityEngine.Object.DestroyImmediate(_oceanMaterial);
+            if (_terrainMaterial != null) UnityEngine.Object.DestroyImmediate(_terrainMaterial);
 
-            _selector = null; _scheduler = null; _pool = null; _host = null; _oceanMaterial = null;
+            _selector = null; _scheduler = null; _pool = null; _host = null;
+            _oceanMaterial = null; _terrainMaterial = null;
             ChunkMeshBuffers.DisposeCache();
         }
 
@@ -328,10 +337,14 @@ namespace Sonoma.Tests
         }
 
         // ocean-a, Step 6: with a sea through the middle of this tile's relief, the selector counts
-        // its resident chunks by kind -- each chunk's own kind, as the mesh job decided it and the
-        // chunk took its materials -- and at Dispose reports the tally at the peak of their grids,
-        // a Coast chunk's two counted, with the vertex memory they hold. Kinds do not enter
-        // selection, so the tree is the one the same tile builds with no sea.
+        // its resident chunks by kind -- each chunk's own kind, as the mesh job decided it -- and at
+        // Dispose reports the tally at the peak of their grids, a Coast chunk's two counted, with
+        // the vertex memory they hold. Kinds do not enter selection, so the tree is the one the
+        // same tile builds with no sea.
+        //
+        // And each chunk draws with its kind's materials, one per submesh, in the job's order:
+        // terrain then water on a Coast chunk. Nothing else checks it, and a swap or a skipped
+        // assignment draws the ground with the water's shader, or the reverse, on every chunk.
         [Test]
         public void SelectorCountsChunksByKind()
         {
@@ -342,11 +355,25 @@ namespace Sonoma.Tests
             _selector.Run(_camera);   // a frame with nothing landing, so the tally is current
 
             var counts = new int[3];
+            int n = ChunkMeshLayout.VertexCount(Resolution);
             foreach (var node in _selector.ResidentNodes())
             {
                 Assert.IsTrue(_selector.TryGetState(node, out var s));
-                Assert.AreEqual(s.Kind, s.Chunk.Kind, $"{node}: the selector's kind is not the chunk's");
-                counts[(int)s.Kind]++;
+                var kind = s.Chunk.Kind;
+                counts[(int)kind]++;
+
+                var expected = kind == ChunkKind.Coast ? new[] { _terrainMaterial, _oceanMaterial }
+                             : kind == ChunkKind.Ocean ? new[] { _oceanMaterial }
+                             :                           new[] { _terrainMaterial };
+                CollectionAssert.AreEqual(expected, s.Chunk.GetComponent<MeshRenderer>().sharedMaterials,
+                                          $"{node}: a {kind} chunk's materials");
+                var mesh = s.Chunk.Mesh;
+                Assert.AreEqual(expected.Length, mesh.subMeshCount, $"{node}: one submesh per material");
+                if (kind == ChunkKind.Coast)
+                {
+                    Assert.Less(mesh.GetIndices(0).Max(), n, $"{node}: submesh 0 is the terrain grid");
+                    Assert.GreaterOrEqual(mesh.GetIndices(1).Min(), n, $"{node}: submesh 1 is the water grid");
+                }
             }
             Assert.AreEqual(counts[(int)ChunkKind.Land],  _selector.ResidentLand,  "Land");
             Assert.AreEqual(counts[(int)ChunkKind.Coast], _selector.ResidentCoast, "Coast");

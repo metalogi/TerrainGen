@@ -174,6 +174,7 @@ public class TopologyFlyCamera : MonoBehaviour
                               + topoUp            * mv.y
                               + transform.forward * mv.z;
             transform.position += worldMove * speed * Time.deltaTime;
+            if (_hasOcean) KeepAboveSea(topoUp);
         }
 
         if (AutoClipPlanes && _camera != null)
@@ -361,9 +362,18 @@ public class TopologyFlyCamera : MonoBehaviour
             _biomeWeights = 0f;
             return renderPos.y;
         }
-        double3 abs = RenderToAbsoluteWorld(renderPos);
-        double  elevation;
-        double3 basePoint;
+        _aboveBase    = AboveBase(RenderToAbsoluteWorld(renderPos), out double3 basePoint);
+        _groundHeight = Terrain.HeightAt(basePoint);
+        _biomeWeights = Terrain.BiomeWeightsAt(basePoint);
+        _hasOcean     = Terrain.HasOcean;
+        _seaLevel     = Terrain.SeaLevel;
+        return (float)(_aboveBase - Ground(_groundHeight, _hasOcean, _seaLevel));
+    }
+
+    // Height above the base surface along its normal, and the base point below. Needs Terrain.
+    double AboveBase(double3 abs, out double3 basePoint)
+    {
+        double elevation;
         switch (Terrain.Topology)
         {
             case SurfaceType.CubeSphere:
@@ -386,13 +396,26 @@ public class TopologyFlyCamera : MonoBehaviour
                 basePoint = new double3(abs.x, 0.0, abs.z);
                 break;
         }
-        _aboveBase    = elevation;
-        _groundHeight = Terrain.HeightAt(basePoint);
-        _biomeWeights = Terrain.BiomeWeightsAt(basePoint);
-        _hasOcean     = Terrain.HasOcean;
-        _seaLevel     = Terrain.SeaLevel;
-        return (float)(_aboveBase - Ground(_groundHeight, _hasOcean, _seaLevel));
+        return elevation;
     }
+
+    // The camera stays above the sea (ocean-a). From below, the water is back-face culled and an
+    // Ocean chunk draws no terrain, so the world vanishes into the skybox. So a move that takes it
+    // under SeaClearance above the water is lifted back along the local up, which is the base
+    // normal the height is measured along. Only the sea is a floor: the terrain never was one, and
+    // the camera can still fly through a hillside as before. _hasOcean and Terrain are this
+    // frame's, set by ComputeElevation before the move.
+    void KeepAboveSea(Vector3 topoUp)
+    {
+        double lift = SeaLift(AboveBase(RenderToAbsoluteWorld(transform.position), out _), _seaLevel);
+        if (lift > 0.0) transform.position += topoUp * (float)lift;
+    }
+
+    // How far a camera this far above the base surface must rise to be SeaClearance above the sea:
+    // zero at or above it. Five times the near plane's floor, so the water is never clipped.
+    public const float SeaClearance = 1f;
+    public static double SeaLift(double aboveBase, double seaLevel) =>
+        math.max(0.0, seaLevel + SeaClearance - aboveBase);
 
     // What the camera flies above (ocean-a, C10): the terrain, or over the sea the water, which
     // in a scene with an ocean is drawn wherever the terrain is below it. Clearance, speed, the

@@ -122,6 +122,24 @@ namespace Sonoma.Tests
             Assert.AreEqual(200000f, f2, 1f);
         }
 
+        // The fly camera stays above the sea (ocean-a): a move that leaves it under SeaClearance
+        // above the water is lifted back by exactly the shortfall, and one above is left alone.
+        // The clearance stays clear of the near plane's floor, so the water is never clipped.
+        // It shipped measuring clearance from the sea but never stopping there, and from below
+        // the water draws nothing (PR #20's review, finding 2).
+        [Test]
+        public void FlyCameraIsLiftedAboveTheSea()
+        {
+            const double sea = 68.0;   // the terrarium's
+            Assert.AreEqual(0.0, TopologyFlyCamera.SeaLift(sea + 50.0, sea), "well above");
+            Assert.AreEqual(0.0, TopologyFlyCamera.SeaLift(sea + TopologyFlyCamera.SeaClearance, sea), "at the clearance");
+            Assert.AreEqual(0.5, TopologyFlyCamera.SeaLift(sea + TopologyFlyCamera.SeaClearance - 0.5, sea), 1e-12, "just under");
+            Assert.AreEqual(sea + TopologyFlyCamera.SeaClearance + 200.0, TopologyFlyCamera.SeaLift(-200.0, sea), 1e-9,
+                "from 200 m under the base surface, all the way back up");
+            Assert.Greater(TopologyFlyCamera.SeaClearance, TopologyFlyCamera.MinNearClip,
+                "a camera held at the clearance would clip the water");
+        }
+
         // EarthStress rebases by clearance: at a fixed 1000 m its descent at up to 50 km/s would
         // rebase every frame, each a pass over every chunk.
         [Test]

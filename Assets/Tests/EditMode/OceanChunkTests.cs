@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Unity.Mathematics;
 using Sonoma.Core.Generation;
+using Sonoma.Core.Quadtree;
 using Sonoma.Core.Surface;
 
 namespace Sonoma.Tests
@@ -63,8 +64,8 @@ namespace Sonoma.Tests
                     hi = math.max(hi, math.max(h, hc));
                 }
                 var kind = ChunkKinds.Classify(lo, hi, ocean.SeaLevelFloat, ocean.TerrainOverlap, ocean.WaveAmplitude);
-                Assert.AreEqual(lo, b.HeightBounds[3], $"{at}: the drawn range's low end");
-                Assert.AreEqual(hi, b.HeightBounds[4], $"{at}: the drawn range's high end");
+                Assert.AreEqual(lo, b.HeightBounds[ChunkMeshJob.DrawnLoSlot], $"{at}: the drawn range's low end");
+                Assert.AreEqual(hi, b.HeightBounds[ChunkMeshJob.DrawnHiSlot], $"{at}: the drawn range's high end");
                 Assert.AreEqual(kind, b.Kind, $"{at}: drawn range {lo:F0} .. {hi:F0} m against a sea at {sea} m");
                 counts[(int)kind]++;
 
@@ -191,31 +192,57 @@ namespace Sonoma.Tests
             Assert.AreEqual(hi, b.VertexBounds[1], "the reported bounds' maximum is not the vertices'");
         }
 
-        // Ground rule 1: with no ocean the job writes the mesh it always did. Held to the terrain half
-        // of a Coast chunk of the same node, which is today's code path writing today's values, byte
-        // for byte: vertices, indices, the one submesh, the bounds the selector reads. Over a real
-        // macro layer would add nothing the comparison needs; on a cube sphere, whose winding flips.
+        // Ground rule 1: with no ocean the job writes the mesh it always did. Held to
+        // FrozenChunkMeshJob, main's job before ocean-a, with the buffers set as main's scheduler
+        // set them: vertices, indices, the one submesh and both bounds, byte for byte, on all three
+        // topologies (the cube sphere's winding flips), with a skirt fraction and a chord sag, and
+        // over a macro layer with biomes, so the splats and the morph targets' splats are compared
+        // too. A first version compared the new code with itself, which a change to code both paths
+        // share passes (PR #20's review, finding 6).
+        //
+        // Then the terrain half of a Coast chunk of the same node is that same mesh.
         [Test]
         public void OceanOffBuildsTodaysMesh()
         {
-            var s     = SurfaceDef.CubeSphere(1000.0);
-            var roots = SurfaceMath.BuildRoots(s);
-            var hp    = HeightParams.Create(s, 9, 0.0, 12, 20f, 0.5f, 2f, 42u);
             using var none = MacroMaps.Disabled();
+            var cube  = SurfaceDef.CubeSphere(1000.0);
+            var plane = SurfaceDef.PlaneGrid(100.0, 2, 2);
+            var ring  = SurfaceDef.Cylinder(1000.0, 4000.0, 8);
+            var hp    = HeightParams.Create(cube, 9, 0.0, 12, 20f, 0.5f, 2f, 42u);
+            MatchesTheMeshBeforeTheOcean(cube,  hp, new NodeId(4, 3, 6, 1), none, "cube sphere");
+            MatchesTheMeshBeforeTheOcean(plane, HeightParams.Create(plane, 9, 0.0, 12, 20f, 0.5f, 2f, 42u),
+                                         new NodeId(3, 2, 1, 3), none, "plane grid");
+            MatchesTheMeshBeforeTheOcean(ring,  HeightParams.Create(ring, 9, 0.0, 12, 20f, 0.5f, 2f, 42u),
+                                         new NodeId(5, 2, 3, 0), none, "cylinder");
+
+            var banded = hp.WithBands(1000.0, 100.0);
+            var config = new MacroConfig
+            {
+                LevelCount = 4, Wavelength0 = 0.0, Persistence = 0.5f, BaseHeightScale = 400f,
+                EquatorTemperature = 15f, PoleTemperature = 15f, LapseRate = 6.5f, TemperatureNoise = 5f,
+                MoistureNoise = 1.5f, RuggednessNoise = 1.5f, Seed = 7u,
+                Biomes = new[]
+                {
+                    new BiomeConfig { Temperature = 10f, Moisture = 0.3f, Gain = new float3(-0.2f, -0.5f, 0.2f) },
+                    new BiomeConfig { Temperature = 20f, Moisture = 0.3f, Gain = new float3(0.3f, 0.0f, -0.4f) },
+                    new BiomeConfig { Temperature = 10f, Moisture = 0.7f, Gain = new float3(0.0f, 0.4f, 0.0f) },
+                    new BiomeConfig { Temperature = 20f, Moisture = 0.7f, Gain = new float3(-0.5f, 0.2f, 0.5f) },
+                },
+                BiomeSharpness = 2, TemperatureScale = 5f, MoistureScale = 0.25f,
+                RuggednessGainMin = -0.5f, RuggednessGainMax = 0.5f,
+            };
+            using var macro = MacroMaps.Build(cube, SurfaceMath.BuildRoots(cube), MacroParams.Create(cube, banded, config));
+            var biomes = MatchesTheMeshBeforeTheOcean(cube, banded, new NodeId(4, 3, 6, 1), macro, "cube sphere with biomes");
+            Assert.IsTrue(Array.Exists(biomes.Verts, v => v.Splat != biomes.Verts[0].Splat),
+                "the biomes put the same splat on every vertex, so the splats are not being compared");
+
+            var s     = cube;
+            var roots = SurfaceMath.BuildRoots(s);
             var node  = new NodeId(4, 3, 6, 1);
             int R = hp.Resolution, n = ChunkMeshLayout.VertexCount(R), I = ChunkMeshLayout.IndexCount(R);
 
             var off   = ChunkJobRunner.Build(s, roots, hp, node, none, 1f, 0.5f, 3f);
             var coast = ChunkJobRunner.Build(s, roots, hp, node, none, 1f, 0.5f, 3f, Coast(5f), 4f);
-
-            Assert.AreEqual(ChunkKind.Land, off.Kind);
-            Assert.AreEqual(n, off.Verts.Length, "vertices");
-            Assert.AreEqual(I, off.Indices.Length, "indices");
-            Assert.AreEqual(1, off.SubMeshes.Length, "submeshes");
-            Assert.AreEqual(0, off.SubMeshes[0].indexStart);
-            Assert.AreEqual(I, off.SubMeshes[0].indexCount);
-            CollectionAssert.AreEqual(ChunkMeshBuffers.SharedIndices(R, SurfaceMath.UvFrameIsRightHanded(s)).ToArray(),
-                                      off.Indices, "the single shared buffer");
 
             for (int k = 0; k < n; k++)
                 Assert.IsTrue(SameBits(off.Verts[k], coast.Verts[k]),
@@ -225,6 +252,40 @@ namespace Sonoma.Tests
             for (int k = 0; k < 3; k++)
                 Assert.AreEqual(BitConverter.SingleToInt32Bits(off.HeightBounds[k]),
                                 BitConverter.SingleToInt32Bits(coast.HeightBounds[k]), $"HeightBounds[{k}]");
+        }
+
+        // One node built twice, by the job with no ocean and by the frozen one, with a fraction and
+        // the surface's real chord sag at its depth, as the scheduler hands them over.
+        static ChunkJobRunner.Built MatchesTheMeshBeforeTheOcean(in SurfaceDef s, in HeightParams hp, NodeId node,
+                                                                 MacroMaps macro, string label)
+        {
+            var   roots = SurfaceMath.BuildRoots(s);
+            int   R     = hp.Resolution, n = ChunkMeshLayout.VertexCount(R), I = ChunkMeshLayout.IndexCount(R);
+            float sag   = (float)ChunkMeshLayout.ChordSag(s, LodMath.NominalSize(hp.S0, node.Depth), R);
+
+            var now = ChunkJobRunner.Build(s, roots, hp, node, macro, 1f, 0.5f, sag);
+            var was = ChunkJobRunner.Build(s, roots, hp, node, macro, 1f, 0.5f, sag, beforeOcean: true);
+
+            Assert.AreEqual(ChunkKind.Land, now.Kind, label);
+            Assert.AreEqual(n, now.Verts.Length, $"{label}: vertices");
+            Assert.AreEqual(I, now.Indices.Length, $"{label}: indices");
+            for (int k = 0; k < n; k++)
+                Assert.IsTrue(SameBits(was.Verts[k], now.Verts[k]), $"{label}: vertex {k} is not the one main wrote");
+            CollectionAssert.AreEqual(was.Indices, now.Indices, $"{label}: the indices");
+
+            Assert.AreEqual(1, now.SubMeshes.Length, $"{label}: submeshes");
+            Assert.AreEqual(was.SubMeshes[0].indexStart, now.SubMeshes[0].indexStart, $"{label}: submesh start");
+            Assert.AreEqual(was.SubMeshes[0].indexCount, now.SubMeshes[0].indexCount, $"{label}: submesh count");
+            Assert.AreEqual(was.SubMeshes[0].baseVertex, now.SubMeshes[0].baseVertex, $"{label}: submesh base vertex");
+            Assert.AreEqual(was.SubMeshes[0].topology,   now.SubMeshes[0].topology,   $"{label}: submesh topology");
+
+            for (int k = 0; k < 3; k++)
+                Assert.AreEqual(BitConverter.SingleToInt32Bits(was.HeightBounds[k]),
+                                BitConverter.SingleToInt32Bits(now.HeightBounds[k]), $"{label}: HeightBounds[{k}]");
+            for (int k = 0; k < 2; k++)
+                Assert.IsTrue(math.all(math.asuint(was.VertexBounds[k]) == math.asuint(now.VertexBounds[k])),
+                    $"{label}: VertexBounds[{k}]");
+            return now;
         }
 
         static bool SameBits(TerrainVertex a, TerrainVertex b) =>

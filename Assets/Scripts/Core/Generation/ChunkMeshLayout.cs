@@ -123,10 +123,19 @@ namespace Sonoma.Core.Generation
 
         // The water's skirt (A8): the same rule with no relief, since the water has none. What is
         // left is the floor and the chord sag, whole -- on a smooth surface the sag is the whole
-        // gap. No wave term until ocean-b. With skirts off both arguments are zero, as for the
+        // gap. No wave term until ocean-b. With skirts off every argument is zero, as for the
         // terrain, and so is the drop.
         public static float WaterSkirtDrop(float skirtDepth, float skirtFraction, double chordSag)
             => SkirtDrop(skirtDepth, skirtFraction, 0.0, chordSag);
+
+        // The sag the water's skirt adds: the whole ChordSag whenever skirts are on, whatever the
+        // fraction. SkirtChordSag withholds it from a scene with no fraction so that SampleScene's
+        // terrain skirts keep their bits, but the water has no old bits to keep, and its gaps at
+        // coarse depths are the chord sag and nothing else: kilometres on Earth. skirtsEnabled is
+        // the setting itself, since skirts off reach the scheduler as a zero depth and fraction,
+        // which a scene with skirts on could also set.
+        public static float WaterChordSag(in SurfaceDef s, bool skirtsEnabled, double nominalSize, int resolution)
+            => skirtsEnabled ? (float)ChordSag(s, nominalSize, resolution) : 0f;
 
         // How many depths coarser a neighbour can be and still be covered by a skirt. Three,
         // because the atomic swap can hold a parent at coarse LOD, waiting on its children,

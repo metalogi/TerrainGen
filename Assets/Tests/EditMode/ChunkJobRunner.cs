@@ -24,7 +24,7 @@ namespace Sonoma.Tests
             public SubMeshDescriptor[] SubMeshes;
             public float[]          HeightBounds;   // min, max, skirt drop, lo, hi, kind (A9)
             public float3[]         VertexBounds;   // min, max
-            public ChunkKind        Kind => (ChunkKind)(int)HeightBounds[5];
+            public ChunkKind        Kind => (ChunkKind)(int)HeightBounds[ChunkMeshJob.KindSlot];
 
             // What the sample jobs produced, for checks made independently of the mesh job.
             public double3[] BasePoints, CoarseBasePoints;
@@ -32,9 +32,12 @@ namespace Sonoma.Tests
             public float[]   Heights, CoarseHeights;
         }
 
+        // beforeOcean builds the mesh as main did before ocean-a instead: FrozenChunkMeshJob, with the
+        // buffers, indices and submesh set outside the job, as GenerationScheduler set them then.
         internal static Built Build(in SurfaceDef surface, RootQuad[] roots, in HeightParams hp, NodeId node,
                                     MacroMaps macro, float skirtDepth = 0f, float skirtFraction = 0f,
-                                    float chordSag = 0f, OceanParams ocean = default, float waterSkirtDrop = 0f)
+                                    float chordSag = 0f, OceanParams ocean = default, float waterSkirtDrop = 0f,
+                                    bool beforeOcean = false)
         {
             var root    = roots[node.Quad];
             int R       = hp.Resolution;
@@ -50,7 +53,7 @@ namespace Sonoma.Tests
             var coarseHeights = new NativeArray<float>(coarse,    Allocator.TempJob);
             var splats        = new NativeArray<uint>(samples,    Allocator.TempJob);
             var coarseSplats  = new NativeArray<uint>(coarse,     Allocator.TempJob);
-            var heightBounds  = new NativeArray<float>(6,         Allocator.TempJob);
+            var heightBounds  = new NativeArray<float>(ChunkMeshJob.HeightBoundsCount, Allocator.TempJob);
             var vertexBounds  = new NativeArray<float3>(2,        Allocator.TempJob);
             var attributes    = new NativeArray<VertexAttributeDescriptor>(
                                     ChunkMeshBuffers.VertexAttributes(), Allocator.TempJob);
@@ -80,17 +83,38 @@ namespace Sonoma.Tests
                 Splats = coarseSplats,
             }.Schedule(coarse, 64).Complete();
 
-            new ChunkMeshJob
+            if (beforeOcean)
             {
-                Resolution = R, Anchor = anchor, Depth = node.Depth,
-                SkirtDepth = skirtDepth, SkirtFraction = skirtFraction, ChordSag = chordSag,
-                Ocean = ocean, WaterSkirtDrop = waterSkirtDrop,
-                BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
-                CoarseBasePoints = coarsePoints, CoarseBaseNormals = coarseNormals,
-                CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
-                VertexAttributes = attributes, Indices = indices, DoubledIndices = doubled,
-                Mesh = data, HeightBounds = heightBounds, VertexBounds = vertexBounds,
-            }.Schedule().Complete();
+                data.SetVertexBufferParams(ChunkMeshLayout.VertexCount(R), attributes);
+                data.SetIndexBufferParams(ChunkMeshLayout.IndexCount(R), IndexFormat.UInt16);
+                data.subMeshCount = 1;
+                new FrozenChunkMeshJob
+                {
+                    Resolution = R, Anchor = anchor, Depth = node.Depth,
+                    SkirtDepth = skirtDepth, SkirtFraction = skirtFraction, ChordSag = chordSag,
+                    BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
+                    CoarseBasePoints = coarsePoints, CoarseBaseNormals = coarseNormals,
+                    CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
+                    Mesh = data, HeightBounds = heightBounds, VertexBounds = vertexBounds,
+                }.Schedule().Complete();
+                indices.CopyTo(data.GetIndexData<ushort>());
+                data.SetSubMesh(0, new SubMeshDescriptor(0, ChunkMeshLayout.IndexCount(R)),
+                                MeshUpdateFlags.DontRecalculateBounds);
+            }
+            else
+            {
+                new ChunkMeshJob
+                {
+                    Resolution = R, Anchor = anchor, Depth = node.Depth,
+                    SkirtDepth = skirtDepth, SkirtFraction = skirtFraction, ChordSag = chordSag,
+                    Ocean = ocean, WaterSkirtDrop = waterSkirtDrop,
+                    BasePoints = basePoints, BaseNormals = baseNormals, Heights = heights, Splats = splats,
+                    CoarseBasePoints = coarsePoints, CoarseBaseNormals = coarseNormals,
+                    CoarseHeights = coarseHeights, CoarseSplats = coarseSplats,
+                    VertexAttributes = attributes, Indices = indices, DoubledIndices = doubled,
+                    Mesh = data, HeightBounds = heightBounds, VertexBounds = vertexBounds,
+                }.Schedule().Complete();
+            }
 
             var built = new Built
             {
