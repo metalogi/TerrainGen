@@ -104,4 +104,55 @@ namespace Sonoma.Tests
         [OneTimeTearDown]
         public void PutThemBack() => Measuring.EndRun();
     }
+
+    public class MeasuringSwapTests
+    {
+        // Measuring's swap, as a sandbox's measurement drives it, on a copy of Earth's asset with
+        // another TargetLand. A fixture's teardown puts Earth's own back and keeps the swapped builds
+        // aside; the next fixture's Apply swaps them back in. A cancelled run reaches no teardown,
+        // and the Editor keeps the assembly loaded, so the next run's BeginRun must undo the swap
+        // itself; without it every later run tested EarthStress with the sandbox's continents.
+        [Test]
+        public void ASwapLeftInPlaceIsUndoneByTheNextRun()
+        {
+            var    m      = MacroTests.For("EarthStress");
+            double own    = m.LandTarget;
+            var    ownMap = m.Continents;
+            string copy   = Path.Combine(Path.GetTempPath(), $"MeasuringSwap{Guid.NewGuid():N}.asset");
+            var    saved  = MacroTests.TakeBuilds(m.Scene);
+            string text   = File.ReadAllText(ContinentAssets.FullPath(m.ContinentAsset));
+            File.WriteAllText(copy, System.Text.RegularExpressions.Regex.Replace(text, @"(?m)^  TargetLand: .*$", "  TargetLand: 0.123"));
+            Environment.SetEnvironmentVariable(Measuring.ScenesVar,         m.Scene);
+            Environment.SetEnvironmentVariable(Measuring.ContinentAssetVar, copy);
+            try
+            {
+                Measuring.Apply();
+                Assert.AreEqual(0.123, m.LandTarget, 1e-6, "Apply did not swap the copy in");
+                var built = new MacroTests.SceneErosion();
+                MacroTests.PutBuilds(m.Scene, new MacroTests.Builds { Erosion = built });
+
+                Measuring.Restore();
+                Assert.AreEqual(own, m.LandTarget, "a fixture's teardown left the swap in place");
+                Assert.IsNull(MacroTests.TakeBuilds(m.Scene).Erosion, "the swapped build stayed under Earth's name");
+
+                Measuring.Apply();
+                Assert.AreEqual(0.123, m.LandTarget, 1e-6);
+                Assert.AreSame(built, MacroTests.TakeBuilds(m.Scene).Erosion, "the next fixture built again rather than reusing");
+
+                // Cancelled here: no teardown. The next run starts.
+                Measuring.BeginRun();
+                Assert.AreEqual(own, m.LandTarget, "the next run kept the swap");
+                Assert.IsEmpty(Measuring.Differences(ownMap.Value, m.Continents.Value), "the next run kept the swapped continents");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(Measuring.ScenesVar,         null);
+                Environment.SetEnvironmentVariable(Measuring.ContinentAssetVar, null);
+                Measuring.BeginRun();
+                MacroTests.ForgetBuilds(m.Scene);
+                MacroTests.PutBuilds(m.Scene, saved);
+                File.Delete(copy);
+            }
+        }
+    }
 }
