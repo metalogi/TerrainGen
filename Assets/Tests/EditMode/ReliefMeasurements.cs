@@ -340,7 +340,8 @@ namespace Sonoma.Tests
                 if (pin)
                 {
                     Measuring.Pin(m.Scene, "WorstWorkingSet", "count", I(held), I(EarthScaleTests.WorstWorkingSet), I(EarthScaleTests.Budget));
-                    Measuring.Pin(m.Scene, "FreshCornerWorkingSet", "count", I(fresh), I(EarthScaleTests.FreshCornerWorkingSet));
+                    Measuring.Pin(m.Scene, "FreshCornerWorkingSet", "exact", I(fresh), I(EarthScaleTests.FreshCornerWorkingSet),
+                                  note: "LodSelectorTests holds the real selector to it exactly");
                 }
                 return;
             }
@@ -349,11 +350,11 @@ namespace Sonoma.Tests
             SurfaceMath.SurfaceFrame(sc.Surface, sc.Roots[sc.WorstQuad], sc.WorstU, sc.WorstV, out double3 g, out float3 n);
             int worst = EarthScaleTests.Select(sc.Surface, sc.Roots, l, l.Vertical.MapPoint(sc.Surface, g + (double3)n * 2.0));
             TestContext.WriteLine($"{m.Scene}{label}: envelope {l.Vertical.Envelope / 1000.0:F1} km; worst working set {worst}");
-            if (pin) Measuring.Pin(m.Scene, "Worst", "count", I(worst), I(sc.Worst), I(sc.Budget));
+            if (pin) Measuring.Pin(m.Scene, "Worst", "count", I(worst), I(sc.Worst), I(sc.Budget) + ":1.1-1.2");
         }
 
         static void PinReliefFactor(MacroTests.SceneMacro m, double worst)
-            => Measuring.Pin(m.Scene, "ReliefFactor", "bound", math.round(1.5 * worst).ToString("F0", CultureInfo.InvariantCulture),
+            => Measuring.Pin(m.Scene, "ReliefFactor", "bound", math.ceil(1.5 * worst).ToString("F0", CultureInfo.InvariantCulture),
                              R(m.ReliefFactor));
 
         static void PinSkirtFraction(MacroTests.SceneMacro m, double share)

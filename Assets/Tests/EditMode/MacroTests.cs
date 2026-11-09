@@ -502,12 +502,29 @@ namespace Sonoma.Tests
             }
         }
 
-        // Drops a scene's cached builds, for Measuring's swap of its continent copy.
-        internal static void ForgetBuilds(string scene)
+        // A scene's cached builds, taken out of the caches and put back by Measuring's swap of its
+        // continents, which keeps the swapped ones for the next measuring fixture of a run.
+        internal struct Builds
         {
-            lock (_sceneErosion) _sceneErosion.Remove(scene);
-            lock (_sceneContinents) _sceneContinents.Remove(scene);
+            public SceneErosion    Erosion;
+            public SceneContinents Continents;
         }
+
+        internal static Builds TakeBuilds(string scene)
+        {
+            var b = new Builds();
+            lock (_sceneErosion)    { _sceneErosion.TryGetValue(scene, out b.Erosion);       _sceneErosion.Remove(scene); }
+            lock (_sceneContinents) { _sceneContinents.TryGetValue(scene, out b.Continents); _sceneContinents.Remove(scene); }
+            return b;
+        }
+
+        internal static void PutBuilds(string scene, Builds b)
+        {
+            if (b.Erosion    != null) lock (_sceneErosion)    _sceneErosion[scene]    = b.Erosion;
+            if (b.Continents != null) lock (_sceneContinents) _sceneContinents[scene] = b.Continents;
+        }
+
+        internal static void ForgetBuilds(string scene) => TakeBuilds(scene);
 
         // A scene's continents, built once per domain in managed code -- about a second a scene
         // under .NET 8 and several under the Editor's Mono -- and shared by every test that reads

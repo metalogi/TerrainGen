@@ -88,10 +88,20 @@ namespace Sonoma.Tests
     // Each test run reads the continent assets afresh. The Editor keeps the test assembly loaded
     // between runs, and an asset regenerated between them changes no code, so without this a
     // second run would test the asset as the first one read it, and the builds cached from it.
+    // It also undoes any measuring swap a cancelled run left in place (Measuring.BeginRun), before
+    // reading, so no run starts with another scene's continents on a stress scene, and again when
+    // the run ends.
     [SetUpFixture]
     public class ContinentAssetsAfresh
     {
         [OneTimeSetUp]
-        public void ReadThemAgain() => MacroTests.ReloadContinentAssets();
+        public void ReadThemAgain()
+        {
+            Measuring.BeginRun();
+            MacroTests.ReloadContinentAssets();
+        }
+
+        [OneTimeTearDown]
+        public void PutThemBack() => Measuring.EndRun();
     }
 }

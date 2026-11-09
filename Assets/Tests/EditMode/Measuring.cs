@@ -41,7 +41,11 @@ namespace Sonoma.Tests
         // SONOMA_SCENES names has its continents and LandTarget replaced by that asset's for as long
         // as the tools run, and its cached builds dropped, since MacroTests caches them by scene name.
         // Restore puts the entry's own back; each measuring fixture calls it from its
-        // OneTimeTearDown, so the suite never sees the swap.
+        // OneTimeTearDown, so no other fixture sees the swap. It keeps the swapped builds aside, so
+        // the next measuring fixture of the same run swaps them back in rather than building the
+        // maps again. A cancelled run need not reach a teardown, and the Editor keeps the test
+        // assembly loaded between runs, so ContinentAssetsAfresh also undoes any swap, and drops
+        // what was kept, at the start and the end of every run (BeginRun, EndRun).
 
         sealed class Swap
         {
@@ -51,14 +55,25 @@ namespace Sonoma.Tests
             public string                Key;
         }
 
+        sealed class Kept
+        {
+            public MacroTests.SceneMacro Entry;
+            public string                Key;
+            public MacroTests.Builds     Builds;
+        }
+
         static Swap _swap;
+        static Kept _kept;
+
+        internal static void BeginRun() { Finish?.Invoke(); Unswap(keep: false); }
+        internal static void EndRun()   => BeginRun();
 
         // Called from MeasuringToolsOnly, after the gate, by every tool: applies the swap once, and
         // says what it measures in the tool's own output.
         internal static void Apply()
         {
             string asset = Environment.GetEnvironmentVariable(ContinentAssetVar);
-            if (string.IsNullOrWhiteSpace(asset)) { Unswap(); return; }
+            if (string.IsNullOrWhiteSpace(asset)) { Unswap(keep: false); return; }
 
             string scenes = Environment.GetEnvironmentVariable(ScenesVar);
             if (string.IsNullOrWhiteSpace(scenes) || scenes.Contains(","))
@@ -76,7 +91,7 @@ namespace Sonoma.Tests
 
             if (asset == m.ContinentAsset)
             {
-                Unswap();
+                Unswap(keep: false);
                 TestContext.WriteLine($"Measuring {m.Scene} with its own {asset}.");
                 return;
             }
@@ -84,12 +99,17 @@ namespace Sonoma.Tests
             string key = asset + "|" + ContinentAssets.Stamp(asset).Ticks;
             if (_swap == null || _swap.Key != key || _swap.Entry != m)
             {
-                Unswap();
+                bool reuse = _kept != null && _kept.Key == key && _kept.Entry == m;
+                var  kept  = reuse ? _kept.Builds : default;
+                Unswap(keep: false);
                 var config = ContinentAssets.Read(asset, out float target);
                 _swap = new Swap { Entry = m, Continents = m.Continents, LandTarget = m.LandTarget, Key = key };
                 m.Continents = config;
                 m.LandTarget = target;
                 MacroTests.ForgetBuilds(m.Scene);
+                if (reuse) MacroTests.PutBuilds(m.Scene, kept);
+                if (reuse && (kept.Erosion != null || kept.Continents != null))
+                    TestContext.WriteLine($"Reusing the {m.Scene} builds the previous measuring fixture made from {asset}.");
             }
             TestContext.WriteLine($"Measuring {m.Scene} with {asset} in place of {m.ContinentAsset}, TargetLand {m.LandTarget:0.###}.");
         }
@@ -97,15 +117,19 @@ namespace Sonoma.Tests
         internal static void Restore()
         {
             Finish?.Invoke();
-            Unswap();
+            Unswap(keep: true);
         }
 
-        static void Unswap()
+        // Puts the entry's own continents back. keep sets the swapped builds aside for the next
+        // fixture's Apply; otherwise they, and anything kept before, are dropped.
+        static void Unswap(bool keep)
         {
+            if (!keep) _kept = null;
             if (_swap == null) return;
+            var builds = MacroTests.TakeBuilds(_swap.Entry.Scene);
+            if (keep) _kept = new Kept { Entry = _swap.Entry, Key = _swap.Key, Builds = builds };
             _swap.Entry.Continents = _swap.Continents;
             _swap.Entry.LandTarget = _swap.LandTarget;
-            MacroTests.ForgetBuilds(_swap.Entry.Scene);
             _swap = null;
         }
 
@@ -167,25 +191,20 @@ namespace Sonoma.Tests
         //
         // One line per constant a retune re-pins, which the menu item gathers into its summary:
         //   PIN|<scene>|<constant>|<kind>|<value to pin>|<pinned now>|<budget>|<note>
-        // The kind says how to compare them: "exact" is pinned to the bit; "bound" is a margin over
-        // a measured worst case, so a larger value must be pinned and a smaller one may be; "count"
-        // is a working set, which its tests hold to 1% and its budget to 10-20% above.
+        // The kind says how to compare them: "exact" is pinned to the bit, or exactly for a count;
+        // "bound" is a margin over a measured worst case, so a larger value must be pinned and a
+        // smaller one may be; "count" is a working set, which its tests hold to 1%. A budget is
+        // "<chunks>" when the tests ask only that the set fits under it, and "<chunks>:<lo>-<hi>"
+        // when they also hold it between lo and hi times the set (StressSceneTests: 1.1-1.2).
         internal static void Pin(string scene, string constant, string kind, string value, string current,
                                  string budget = "", string note = "")
             => TestContext.WriteLine($"PIN|{scene}|{constant}|{kind}|{value}|{current}|{budget}|{note}");
 
         // ── Struct text ──
         //
-        // A struct's public fields as "Name=value;...", round-trip exact ("R"), and back. The menu
-        // item writes the open scene's SurfaceDef this way.
-        internal static string Format<T>(T value) where T : struct
-        {
-            var parts = new List<string>();
-            foreach (var f in typeof(T).GetFields(BindingFlags.Public | BindingFlags.Instance))
-                parts.Add(f.Name + "=" + FormatValue(f.GetValue(value)));
-            return string.Join(";", parts);
-        }
-
+        // A struct's public fields as "Name=value;...", round-trip exact ("R"). The menu item writes
+        // the open scene's SurfaceDef this way, with its own copy of the writer, since the Editor
+        // assembly cannot reference this one; Parse reads it back.
         static string FormatValue(object v) => v switch
         {
             float  x => x.ToString("R", CultureInfo.InvariantCulture),

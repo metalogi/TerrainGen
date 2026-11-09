@@ -69,14 +69,14 @@ static class MeasureOpenScene
     };
 
     // A domain reload ends any run's bookkeeping here; leave nothing set that would make the next
-    // Run All take the measuring tools for real.
+    // Run All take the measuring tools for real. Only variables this menu item set, though: a
+    // batchmode -runTests with SONOMA_MEASURE=1 in its environment loads this class too, and
+    // clearing them there would skip every tool without saying why.
     static MeasureOpenScene()
     {
-        if (SessionState.GetBool(RunningKey, false))
-        {
-            Debug.LogWarning("[Measure] A domain reload interrupted the measurement; its output so far is in the Test Runner window.");
-            SessionState.SetBool(RunningKey, false);
-        }
+        if (!SessionState.GetBool(RunningKey, false)) return;
+        Debug.LogWarning("[Measure] A domain reload interrupted the measurement; its output so far is in the Test Runner window.");
+        SessionState.SetBool(RunningKey, false);
         ClearVariables();
     }
 
@@ -134,7 +134,28 @@ static class MeasureOpenScene
         api.RegisterCallbacks(_run);
         Debug.Log($"[Measure] {scene}{(measuredAs != scene ? $" as {measuredAs}" : "")} with {asset}: {tools.Length} tools, " +
                   $"Burst {(BurstEnabled ? "on" : "OFF, so the jobs run managed and slowly")}.");
-        _run.Guid = api.Execute(new ExecutionSettings(new Filter { testMode = TestMode.EditMode, testNames = tools }));
+        // A run that fails to start never calls RunFinished, which would leave SONOMA_MEASURE set,
+        // so the next Run All would take every tool for real, and the menu items greyed out.
+        try
+        {
+            _run.Guid = api.Execute(new ExecutionSettings(new Filter { testMode = TestMode.EditMode, testNames = tools }));
+            if (string.IsNullOrEmpty(_run.Guid)) throw new InvalidOperationException("the Test Runner returned no run");
+        }
+        catch (Exception e)
+        {
+            EndRun(_run);
+            Debug.LogError($"[Measure] The measurement did not start: {e.Message}");
+        }
+    }
+
+    // What every run ends with, finished or failed to start.
+    static void EndRun(Collector run)
+    {
+        EditorUtility.ClearProgressBar();
+        ClearVariables();
+        SessionState.SetBool(RunningKey, false);
+        if (run.Api != null) { run.Api.UnregisterCallbacks(run); UnityEngine.Object.DestroyImmediate(run.Api); run.Api = null; }
+        if (_run == run) _run = null;
     }
 
     // Jobs > Burst > Enable Compilation: off, the Burst scans run managed and slowly.
@@ -261,14 +282,7 @@ static class MeasureOpenScene
             // unregistered, the whole suite included; a run answers only to its own events.
             if (!Mine) { TestRunnerApi.UnregisterTestCallback(this); return; }
             try { Report(); }
-            finally
-            {
-                EditorUtility.ClearProgressBar();
-                ClearVariables();
-                SessionState.SetBool(RunningKey, false);
-                if (Api != null) { Api.UnregisterCallbacks(this); UnityEngine.Object.DestroyImmediate(Api); }
-                _run = null;
-            }
+            finally { EndRun(this); }
         }
 
         void Report()
@@ -327,6 +341,28 @@ static class MeasureOpenScene
             return s.ToString();
         }
 
+        // A budget against the measured set, as Measuring.Pin writes it: "<chunks>", which the
+        // tests ask only to hold the set, or "<chunks>:<lo>-<hi>", which they also hold between lo
+        // and hi times it. Outside those, the tests fail, and the budget is what to change.
+        static string Room(double v, string budget)
+        {
+            var      ci    = CultureInfo.InvariantCulture;
+            string[] parts = budget.Split(':');
+            if (!double.TryParse(parts[0], NumberStyles.Float, ci, out double b) || b <= 0.0) return "budget unreadable";
+            double over = b / v;
+            string room = $"budget {b:F0} is {over - 1.0:P0} over it";
+            if (v >= b) return $"OVER BUDGET: raise MaxResidentChunks from {b:F0}; the tests fail";
+            if (parts.Length < 2) return room;
+            string[] range = parts[1].Split('-');
+            if (range.Length != 2 ||
+                !double.TryParse(range[0], NumberStyles.Float, ci, out double lo) ||
+                !double.TryParse(range[1], NumberStyles.Float, ci, out double hi))
+                return room + "; range unreadable";
+            if (over <= lo) return $"RE-PIN the budget: {room}, and the tests ask at least {lo - 1.0:P0}";
+            if (over >= hi) return $"RE-PIN the budget: {room}, and the tests ask under {hi - 1.0:P0}";
+            return room;
+        }
+
         static string Verdict(string kind, string value, string current, string budget)
         {
             var ci = CultureInfo.InvariantCulture;
@@ -336,18 +372,13 @@ static class MeasureOpenScene
             switch (kind)
             {
                 case "exact":
-                    return v == c ? "unchanged" : "RE-PIN: the tests hold it to the bit";
+                    return v == c ? "unchanged" : "RE-PIN: the tests hold it exactly";
                 case "bound":
                     return v == c ? "unchanged" : v > c ? "RE-PIN: the measurement is above the pin" : "may lower: the pin still covers it";
                 case "count":
                 {
                     string moved = Math.Abs(v - c) > c / 100.0 ? $"RE-PIN: moved {(v - c) / c:P1}, past the tests' 1%" : "within the tests' 1%";
-                    if (!double.TryParse(budget, NumberStyles.Float, ci, out double b) || b <= 0.0) return moved;
-                    double over = b / v;
-                    string room = v >= b ? "OVER BUDGET" : over < 1.1 ? $"budget only {over - 1.0:P0} over it" :
-                                  over > 1.2 ? $"budget {over - 1.0:P0} over it, past the 20% the cylinders' tests allow" :
-                                  $"budget {b:F0} is {over - 1.0:P0} over it";
-                    return moved + "; " + room;
+                    return budget.Length == 0 ? moved : moved + "; " + Room(v, budget);
                 }
                 default:
                     return kind;
