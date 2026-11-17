@@ -123,10 +123,12 @@ namespace Sonoma.Core.Generation
 
         // The water's skirt (A8): the same rule with no relief, since the water has none. What is
         // left is the floor and the chord sag, whole -- on a smooth surface the sag is the whole
-        // gap. No wave term until ocean-b. With skirts off every argument is zero, as for the
-        // terrain, and so is the drop.
-        public static float WaterSkirtDrop(float skirtDepth, float skirtFraction, double chordSag)
-            => SkirtDrop(skirtDepth, skirtFraction, 0.0, chordSag);
+        // gap -- and, with waves (ocean-b, C3), twice their amplitude: two edges a transient state
+        // apart can be displaced in opposite directions. With skirts off every argument is zero, as
+        // for the terrain, and so is the drop. A flat sea adds 0.0, exactly, so its drop is ocean-a's.
+        public static float WaterSkirtDrop(float skirtDepth, float skirtFraction, double chordSag,
+                                           double waveAmplitude = 0.0)
+            => SkirtDrop(skirtDepth, skirtFraction, 0.0, chordSag + 2.0 * waveAmplitude);
 
         // The sag the water's skirt adds: the whole ChordSag whenever skirts are on, whatever the
         // fraction. SkirtChordSag withholds it from a scene with no fraction so that SampleScene's

@@ -15,8 +15,9 @@ namespace Sonoma.Tests
         const double Envelope = 36600.0;
 
         static OceanParams Create(bool ocean = true, double sea = 0.0, float overlap = 0f, int resolution = R,
-                                  double envelope = Envelope, bool erosion = false, double baseLevel = 0.0) =>
-            OceanParams.Create(ocean, sea, overlap, resolution, envelope, erosion, baseLevel);
+                                  double envelope = Envelope, bool erosion = false, double baseLevel = 0.0,
+                                  float amplitude = 0f, float displacement = 0f) =>
+            OceanParams.Create(ocean, sea, overlap, resolution, envelope, erosion, baseLevel, amplitude, displacement);
 
         // default(OceanParams) is "no ocean", and so is a scene with Ocean off, whatever its sea
         // level: every field at zero, so no path can read a stale sea from a disabled ocean.
@@ -32,7 +33,30 @@ namespace Sonoma.Tests
             Assert.AreEqual(68.0, on.SeaLevel);
             Assert.AreEqual(68f,  on.SeaLevelFloat);
             Assert.AreEqual(5f,   on.TerrainOverlap);
-            Assert.AreEqual(0f,   on.WaveAmplitude, "no waves until ocean-b");
+            Assert.AreEqual(0f,   on.WaveAmplitude,    "no waves unless asked for");
+            Assert.AreEqual(0f,   on.WaveDisplacement, "no waves unless asked for");
+            Assert.AreEqual(default(OceanParams), Create(ocean: false, overlap: 5f, amplitude: 2f, displacement: 3f),
+                "with the ocean off the waves are not kept either");
+        }
+
+        // B6: the waves' bounds reach OceanParams, the overlap must cover the amplitude so a shoal
+        // under an Ocean chunk breaks the surface in a trough, and the displacement is at least the
+        // amplitude. A flat sea, the default, keeps an overlap of 0.
+        [Test]
+        public void OverlapMustCoverTheWaves()
+        {
+            var on = Create(overlap: 2f, amplitude: 2f, displacement: 3f);
+            Assert.AreEqual(2f, on.WaveAmplitude);
+            Assert.AreEqual(3f, on.WaveDisplacement);
+            Assert.DoesNotThrow(() => Create(overlap: 0f), "a flat sea needs no overlap");
+            Assert.Throws<ArgumentOutOfRangeException>(() => Create(overlap: 1.99f, amplitude: 2f, displacement: 2f));
+            Assert.Throws<ArgumentOutOfRangeException>(() => Create(overlap: 2f, amplitude: 2f, displacement: 1.5f),
+                "a displacement under the amplitude");
+            foreach (float bad in new[] { -1f, float.NaN, float.PositiveInfinity })
+                Assert.Throws<ArgumentOutOfRangeException>(() => Create(overlap: 10f, amplitude: bad, displacement: 10f),
+                    $"an amplitude of {bad}");
+            Assert.DoesNotThrow(() => Create(ocean: false, overlap: 0f, amplitude: 2f, displacement: 2f),
+                "with the ocean off the waves are not checked");
         }
 
         // C1: the sea lies strictly inside the terrain's height envelope, either side of the base
@@ -231,9 +255,17 @@ namespace Sonoma.Tests
         // coarse side's chords cutting under the curve, and its skirt, with no relief term, has
         // to cover that with the floor and the chord sag alone. Every stress scene at every depth,
         // every depth gap to SkirtDepthGap, morph 0, 1/2 and 1 on each side, through the rule the
-        // scheduler will call. The parent plan's test 7 without waves; ocean-b adds them.
+        // scheduler will call.
+        //
+        // With waves (ocean-b, the parent plan's test 7) the two sides of an edge a transient state
+        // apart can be displaced in opposite directions, each by up to the amplitude, so the gap
+        // grows by twice it and so does the drop. Checked at WaveAmplitude, about the shipped sea's,
+        // and the drop without its wave term must then leave some edge open in every scene, or the
+        // term is not being tested.
+        const float WaveAmplitude = 2f;
+
         [Test]
-        public void WaterSkirtCoversTheChordSag()
+        public void WaterSkirtCoversTheTransientGap()
         {
             var scenes = new[]
             {
@@ -262,22 +294,31 @@ namespace Sonoma.Tests
                 var edges = StressSceneTests.TransientEdges(w, sc.depth, 1, StressSceneTests.SkirtSeed);
 
                 double worst = 0.0;
-                int cross = 0;
+                int cross = 0, openWithoutWaveTerm = 0;
                 foreach (var e in edges)
                 {
                     Assert.AreEqual(0.0, e.ReliefFine,   $"{sc.name}: the water has relief");
                     Assert.AreEqual(0.0, e.ReliefCoarse, $"{sc.name}: the water has relief");
-                    double fine   = Drop(w, e.Depth, sc.fraction);
-                    double coarse = Drop(w, e.Depth - e.Gap, sc.fraction);
-                    Assert.LessOrEqual(e.GapFine, fine,
-                        $"{sc.name} water, depth {e.Depth} beside {e.Depth - e.Gap}: the fine side stands {e.GapFine:G4} m " +
-                        $"above, and its skirt drops {fine:G4} m");
-                    Assert.LessOrEqual(e.GapCoarse, coarse,
-                        $"{sc.name} water, depth {e.Depth} beside {e.Depth - e.Gap}: the coarse side stands {e.GapCoarse:G4} m " +
-                        $"above, and its skirt drops {coarse:G4} m");
+                    foreach (float a in new[] { 0f, WaveAmplitude })
+                    {
+                        double fine   = Drop(w, e.Depth, sc.fraction, a);
+                        double coarse = Drop(w, e.Depth - e.Gap, sc.fraction, a);
+                        double gapFine = e.GapFine + 2.0 * a, gapCoarse = e.GapCoarse + 2.0 * a;
+                        Assert.LessOrEqual(gapFine, fine,
+                            $"{sc.name} water, waves {a} m, depth {e.Depth} beside {e.Depth - e.Gap}: the fine side " +
+                            $"stands {gapFine:G4} m above, and its skirt drops {fine:G4} m");
+                        Assert.LessOrEqual(gapCoarse, coarse,
+                            $"{sc.name} water, waves {a} m, depth {e.Depth} beside {e.Depth - e.Gap}: the coarse side " +
+                            $"stands {gapCoarse:G4} m above, and its skirt drops {coarse:G4} m");
+                        if (a > 0f && (gapFine > Drop(w, e.Depth, sc.fraction, 0f) ||
+                                       gapCoarse > Drop(w, e.Depth - e.Gap, sc.fraction, 0f)))
+                            openWithoutWaveTerm++;
+                    }
                     worst = Math.Max(worst, Math.Max(e.GapFine, e.GapCoarse));
                     if (e.CrossQuad) cross++;
                 }
+                Assert.Greater(openWithoutWaveTerm, 0,
+                    $"{sc.name}: the drop without its wave term covers every edge with waves; the term is not tested");
                 int expected = 0;
                 for (int d = 1; d <= sc.depth; d++) expected += Math.Min(d, ChunkMeshLayout.SkirtDepthGap);
                 Assert.AreEqual(expected, edges.Count, $"{sc.name}: every depth and gap has an edge");
@@ -295,10 +336,11 @@ namespace Sonoma.Tests
         }
 
         // The water's drop at this depth, as the scheduler computes it with skirts on:
-        // WaterChordSag, and WaterSkirtDrop.
-        static double Drop(StressSceneTests.SceneHeights w, int depth, float fraction)
+        // WaterChordSag, and WaterSkirtDrop with the waves' amplitude.
+        static double Drop(StressSceneTests.SceneHeights w, int depth, float fraction, float waveAmplitude)
             => ChunkMeshLayout.WaterSkirtDrop(StressSceneTests.SkirtDepth, fraction,
-                   ChunkMeshLayout.WaterChordSag(w.Surface, true, LodMath.NominalSize(w.S0, depth), StressSceneTests.Resolution));
+                   ChunkMeshLayout.WaterChordSag(w.Surface, true, LodMath.NominalSize(w.S0, depth), StressSceneTests.Resolution),
+                   waveAmplitude);
 
         // The water's skirt keeps its chord sag in a scene with no SkirtFraction, where the
         // terrain's gives it up so SampleScene keeps its bits: the water has no old bits, and the

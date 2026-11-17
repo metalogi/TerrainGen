@@ -289,7 +289,8 @@ namespace Sonoma.Core.Quadtree
             {
                 Resolution = R, Anchor = p.Anchor, Depth = node.Depth,
                 SkirtDepth = _skirtDepth, SkirtFraction = _skirtFraction, ChordSag = sag,
-                Ocean = _ocean, WaterSkirtDrop = ChunkMeshLayout.WaterSkirtDrop(_skirtDepth, _skirtFraction, waterSag),
+                Ocean = _ocean, WaterSkirtDrop = ChunkMeshLayout.WaterSkirtDrop(_skirtDepth, _skirtFraction, waterSag,
+                                                     _skirts ? _ocean.WaveAmplitude : 0f),
                 BasePoints = p.BasePoints, BaseNormals = p.BaseNormals, Heights = p.Heights,
                 Splats = p.Splats,
                 CoarseBasePoints = p.CoarsePoints, CoarseBaseNormals = p.CoarseNormals,
