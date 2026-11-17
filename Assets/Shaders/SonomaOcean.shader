@@ -1,5 +1,6 @@
-// The sea (ocean-a): the water grid ChunkMeshJob writes on Coast and Ocean chunks, a flat surface
-// SeaLevel metres above the base surface along its normal (Docs/Ocean_Plan.md C1). Opaque: the
+// The sea (ocean-a, with its waves from ocean-b): the water grid ChunkMeshJob writes on Coast and
+// Ocean chunks, a surface SeaLevel metres above the base surface along its normal
+// (Docs/Ocean_Plan.md C1), displaced by the waves below. Opaque: the
 // terrain under it is not drawn on an Ocean chunk at all (Docs/Ocean_A_Plan.md, A2), and on a Coast
 // chunk it is hidden. The water's own submesh, drawn with the terrain's geomorph so it morphs by the
 // same k as the ground beside it.
