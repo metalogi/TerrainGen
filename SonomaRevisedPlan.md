@@ -311,6 +311,13 @@ Each milestone ends with something runnable and a test that would catch regressi
 ### M7 — Content (original Phase 5, unchanged in scope)
 - Vegetation and rock scattering from the same deterministic per-node RNG, driven by biome density curves and slope.
 - Shader parameter generation, biome library.
+- **Forests from the Forest Tile Generator's tiles (added 2026-11-16).** Forests are drawn from pre-generated pine forest tiles rather than scattered tree by tree; scattering stays for the rest of the vegetation and for rocks. The generator is a Blender pipeline in `G:\GSD\gsd-sandbox` that turns a 64-bit key into a 32 m tile with LOD0–LOD4. The assessment and outline are in `Docs/Forest_Outline.md`. In short:
+  - forest density is a pure function of surface position, band-limited by depth, like the height;
+  - far away, the forest is a canopy shell in the terrain shader, colour and a displacement;
+  - near the camera, tiles are instanced as a payload of the terrain's own nodes, as the ocean is, each a mask of one full tile chosen by a hash of its node;
+  - each tree is moved onto the slope in the vertex shader, with its ground taken from the carrying chunk's heights and blended by the morph factor.
+
+  The generator's R1 (each vertex's tree, in two UV channels) and R2 (a 0.5 m trunk sink) are done, as its Phase 03.1; R3–R5 are in its backlog. The full system waits on M6's frame budget, and the outline suggests a spike in a copy of `EarthStress` first.
 
 ---
 
