@@ -445,3 +445,30 @@ anything the Editor said that this plan did not.
      `TestRunnerApi` ("user interactions are not supported"), even deferred. A temporary, untracked
      Editor script, `OceanBTestRun`, runs it from Tools → Sonoma and writes `Logs/OceanB/tests.txt`.
      All 261 EditMode tests pass in the Editor, with the 12 `[Explicit]` tools skipped.
+5. **Step 2 (2026-11-17): the floor morphs, the water's box is padded, and its skirt bottoms are
+   flagged.** No scene has waves yet, so the padding is 0 and the flag unread.
+   - **The encoding is `d / (d + 64 m)`, not the plan's `1 − exp(−d / S)`.** Only `+` and `/`, which
+     IEEE rounds alike in Burst and managed code, so `ChunkMeshLayout.EncodeFloor` in a test and in the
+     job give the same bytes; `exp` would not (`CLAUDE.md`, "No trigonometry inside the continent
+     jobs"). A step is 0.98 mm at the shore, and it saturates at 4.2 km, so it never reaches infinity.
+     Byte 0 is the high byte and byte 1 the low one; the decode is within half a step everywhere it was
+     checked (`EncodeFloorIsMonotoneAndExactAtTheSea`).
+   - **The colour by depth reads the morphed floor,** `lerp` of the two decoded depths on the
+     geometry's `k`. `TEXCOORD3.w` keeps the fine height, which the shader no longer reads.
+     `ChildAtFullMorphEqualsParent` holds each child water vertex's morph-target floor bytes to the
+     parent's own floor bytes, and asks for wet vertices to test it on.
+   - **The skirt flag is `COLOR.b`,** on the water skirt's bottom row only
+     (`ChunkMeshLayout.WaterSkirtFlag`); `WaterSkirtHangsItsDrop` checks it is there, is on no grid
+     vertex, and that the terrain's skirt bottoms keep their top's splat.
+   - **The box.** The terrain's vertices are boxed as before and the water's apart, padded by
+     `OceanParams.WaveDisplacement` and joined, so a Land chunk's box is unchanged and a flat sea's is
+     the same bits (`JobPadsTheWaterBoundsByTheWaves`).
+   - **Same pixels, except the shallows.** `SampleScene`'s start frame is byte-identical to step 0's.
+     In the five ocean scenes 0.30–0.56% of the pixels change, all in a band along the coasts where the
+     shallow colour now follows the morphed floor: up to 31 levels of 255 on the planets and the rings,
+     and at most 2 in the terrarium, its start pose mostly unmorphed. Diff masks are in `Logs/OceanB`.
+   - **A stale test assembly ran twice.** Unity compiled some edits on its own while the Editor was in
+     the background, and an `AssetDatabase.Refresh` then found nothing new, so two runs used a test
+     assembly older than the last edit. `CompilationPipeline.RequestScriptCompilation` after a forced
+     import of the edited file rebuilt it. Check the assembly's time against the files' before trusting
+     a run. 263 EditMode tests pass, with the 12 `[Explicit]` tools skipped.

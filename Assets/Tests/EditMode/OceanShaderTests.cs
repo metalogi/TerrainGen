@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
+using Sonoma.Core.Generation;
 using UnityEditor;
 using UnityEngine;
 
@@ -59,14 +61,21 @@ namespace Sonoma.Tests
             Assert.IsTrue(material.IsKeywordEnabled("_SONOMA_SKY"), $"{Material}: _SONOMA_SKY is off");
         }
 
-        // A5: the colour by depth reads the floor the mesh job writes in TEXCOORD3.w, against the sea
-        // level in TEXCOORD1.w, and blends shallow to deep over _DepthScale.
+        // A5 and B5: the colour by depth reads the floor depths the mesh job encodes in COLOR and
+        // TEXCOORD0, morphed on the geometry's k so it does not pop at a swap, and blends shallow to
+        // deep over _DepthScale. The decode is ChunkMeshLayout.DecodeFloor's, scale included.
         [Test]
         public void OceanColoursByDepth()
         {
             string source = ShaderSource.Load(Shader);
-            StringAssert.IsMatch(@"o\.depth\s*=\s*input\.uv2\.w\s*-\s*input\.morphNrm\.w", source,
-                "the depth is not the sea level less the floor");
+            StringAssert.IsMatch(@"float\s+k\s*=\s*SonomaMorph\(", source, "ForwardLit does not keep the morph's k");
+            StringAssert.IsMatch(
+                @"o\.depth\s*=\s*lerp\(SonomaDecodeFloor\(input\.floorFine\),\s*SonomaDecodeFloor\(input\.floorMorph\),\s*k\)",
+                source, "the depth is not the floor morphed on k");
+            StringAssert.IsMatch(@"float4\s+floorFine\s*:\s*COLOR;", source, "the fine floor is not read from COLOR");
+            StringAssert.IsMatch(@"float4\s+floorMorph\s*:\s*TEXCOORD0;", source, "the morph floor is not read from TEXCOORD0");
+            StringAssert.Contains($"return {ChunkMeshLayout.FloorScale.ToString("0.0", CultureInfo.InvariantCulture)} * e / (1.0 - e);", source,
+                "the shader's decode is not ChunkMeshLayout.DecodeFloor's scale");
             StringAssert.IsMatch(@"lerp\(_ShallowColor\.rgb,\s*_DeepColor\.rgb,\s*1\.0 - exp\(-depth", source,
                 "the colour is not shallow to deep by depth");
         }

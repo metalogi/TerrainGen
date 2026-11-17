@@ -10,11 +10,14 @@
 //   TEXCOORD1.xyz = the same up; TEXCOORD1.w = the sea level, as the terrain's elevation
 //   TEXCOORD2.xyz = geomorph target: the parent's water vertex; TEXCOORD2.w = the node depth
 //   TEXCOORD3.xyz = the geomorph target's normal, the parent's base normal
-//   TEXCOORD3.w   = the floor: the fine terrain height under the vertex, for the colour by depth
-//   COLOR, TEXCOORD0 are zero and unread; the vertex layout is the terrain's.
+//   TEXCOORD3.w   = the fine terrain height under the vertex, kept for the tests
+//   COLOR.rg      = the floor's depth below the sea, 16 bits, d / (d + 64 m) (ChunkMeshLayout.EncodeFloor)
+//   COLOR.b       = 1 on the skirt's bottom row, 0 on the grid (ChunkMeshLayout.WaterSkirtFlag)
+//   TEXCOORD0.rg  = the morph target's floor depth, the parent's floor there, encoded the same way
+//   The vertex layout is the terrain's; COLOR and TEXCOORD0 are its splat and morph splat there.
 //
-// The floor does not morph (the parent's floor is not in the vertex), so the depth colour pops by
-// what the parent's floor differs from the child's at every swap. ocean-b morphs it (Q6).
+// The floor morphs on the geometry's k (ocean-b, B5): a fully morphed child's floor is its
+// parent's, so the depth colour no longer pops at a swap.
 //
 // No ShadowCaster pass (C5). Opaque water over an unseen floor has nothing beneath it to shadow,
 // and a flat sea casts on nothing above it. It receives shadows: ForwardLit takes the main light's
@@ -82,6 +85,15 @@ Shader "Sonoma/Ocean"
 
         // The morph globals and functions, the terrain's own: see SonomaCommon.hlsl.
         #include "SonomaCommon.hlsl"
+
+        // The floor's depth below the sea, from the two UNorm8 bytes ChunkMeshLayout.EncodeFloor
+        // writes, r high and g low, as d / (d + 64 m). The inverse of DecodeFloor, which the tests use.
+        float SonomaDecodeFloor(float4 packed)
+        {
+            float v = round(packed.r * 255.0) * 256.0 + round(packed.g * 255.0);
+            float e = v / 65535.0;
+            return 64.0 * e / (1.0 - e);
+        }
         ENDHLSL
 
         Pass
@@ -109,9 +121,11 @@ Shader "Sonoma/Ocean"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
+                float4 floorFine  : COLOR;     // (floor depth, encoded; skirt flag; unused)
+                float4 floorMorph : TEXCOORD0; // (the morph target's floor depth, encoded; unused)
                 float4 uv2        : TEXCOORD1; // (up.xyz, sea level)
                 float4 morphPos   : TEXCOORD2; // (geomorph target position.xyz, node depth)
-                float4 morphNrm   : TEXCOORD3; // (geomorph target normal.xyz, floor height)
+                float4 morphNrm   : TEXCOORD3; // (geomorph target normal.xyz, fine floor height)
             };
 
             struct Varyings
@@ -133,7 +147,7 @@ Shader "Sonoma/Ocean"
 
                 float3 positionOS = input.positionOS.xyz;
                 float3 normalOS   = input.normalOS;
-                SonomaMorph(positionOS, normalOS, input.uv2, input.morphPos, input.morphNrm.xyz);
+                float k = SonomaMorph(positionOS, normalOS, input.uv2, input.morphPos, input.morphNrm.xyz);
 
                 VertexPositionInputs vpi = GetVertexPositionInputs(positionOS);
                 VertexNormalInputs   vni = GetVertexNormalInputs(normalOS);
@@ -141,9 +155,9 @@ Shader "Sonoma/Ocean"
                 o.positionWS = vpi.positionWS;
                 o.normalWS   = vni.normalWS;
                 o.topoUp     = TransformObjectToWorldDir(input.uv2.xyz);
-                // The sea level less the floor beneath it. Neither morphs: the sea is the same at
-                // every depth, and the floor is the fine one (see the header).
-                o.depth      = input.uv2.w - input.morphNrm.w;
+                // The water's depth, morphed on the geometry's k towards the parent's (B5), so it
+                // agrees with the parent at a swap and with a neighbour at a shared vertex.
+                o.depth      = lerp(SonomaDecodeFloor(input.floorFine), SonomaDecodeFloor(input.floorMorph), k);
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
                     o.shadowCoord = GetShadowCoord(vpi);
                 #endif
