@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Sonoma.Core.Generation;
+using Sonoma.Core.Quadtree;
 using UnityEditor;
 using UnityEngine;
 
@@ -78,6 +79,96 @@ namespace Sonoma.Tests
                 "the shader's decode is not ChunkMeshLayout.DecodeFloor's scale");
             StringAssert.IsMatch(@"lerp\(_ShallowColor\.rgb,\s*_DeepColor\.rgb,\s*1\.0 - exp\(-depth", source,
                 "the colour is not shallow to deep by depth");
+        }
+
+        // The waves' include against the table that fills its globals (ocean-b): the array length
+        // is OceanWaves.MaxWaves, the fade is OceanWaves.Fade's, the phase OceanWaves.ShaderPhase's,
+        // and the globals are the names OceanWaveGlobals pushes, outside the per-material buffer.
+        // The skirt flag spares the skirt bottoms, and the normal and glint read the slope variance.
+        [Test]
+        public void OceanWavesMatchTheTable()
+        {
+            string waves = ShaderSource.Load("SonomaWaves.hlsl");
+            string F(double x) => x.ToString("0.0", CultureInfo.InvariantCulture);
+
+            StringAssert.Contains($"#define SONOMA_MAX_WAVES {OceanWaves.MaxWaves}", waves, "the array length is not MaxWaves");
+            StringAssert.Contains($"#define SONOMA_WAVE_FADE_START  {F(OceanWaves.FadeStart)}", waves, "the fade's start");
+            StringAssert.Contains($"#define SONOMA_WAVE_FADE_FULL   {F(OceanWaves.FadeFull)}", waves, "the fade's end");
+            StringAssert.Contains("float spacing = _SonomaWaveLod.x * exp2(-effectiveDepth);", waves,
+                "the spacing is not OceanWaves.Spacing of the effective depth");
+            StringAssert.Contains("smoothstep(SONOMA_WAVE_FADE_START, SONOMA_WAVE_FADE_FULL, _SonomaWaveExtra[i].x / max(spacing, 1e-20))",
+                waves, "the geometric fade is not OceanWaves.Fade");
+            StringAssert.Contains("return frac(dot(_SonomaWaves[i].xyz, positionWS) + _SonomaWavePhase[i]);", waves,
+                "the phase is not K . p plus the pushed offset (OceanWaves.ShaderPhase)");
+            StringAssert.Contains("float  keep     = 1.0 - step(0.5, skirtFlag);", waves, "the skirt bottoms are displaced");
+            StringAssert.Contains("positionOS += TransformWorldToObjectDir(offset * keep, false);", waves,
+                "the displacement is normalised or ignores the skirt flag");
+
+            foreach (string global in new[]
+                     { OceanWaveGlobals.WavesGlobal, OceanWaveGlobals.ExtraGlobal, OceanWaveGlobals.PhaseGlobal,
+                       OceanWaveGlobals.CountGlobal, OceanWaveGlobals.LodGlobal })
+                StringAssert.Contains(global, waves, $"the include does not read {global}");
+
+            string ocean = ShaderSource.Load(Shader);
+            int cbStart = ocean.IndexOf("CBUFFER_START(UnityPerMaterial)", System.StringComparison.Ordinal);
+            int cbEnd   = ocean.IndexOf("CBUFFER_END", cbStart, System.StringComparison.Ordinal);
+            StringAssert.DoesNotContain("_SonomaWave", ocean.Substring(cbStart, cbEnd - cbStart),
+                "a wave global is in UnityPerMaterial; OceanWaveGlobals pushes them");
+
+            int start = ocean.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
+            string lit = ocean.Substring(start, ocean.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal) - start);
+            StringAssert.Contains("SonomaWaveNormal(input.wavePos, N, input.waveDepth, footprint", lit,
+                "ForwardLit's normal is not the waves' at the undisplaced position (B3)");
+            StringAssert.Contains("SonomaWaveGlintPower(", lit, "the glint does not widen by the slope variance (B3)");
+        }
+
+        // Every ocean pass compiles, on D3D for Windows, with the sky on and off and under every main
+        // light shadow keyword, soft shadows on and off: no error, and no warning from Sonoma's own
+        // files. A shader that fails to compile draws the pink error shader with nothing in the test
+        // log, and the frame driver would be the first to see it.
+        [Test]
+        public void OceanPassesCompile()
+        {
+            var shader = AssetDatabase.LoadAssetAtPath<UnityEngine.Shader>("Assets/Shaders/" + Shader);
+            Assert.IsNotNull(shader, "the ocean shader is missing");
+            Assert.IsFalse(ShaderUtil.ShaderHasError(shader), "the ocean shader has an error");
+
+            var data = ShaderUtil.GetShaderData(shader);
+            var sub  = data.GetSerializedSubshader(0);
+            string[] mainLight = { null, "_MAIN_LIGHT_SHADOWS", "_MAIN_LIGHT_SHADOWS_CASCADE", "_MAIN_LIGHT_SHADOWS_SCREEN" };
+            string[] soft      = { null, "_SHADOWS_SOFT_HIGH" };
+            string[] sky       = { null, "_SONOMA_SKY" };
+            int compiled = 0;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            for (int p = 0; p < sub.PassCount; p++)
+            {
+                var pass = sub.GetPass(p);
+                bool lit = pass.Name == "ForwardLit";
+                foreach (string m in lit ? mainLight : new string[] { null })
+                foreach (string s in lit ? sky : new string[] { null })
+                foreach (var stage in new[] { UnityEditor.Rendering.ShaderType.Vertex, UnityEditor.Rendering.ShaderType.Fragment })
+                foreach (string f in lit && stage == UnityEditor.Rendering.ShaderType.Fragment ? soft : new string[] { null })
+                {
+                    var keywords = new System.Collections.Generic.List<string>();
+                    foreach (string k in new[] { m, s, f }) if (k != null) keywords.Add(k);
+                    string label = $"{pass.Name} {stage} [{string.Join(" ", keywords)}]";
+
+                    var info = pass.CompileVariant(stage, keywords.ToArray(),
+                        UnityEditor.Rendering.ShaderCompilerPlatform.D3D, BuildTarget.StandaloneWindows64);
+                    foreach (var msg in info.Messages)
+                    {
+                        bool ours = msg.file != null && msg.file.Contains("Sonoma");
+                        Assert.IsFalse(msg.severity == UnityEditor.Rendering.ShaderCompilerMessageSeverity.Error,
+                            $"{label}: {msg.message} ({msg.file}:{msg.line})");
+                        Assert.IsFalse(ours, $"{label}: a warning from our own source: {msg.message} ({msg.file}:{msg.line})");
+                    }
+                    Assert.IsTrue(info.Success, $"{label} did not compile");
+                    compiled++;
+                }
+            }
+            TestContext.WriteLine($"{compiled} ocean variants compiled in {watch.Elapsed.TotalSeconds:F1} s");
+            Assert.AreEqual(3, sub.PassCount, "the ocean's passes");
         }
     }
 }
