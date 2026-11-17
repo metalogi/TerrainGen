@@ -604,3 +604,10 @@ anything the Editor said that this plan did not.
      Frames are in `Logs/OceanB/flight_<scene>_waves-<off|on>_<bottom|near|mid|far>.png` (gitignored).
      Motion, a rebase seen while low over the sea, and the tuning of `OceanWaves.asset` and
      `Ocean.mat` are the human-side checks in Verification, and no value was retuned here.
+9. **Step 6 (2026-11-17): the documentation.** `CLAUDE.md` has the waves in its status, the Ocean
+   subsection, the water vertex's `COLOR` and `TEXCOORD0`, the test list and counts (266, 198 of them
+   pure) and Code Organization, and Non-Obvious entries for B1, B2, B5 and the undisplaced skirt
+   bottoms. The parent plan's amendment 4 records B1–B6 and where they change C3, C6, C7, C8, C9, Q3 and
+   Q6. The three temporary Editor scripts, `OceanBTestRun`, `OceanBFrameDriver` and
+   `OceanBFlightDriver`, were deleted without being committed; the frames and logs they wrote stay in
+   the gitignored `Logs/OceanB`.

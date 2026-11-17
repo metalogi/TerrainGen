@@ -622,6 +622,40 @@ rather than editing them into the tasks, so the plan still reads as what was dec
    retune. Chunk throughput follows the frame rate, about 3 to 5 chunks a frame, which leaves the tree
    short of its depth in a fast low flight: that is for M6. The material's deep colour was too dark
    in linear space to survive the haze, and was retuned by eye.
+4. **`ocean-b` was planned in `Docs/Ocean_B_Plan.md`, and its decisions B1–B6 changed this plan
+   (2026-11-16).** All were taken as recommended; that plan's amendments hold how building them went.
+   - **C7's lattice is gone (B1).** Each wave's phase is split where the precision is: the shader takes
+     `K · p` in float, `p` the render-space position, and adds a per-wave offset `frac(K · O − F t + φ)`
+     computed in double on the CPU and pushed as `_SonomaWavePhase[N]`. A rebase raises
+     `WorldOriginSystem.OriginShifted`, and the offsets are re-pushed from the new origin before the
+     frame renders. Directions are free, there is no `_SonomaWaveOrigin`, and test 6 became
+     `WavePhaseSurvivesRebases` (within 1.4e-4 of a cycle over 1,000 rebases at Earth radius) and test 14
+     `RebaseCarriesTheWavePhase`. Time is `Time.timeAsDouble`, multiplied out each frame, not
+     accumulated.
+   - **C6's fade is by effective depth, not distance (B2).** A wave displaces in full from eight vertices
+     a wavelength at the effective depth `depth − k` and not at all below four. Two chunks meeting at a
+     point agree on `depth − k` in every transient state, which a distance fade gets right only in a
+     settled tree. The rest of C6 stands: the displacement takes the morphed position, so a fully
+     morphed child still displaces as its parent. The up it displaces along is the morphed normal.
+   - **The normals carry the waves past the geometry (B3)**, faded by the pixel footprint, and what they
+     no longer resolve widens the glint by its slope variance. That is C9's glint, made to follow the
+     sea's roughness.
+   - **Q3 answered (B4):** a Gerstner sum, generated from a few parameters in one shared asset,
+     `OceanWaves.asset`, which every stress scene's `TerrainSettings.Waves` names. Eight waves from 1.5 m
+     to 80 m, 1.261 m high at most. The wind lies along a cylinder's axis, the direction that never poles
+     inside one. `Waves` null is a flat sea, `ocean-a`'s to the bit.
+   - **Q6 answered in part (B5).** The floor morphs, in the water vertex's spare `COLOR` and `TEXCOORD0`
+     bytes, so the shallow-colour pop at a swap is gone, and shallow water damps each wave by its floor
+     depth over a quarter of its wavelength, so the shoreline does not move. Foam and breaking stay
+     M7's.
+   - **C3 and C8 take the amplitude (B6).** The water skirt drops two amplitudes more, and its bottom row
+     is not displaced, which closes the sideways gap a Gerstner wave opens between two sides a
+     transient state apart. `OceanTerrainOverlap` is at least the amplitude (1.3 m in every stress
+     scene), and the kinds call a chunk Coast wherever a wave can reach. The water's culling box is
+     padded by the displacement, and the fly camera's floor is a metre above the highest crest.
+   - **Measured,** waves off against on in one Editor session: selection, frame rate, upload and the
+     sample jobs unchanged; on a coast, a few percent more Coast chunks and 0.4–3.6% more vertex memory.
+     The record is that plan's amendment 8.
 
 ---
 
