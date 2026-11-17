@@ -140,6 +140,14 @@ namespace Sonoma.Tests
             Assert.Greater(TopologyFlyCamera.SeaClearance, TopologyFlyCamera.MinNearClip,
                 "a camera held at the clearance would clip the water");
 
+            // With waves (ocean-b, B6) the floor is the clearance above the highest crest: a camera
+            // held at the flat sea's floor would sit inside a crest, and is lifted by the amplitude.
+            const double crest = 1.261;   // OceanWaves.asset's amplitude
+            Assert.AreEqual(0.0, TopologyFlyCamera.SeaLift(sea + crest + TopologyFlyCamera.SeaClearance, sea, crest),
+                "at the clearance above the crest");
+            Assert.AreEqual(crest, TopologyFlyCamera.SeaLift(sea + TopologyFlyCamera.SeaClearance, sea, crest), 1e-12,
+                "at a flat sea's floor, inside a crest");
+
             // And the direction, on each topology: a camera under the sea comes back to exactly the
             // clearance above it, over the same base point, so along the base normal -- outward on a
             // sphere, towards the axis inside a cylinder, +Y on a plane. Lifting along the camera's
@@ -167,6 +175,11 @@ namespace Sonoma.Tests
 
                 Assert.IsTrue(math.all(TopologyFlyCamera.LiftAboveSea(lifted, c.topology, c.radius, sea) == lifted),
                     $"{c.topology}: a camera at the clearance moved");
+
+                double3 overCrest = TopologyFlyCamera.LiftAboveSea(under, c.topology, c.radius, sea, crest);
+                Assert.AreEqual(above + crest, TopologyFlyCamera.AboveBase(overCrest, c.topology, c.radius, out double3 baseCrest),
+                    1e-6, $"{c.topology}: not lifted to the clearance above the crest");
+                Assert.Less(math.length(baseCrest - baseUnder), 1e-6, $"{c.topology}: lifted over the crest off its base point");
             }
         }
 

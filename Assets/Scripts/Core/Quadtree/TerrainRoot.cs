@@ -128,6 +128,10 @@ namespace Sonoma.Core.Quadtree
         public bool   HasOcean => _ocean.Enabled;
         public double SeaLevel => Settings != null ? Settings.SeaLevel : 0.0;
 
+        // The largest a wave crest rises above SeaLevel (ocean-b, B6): 0 for a flat sea or none, and
+        // until Start has built the waves. The fly camera keeps above it.
+        public double WaveAmplitude => _ocean.Enabled ? _ocean.WaveAmplitude : 0.0;
+
         public int ResidentChunks =>_selector != null ? _selector.ResidentCount : 0;
         public int VisibleChunks  => _selector != null ? _selector.VisibleCount  : 0;
         public int InFlightJobs   => _scheduler != null ? _scheduler.InFlightCount : 0;
