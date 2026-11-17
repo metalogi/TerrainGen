@@ -443,8 +443,29 @@ namespace Sonoma.Tests
                         $"{shader}: pass {pass} does not read the morph attribute");
                     Assert.IsTrue(body.Contains("TEXCOORD1"),
                         $"{shader}: pass {pass} does not read the topology up and elevation the morph flattens by");
+
+                    // The waves (ocean-b): every ocean pass displaces after the morph, the morphed
+                    // position and normal, faded by the effective depth depth - k (B2). A pass that
+                    // displaced before the morph, by depth alone or not at all would draw a surface
+                    // the other passes do not: depth-test dropouts on the sea. The terrain displaces
+                    // nothing.
+                    if (shader == "SonomaOcean.shader")
+                    {
+                        int morph    = body.IndexOf("float k = SonomaMorph(positionOS, normalOS,", System.StringComparison.Ordinal);
+                        int displace = body.IndexOf("SonomaWaveDisplace(", System.StringComparison.Ordinal);
+                        Assert.Greater(morph, 0, $"{shader}: pass {pass} does not morph the position and normal and keep k");
+                        Assert.Greater(displace, morph, $"{shader}: pass {pass} does not displace the waves after the morph");
+                        StringAssert.IsMatch(@"SonomaWaveDisplace\(positionOS,\s*normalOS,\s*\w+\.morphPos\.w - k,", body,
+                            $"{shader}: pass {pass} does not displace the morphed vertex by the effective depth, depth - k");
+                    }
+                    else
+                        StringAssert.DoesNotContain("SonomaWaveDisplace", body, $"{shader}: pass {pass} displaces waves");
                 }
             }
+            StringAssert.DoesNotContain("SonomaWaves.hlsl", ShaderSource.Raw("SonomaTerrainTriplanar.shader"),
+                "the terrain includes the waves");
+            StringAssert.Contains("#include \"SonomaWaves.hlsl\"", ShaderSource.Raw("SonomaOcean.shader"),
+                "the ocean does not include the waves");
         }
 
         // C6 and C9, from the shader source: ForwardLit reads the biome weights and their morph

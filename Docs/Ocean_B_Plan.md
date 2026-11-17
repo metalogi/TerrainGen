@@ -495,3 +495,41 @@ anything the Editor said that this plan did not.
      phase at the point stays within 1.27e-4 cycles. Unsubscribed, the mutation, it is 0.496 cycles off
      after the next shifts.
    - 264 EditMode tests pass in the Editor, with the 12 `[Explicit]` tools skipped.
+7. **Step 4 (2026-11-17): the displacement and the shading.** No scene has waves yet, so nothing drawn
+   changes; the waves were looked at with them turned on in memory.
+   - **`SonomaWaves.hlsl`** holds the globals and three functions. `SonomaWaveDisplace(inout positionOS,
+     normalOS, effectiveDepth, floorDepth, skirtFlag, out geometricNormalWS)` moves the morphed vertex
+     and returns its undisplaced render-space position. `SonomaWaveNormal(positionWS, up,
+     effectiveDepth, footprint, floorDepth, out slopeVariance)` is the fragment's normal. And
+     `SonomaWaveGlintPower` widens the Blinn-Phong power by the variance, as a Beckmann roughness
+     `2 / (power + 2)` plus the variance. Each wave's weight in the normal is the larger of its
+     geometric fade and its fade by the pixel footprint, so the lit surface is never flatter than the
+     drawn one.
+   - **The up is the morphed normal, so `SonomaMorphPosition` is unchanged.** The plan had it return `k`
+     for the depth prepass. But the displacement has to run along the up the parent uses at full morph,
+     which is the morphed base normal, not `TEXCOORD1`'s. So DepthOnly now calls `SonomaMorph` with
+     the normal and reads `NORMAL`, `TEXCOORD3`, the floors and the skirt flag. The terrain's include
+     and the terrain shader are untouched.
+   - **A flat sea is `ocean-a`'s to the bit.** With a count of 0 the displacement adds zero, the
+     DepthNormals normal is the base normal unchanged, ForwardLit keeps its normal (it renormalises
+     only with waves), and the glint power is returned exactly. The six start frames, waves off, are
+     byte-identical to Step 2's.
+   - **The compile test uses `ShaderData.Pass.CompileVariant`,** not `ShaderUtil.CompilePass`, which
+     warms a material's variant rather than reporting a compile. `OceanPassesCompile` compiles 28
+     variants on D3D for Windows (ForwardLit under every main-light shadow keyword, soft shadows on and
+     off, sky on and off; the depth passes plain) in 4.6 s, and asks for no error and no warning from
+     a Sonoma file. `OceanWavesMatchTheTable` holds the include's constants, fade, phase, skirt flag and
+     global names to `OceanWaves` and `OceanWaveGlobals`. `ShaderMorphsInEveryPass` asks every ocean
+     pass to displace after the morph, by `depth − k`, and the terrain to include no waves. 266
+     EditMode tests pass in the Editor, with the 12 `[Explicit]` tools skipped.
+   - **Frames.** The driver now adds a low pose in each ocean scene: 12 m above the nearest sea at
+     least 30 m deep, looking along the surface 12° down. It runs every scene with waves off, then the
+     five ocean scenes with `OceanWaves.asset` and an overlap of 2 m set on their `TerrainSettings` in
+     memory, restored on leaving play and never saved, at `WaveTimeOverride` 1234.5. With waves on, the
+     sea is rippled near the camera and fades smoothly towards the horizon, with no seam, crack or ring
+     visible in a still frame, on all five. Motion, the rebase, the shore and the tuning are Step 5's.
+     The console stayed clean.
+   - **The temporary scripts stay until Step 5,** still untracked. It flies each scene from a driver
+     and runs the suite, and the bridge still refuses `TestRunnerApi`. It also refused a command that
+     only deleted a file, and a menu item queued with `delayCall` never ran; a direct `ExecuteMenuItem`
+     does.
