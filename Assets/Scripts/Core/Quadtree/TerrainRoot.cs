@@ -42,6 +42,7 @@ namespace Sonoma.Core.Quadtree
         MacroMaps           _macro;
         HeightParams        _params;
         OceanParams         _ocean;
+        OceanWave[]         _waves;   // null for a flat sea or no ocean
         LodMath             _lod;
 
         // The morph ranges the vertex shader reads, one entry per depth. A global array
@@ -194,12 +195,18 @@ namespace Sonoma.Core.Quadtree
                           $"{_lod.Vertical.Scale:G3}, within a height envelope of " +
                           $"{_lod.Vertical.Envelope / 1000.0:F1} km. See LodVertical.");
 
-            // The sea, after the macro maps, which bound the terrain's height it must lie within.
+            // The sea, after the macro maps, which bound the terrain's height it must lie within. Its
+            // waves (ocean-b) are built here only for their bounds, which size the kinds, the overlap
+            // and the water skirt; none is a flat sea.
+            _waves = Settings.Ocean && Settings.Waves != null ? OceanWaves.Build(Settings.Waves.ToConfig()) : null;
             _ocean = OceanParams.Create(Settings.Ocean, Settings.SeaLevel, Settings.OceanTerrainOverlap,
                                         Settings.ChunkResolution, envelope, erosion != null,
-                                        erosion != null ? erosion.BaseLevel : 0.0);
+                                        erosion != null ? erosion.BaseLevel : 0.0,
+                                        (float)OceanWaves.MaxAmplitude(_waves), (float)OceanWaves.MaxDisplacement(_waves));
             if (_ocean.Enabled)
-                Debug.Log($"[TerrainRoot] Ocean at {_ocean.SeaLevel:F1} m, overlap {_ocean.TerrainOverlap:F1} m.");
+                Debug.Log($"[TerrainRoot] Ocean at {_ocean.SeaLevel:F1} m, overlap {_ocean.TerrainOverlap:F1} m" +
+                          (_waves != null ? $", {_waves.Length} waves {_waves[0].Wavelength:G3}–{_waves[_waves.Length - 1].Wavelength:G3} m " +
+                                            $"up to {_ocean.WaveAmplitude:F2} m high." : ", flat."));
 
             _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution,
                                        _ocean.Enabled ? OceanMaterial : null);

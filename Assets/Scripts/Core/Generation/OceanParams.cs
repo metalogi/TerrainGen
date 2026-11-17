@@ -15,7 +15,8 @@ namespace Sonoma.Core.Generation
         public double SeaLevel;       // metres above the base surface (C1)
         public float  SeaLevelFloat;  // narrowed once, as the water vertex takes it (A8)
         public float  TerrainOverlap; // metres: how far under the sea a chunk must lie to be water alone
-        public float  WaveAmplitude;  // metres; 0 until ocean-b
+        public float  WaveAmplitude;  // metres: the waves' largest rise along the up, OceanWaves.MaxAmplitude
+        public float  WaveDisplacement; // metres: their largest move along any axis, OceanWaves.MaxDisplacement
 
         public static OceanParams Disabled => default;
 
@@ -24,14 +25,31 @@ namespace Sonoma.Core.Generation
         // every summit or below every trench, so the whole world would be one kind, and the C1
         // sea surface would leave the band the LOD measures in. The erosion's base level is checked
         // whether or not the ocean is on (A3), because its outlets are the sea either way.
+        //
+        // The waves (ocean-b, B6) are their two bounds, 0 for a flat sea. The overlap must reach the
+        // amplitude: an Ocean chunk draws no terrain, so a shoal under the overlap would never break
+        // the surface in a trough. The displacement is at least the amplitude, since a wave moves a
+        // vertex by its amplitude along the up whatever else it does.
         public static OceanParams Create(bool ocean, double seaLevel, float overlap, int resolution,
-                                         double envelope, bool hasErosion, double erosionBaseLevel)
+                                         double envelope, bool hasErosion, double erosionBaseLevel,
+                                         float waveAmplitude = 0f, float waveDisplacement = 0f)
         {
             CheckSeaLevel(seaLevel, hasErosion, erosionBaseLevel);
             if (float.IsNaN(overlap) || float.IsInfinity(overlap) || overlap < 0f)
                 throw new ArgumentOutOfRangeException(nameof(overlap),
                     "OceanParams: the ocean-terrain overlap must be finite and not negative.");
             if (!ocean) return Disabled;
+
+            if (!(waveAmplitude >= 0f) || float.IsInfinity(waveAmplitude) ||
+                !(waveDisplacement >= waveAmplitude) || float.IsInfinity(waveDisplacement))
+                throw new ArgumentOutOfRangeException(nameof(waveAmplitude),
+                    "OceanParams: the waves' amplitude must be finite and not negative, and their displacement " +
+                    "finite and at least the amplitude. See OceanWaves.MaxAmplitude and MaxDisplacement.");
+            if (overlap < waveAmplitude)
+                throw new ArgumentOutOfRangeException(nameof(overlap),
+                    "OceanParams: the ocean-terrain overlap is less than the waves' amplitude, so a shoal under " +
+                    "an Ocean chunk would not break the surface in a trough. Raise OceanTerrainOverlap to at " +
+                    "least OceanWaves.MaxAmplitude.");
 
             if (!(math.abs(seaLevel) < envelope))
                 throw new ArgumentOutOfRangeException(nameof(seaLevel),
@@ -47,8 +65,9 @@ namespace Sonoma.Core.Generation
                 Enabled        = true,
                 SeaLevel       = seaLevel,
                 SeaLevelFloat  = (float)seaLevel,
-                TerrainOverlap = overlap,
-                WaveAmplitude  = 0f,
+                TerrainOverlap   = overlap,
+                WaveAmplitude    = waveAmplitude,
+                WaveDisplacement = waveDisplacement,
             };
         }
 

@@ -410,3 +410,38 @@ anything the Editor said that this plan did not.
      Settled in 3.0–9.6 s, at 30 resident (`SampleScene`), Earth 1,218, small planet 1,254, ring 1,288,
      narrow ring 900 and terrarium 2,240: `ocean-a`'s start-pose counts, except the narrow ring's 884,
      which its retune to 48% land moved. The console is clean.
+4. **Step 1 (2026-11-17): the wave table, its settings and its bounds, unused by any scene.**
+   `OceanWaves` (pure), `OceanWaveConfig`, `OceanWaveSettings` and `TerrainSettings.Waves`, and
+   `Assets/Settings/OceanWaves.asset` at the settings' defaults. No stress asset names it yet, so every
+   scene builds `ocean-a`'s sea; `TerrainRoot` builds the table only for its bounds and logs it.
+   - **The default sea is 1.26 m high, not B4's estimate of 1.6.** The spectrum exponent of 0.1 takes the
+     longest wave's steepness to 0.04. The no-loop sum is 0.24. Its largest displacement along any axis
+     equals its amplitude, since a choppiness under 1 moves a vertex sideways by less than it lifts it.
+     `OceanParams` therefore carries two bounds, `WaveAmplitude` for the kinds, the overlap and the skirt,
+     and `WaveDisplacement` for the culling box. `OceanParams.Create` takes both as optional trailing
+     arguments and refuses an overlap under the amplitude and a displacement under it.
+   - **K is a float's value.** `Build` rounds each wave vector to float, so the shader's K and the
+     offset's are the same number, and the phase at a fixed point moves across a rebase only by the
+     float rounding of `K · p`.
+   - **The phase split, measured.** Over 1,000 rebases at Earth radius, every point within 3 km of a
+     wandering camera, the shader's phase stayed within 1.37e-4 cycles of the true one; the test asks for
+     1e-3. An offset left at the old origin is off by up to half a cycle. One computed from the origin
+     narrowed to float is off by 0.17 cycles where the waves run along a large coordinate. The test first
+     put the camera on the x axis, where the waves, running mostly along z, hid that error at 0.034.
+   - **`WaterSkirtCoversTheChordSag` became `WaterSkirtCoversTheTransientGap`.** It checks each edge
+     flat and at 2 m of waves, and requires the drop without its wave term to leave some edge open in
+     every scene, so the term is tested. `OverlapMustCoverTheWaves` is the other new `OceanLayoutTests`
+     case.
+   - **The skirt has a sideways gap the plan missed; Steps 2 and 4 close it.** Gerstner waves move the
+     water sideways. Two edges a transient state apart are displaced differently, because the coarse side
+     lacks the short waves (B2) and interpolates the rest linearly, so they can part sideways by up to
+     the choppiness times the amplitude. A skirt hangs straight down from its own edge and moves sideways
+     with it, so it does not fill that strip. The fix: the water's skirt vertices are flagged in a spare
+     byte (`COLOR.b`, beside B5's floor encodings) and the shader does not displace them at all. Each
+     skirt then slants from its displaced edge back to the undisplaced line, which the two sides share up
+     to the vertical gap the drop already covers. With undisplaced bottoms the drop needs only one
+     amplitude, but it keeps C3's two, as margin.
+   - **The suite runs from a menu item.** The unity-mcp bridge now refuses any command that calls
+     `TestRunnerApi` ("user interactions are not supported"), even deferred. A temporary, untracked
+     Editor script, `OceanBTestRun`, runs it from Tools → Sonoma and writes `Logs/OceanB/tests.txt`.
+     All 261 EditMode tests pass in the Editor, with the 12 `[Explicit]` tools skipped.

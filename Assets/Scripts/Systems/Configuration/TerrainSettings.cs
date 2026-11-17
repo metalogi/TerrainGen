@@ -183,8 +183,10 @@ namespace Sonoma.Systems.Configuration
         public double SeaLevel = 0.0;
         [Tooltip("Metres. How far under the sea a whole chunk must lie to draw water alone; a chunk " +
                  "nearer the surface than this draws its terrain under the water too. 0 for a flat " +
-                 "sea; waves will need at least their amplitude.")]
+                 "sea; with Waves, at least their largest amplitude, which the terrain refuses less than.")]
         [Min(0f)]
         public float OceanTerrainOverlap = 0f;
+        [Tooltip("The sea's waves (Docs/Ocean_B_Plan.md). None is a flat sea. Read only with Ocean on.")]
+        public OceanWaveSettings Waves;
     }
 }
