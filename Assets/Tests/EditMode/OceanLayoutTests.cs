@@ -102,6 +102,45 @@ namespace Sonoma.Tests
                 "a sea level of 0.1 is the base level 0.1f");
         }
 
+        // B5: the floor's encoding. Ground at or above the sea is depth 0; depth never decreases as
+        // the floor drops; the decode inverts it to within half a step; it saturates rather than
+        // wrapping; and it uses bytes 0 and 1 only, leaving byte 2 for the skirt flag.
+        [Test]
+        public void EncodeFloorIsMonotoneAndExactAtTheSea()
+        {
+            const float sea = 68f;
+            Assert.AreEqual(0u, ChunkMeshLayout.EncodeFloor(sea, sea),         "a floor at the sea");
+            Assert.AreEqual(0u, ChunkMeshLayout.EncodeFloor(sea, sea + 500f),  "a floor above it");
+            Assert.AreEqual(0.0, ChunkMeshLayout.DecodeFloor(0u));
+
+            uint   previous = 0u;
+            double worst = 0.0;
+            for (double depth = 0.0; depth < 10_000.0; depth = depth * 1.01 + 0.001)
+            {
+                uint e = ChunkMeshLayout.EncodeFloor(sea, (float)(sea - depth));
+                Assert.AreEqual(0u, e & 0xFFFF0000u, $"depth {depth}: the encoding spills past bytes 0 and 1");
+                double v = (e & 0xFFu) * 256.0 + ((e >> 8) & 0xFFu), p = (previous & 0xFFu) * 256.0 + ((previous >> 8) & 0xFFu);
+                Assert.GreaterOrEqual(v, p, $"depth {depth}: the encoding falls as the floor drops");
+                previous = e;
+
+                // Within half a step of the encoding, in metres, where it has not saturated.
+                double d = (double)sea - (float)(sea - depth);
+                if (d < 1000.0)
+                {
+                    double step = ChunkMeshLayout.FloorScale / 65535.0 * math.pow(1.0 + d / ChunkMeshLayout.FloorScale, 2);
+                    worst = math.max(worst, math.abs(ChunkMeshLayout.DecodeFloor(e) - d) / step);
+                    Assert.LessOrEqual(math.abs(ChunkMeshLayout.DecodeFloor(e) - d), 0.51 * step + 1e-9,
+                        $"depth {d}: decoded {ChunkMeshLayout.DecodeFloor(e)}");
+                }
+            }
+            TestContext.WriteLine($"worst decode error {worst:F3} of a step; a step is " +
+                                  $"{ChunkMeshLayout.FloorScale / 65535.0 * 1000.0:F2} mm at the shore");
+            double deepest = ChunkMeshLayout.DecodeFloor(ChunkMeshLayout.EncodeFloor(sea, -1e7f));
+            Assert.Greater(deepest, 4000.0, "it saturates past 4 km");
+            Assert.IsFalse(double.IsInfinity(deepest), "it saturates rather than reaching infinity");
+            Assert.AreEqual(0u, ChunkMeshLayout.WaterSkirtFlag & 0xFFFFu, "the skirt flag overlaps the floor");
+        }
+
         // C4: a Coast chunk holds two grids, so with an ocean the 16-bit limit falls from R 253 to
         // R 179. HeightParams cannot see the ocean, so OceanParams refuses it.
         [Test]

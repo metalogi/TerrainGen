@@ -180,6 +180,15 @@ namespace Sonoma.Tests
                     $"{what} edge {edge}, post {k}: the skirt bottom is not {d} m below its top");
                 Assert.Less(math.length(top.MorphPosition.xyz - up * d - bottom.MorphPosition.xyz), 1e-4f,
                     $"{what} edge {edge}, post {k}: the skirt bottom's morph target is not {d} m below its top's");
+
+                // ocean-b: the water's skirt bottoms carry the flag the shader leaves undisplaced, over
+                // the top's floor; the terrain's carry their top's splat untouched.
+                uint expected = wb == 0 ? top.Splat : top.Splat | ChunkMeshLayout.WaterSkirtFlag;
+                Assert.AreEqual(expected, bottom.Splat, $"{what} edge {edge}, post {k}: the skirt bottom's COLOR");
+                Assert.AreEqual(top.MorphSplat, bottom.MorphSplat, $"{what} edge {edge}, post {k}: the skirt bottom's TEXCOORD0");
+                if (wb != 0)
+                    Assert.AreEqual(0u, top.Splat & ChunkMeshLayout.WaterSkirtFlag,
+                        $"water edge {edge}, post {k}: a grid vertex carries the skirt flag");
             }
 
             float3 lo = float.MaxValue, hi = float.MinValue;
@@ -190,6 +199,64 @@ namespace Sonoma.Tests
             }
             Assert.AreEqual(lo, b.VertexBounds[0], "the reported bounds' minimum is not the vertices'");
             Assert.AreEqual(hi, b.VertexBounds[1], "the reported bounds' maximum is not the vertices'");
+        }
+
+        // B6: the culling box is the terrain's vertices boxed as before, together with the water's
+        // padded by WaveDisplacement along every axis, so a wave moved as far as it can go is still
+        // inside it. A Coast chunk and an Ocean chunk, a flat sea's box unpadded, and a Land chunk's
+        // box the same with or without waves.
+        [Test]
+        public void JobPadsTheWaterBoundsByTheWaves()
+        {
+            var s     = SurfaceDef.CubeSphere(1000.0);
+            var roots = SurfaceMath.BuildRoots(s);
+            var hp    = HeightParams.Create(s, 9, 0.0, 12, 20f, 0.5f, 2f, 42u);
+            using var none = MacroMaps.Disabled();
+            var node = new NodeId(1, 3, 2, 5);
+            const float Displacement = 3.25f;
+
+            foreach (var (ocean, kind) in new[] { (Coast(10f), ChunkKind.Coast), (Ocean(1e5f), ChunkKind.Ocean) })
+            {
+                var flat  = ocean;
+                var waves = ocean; waves.WaveDisplacement = Displacement;
+                var bf = ChunkJobRunner.Build(s, roots, hp, node, none, 1f, 0f, 0f, flat,  1f);
+                var bw = ChunkJobRunner.Build(s, roots, hp, node, none, 1f, 0f, 0f, waves, 1f);
+                Assert.AreEqual(kind, bf.Kind);
+                Assert.AreEqual(kind, bw.Kind);
+
+                int R = hp.Resolution, wb = ChunkMeshLayout.WaterBase(R, kind);
+                float3 tlo = float.MaxValue, thi = float.MinValue, wlo = float.MaxValue, whi = float.MinValue;
+                for (int v = 0; v < bw.Verts.Length; v++)
+                {
+                    var x = bw.Verts[v];
+                    if (v < wb) { tlo = math.min(tlo, math.min(x.Position, x.MorphPosition.xyz)); thi = math.max(thi, math.max(x.Position, x.MorphPosition.xyz)); }
+                    else        { wlo = math.min(wlo, math.min(x.Position, x.MorphPosition.xyz)); whi = math.max(whi, math.max(x.Position, x.MorphPosition.xyz)); }
+                }
+                Assert.AreEqual(math.min(tlo, wlo), bf.VertexBounds[0], $"{kind}: a flat sea's box is the vertices'");
+                Assert.AreEqual(math.max(thi, whi), bf.VertexBounds[1], $"{kind}: a flat sea's box is the vertices'");
+                Assert.AreEqual(math.min(tlo, wlo - Displacement), bw.VertexBounds[0], $"{kind}: the waves' box minimum");
+                Assert.AreEqual(math.max(thi, whi + Displacement), bw.VertexBounds[1], $"{kind}: the waves' box maximum");
+
+                // Every water vertex moved by the displacement along any axis, either way, is inside.
+                for (int v = wb; v < bw.Verts.Length; v++)
+                for (int axis = 0; axis < 3; axis++)
+                foreach (float sign in new[] { -1f, 1f })
+                {
+                    float3 p = bw.Verts[v].Position;
+                    p[axis] += sign * Displacement;
+                    Assert.IsTrue(math.all(p >= bw.VertexBounds[0]) && math.all(p <= bw.VertexBounds[1]),
+                        $"{kind}: water vertex {v} moved {sign * Displacement} m along axis {axis} leaves the box");
+                }
+            }
+
+            // A Land chunk draws no water, so the waves leave its box alone.
+            var land  = Ocean(-1e5f);
+            var landW = land; landW.WaveDisplacement = Displacement;
+            var a = ChunkJobRunner.Build(s, roots, hp, node, none, 1f, 0f, 0f, land,  1f);
+            var c = ChunkJobRunner.Build(s, roots, hp, node, none, 1f, 0f, 0f, landW, 1f);
+            Assert.AreEqual(ChunkKind.Land, a.Kind);
+            Assert.AreEqual(a.VertexBounds[0], c.VertexBounds[0]);
+            Assert.AreEqual(a.VertexBounds[1], c.VertexBounds[1]);
         }
 
         // Ground rule 1: with no ocean the job writes the mesh it always did. Held to

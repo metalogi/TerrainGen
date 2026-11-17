@@ -315,6 +315,7 @@ namespace Sonoma.Tests
         {
             int R = Resolution, n = ChunkMeshLayout.VertexCount(R), I = ChunkMeshLayout.IndexCount(R);
             int ToParent(int v) { int g = v - n; return n + ParentIndex(qv, g / R, R) * R + ParentIndex(qu, g % R, R); }
+            int floors = 0;
 
             for (int j = 0; j < R; j++)
             for (int i = 0; i < R; i++)
@@ -327,7 +328,13 @@ namespace Sonoma.Tests
                 Assert.AreEqual(pv.Normal, cv.MorphNormalElevation.xyz,
                     $"{label}, water vertex ({i},{j}): morph normal is not the parent water vertex's");
                 Assert.AreEqual(sea, cv.TopoElevation.w, $"{label}, water vertex ({i},{j}): elevation");
+                // ocean-b, B5: the floor morphs too, so the child's morph-target floor is the parent's
+                // own floor at that vertex, byte for byte.
+                Assert.AreEqual(pv.Splat, cv.MorphSplat,
+                    $"{label}, water vertex ({i},{j}): the morph target's floor is not the parent's floor");
+                if (cv.Splat != 0u) floors++;
             }
+            Assert.Greater(floors, R, $"{label}: almost every water vertex is on dry ground, so the floor is barely tested");
 
             var parentTriangles = new System.Collections.Generic.HashSet<(int, int, int)>();
             for (int t = I; t < 2 * I; t += 3)
