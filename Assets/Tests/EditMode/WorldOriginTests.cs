@@ -3,6 +3,8 @@ using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
 using Sonoma.Core.CoordinateSpace;
+using Sonoma.Core.Generation;
+using Sonoma.Core.Quadtree;
 using Sonoma.Core.Rendering;
 
 namespace Sonoma.Tests
@@ -216,6 +218,90 @@ namespace Sonoma.Tests
             WorldOriginSystem.ResetOrigin();
             Assert.AreEqual(double3.zero, WorldOriginSystem.WorldOrigin);
             Assert.AreEqual(Vector4.zero, Shader.GetGlobalVector(OriginGlobal));
+        }
+
+        // ocean-b, B1, the parent plan's test 14: the waves' phase offsets are pushed in double from
+        // the origin, so a rebase has to re-push them in the frame it happens, which OceanWaveGlobals
+        // does on WorldOriginSystem.OriginShifted. Over a thousand real ShiftOrigins at Earth radius,
+        // the pushed offsets equal OceanWaves.PhaseOffset at the new origin to the bit, at the time
+        // the frame's push used; and the phase at a fixed absolute point, computed as the shader
+        // will from those globals, stays within the pure test's tolerance. With the globals
+        // unsubscribed, the mutation, the offsets go stale at the next shift and the phase jumps.
+        [Test]
+        public void RebaseCarriesTheWavePhase()
+        {
+            int phaseId = Shader.PropertyToID(OceanWaveGlobals.PhaseGlobal);
+            int countId = Shader.PropertyToID(OceanWaveGlobals.CountGlobal);
+            var waves   = OceanWaves.Build(OceanWaveTests.Default);
+            var globals = new OceanWaveGlobals(waves, 0.5 * math.PI_DBL * EarthRadius / 32.0);
+            try
+            {
+                var     rng   = new Unity.Mathematics.Random(20261117u);
+                double3 fixedPoint = math.normalize(new double3(0.2, 0.3, 0.93)) * EarthRadius;
+                const double time  = 4321.125;
+                WorldOriginSystem.WorldOrigin = fixedPoint + new double3(700.0, -300.0, 1200.0);
+                globals.Push(time);
+                Assert.AreEqual(waves.Length, Shader.GetGlobalInteger(countId), "the wave count");
+
+                double worst = 0.0;
+                for (int s = 0; s < 1000; s++)
+                {
+                    // A camera wandering within 3 km of the point: the shift is its render position,
+                    // as LateUpdate passes it, so the origin moves by a float's value.
+                    double3 camera = fixedPoint + rng.NextDouble3Direction() * rng.NextDouble(0.0, 3000.0);
+                    _origin.ShiftOrigin((Vector3)(float3)(camera - WorldOriginSystem.WorldOrigin));
+
+                    worst = math.max(worst, CheckPhases(waves, phaseId, fixedPoint, time, s));
+                }
+                TestContext.WriteLine($"worst phase error at a fixed point over 1000 rebases: {worst:G3} cycles");
+                Assert.AreEqual(time, globals.Time, "a rebase changed the wave time");
+                Assert.LessOrEqual(worst, 1e-3, "the phase at a fixed point strays past float rounding of K · p");
+
+                // The mutation: unsubscribed, the offsets stay at the old origin.
+                globals.Dispose();
+                double stale = 0.0;
+                for (int s = 0; s < 4; s++)
+                {
+                    double3 camera = fixedPoint + rng.NextDouble3Direction() * rng.NextDouble(1000.0, 3000.0);
+                    _origin.ShiftOrigin((Vector3)(float3)(camera - WorldOriginSystem.WorldOrigin));
+                    stale = math.max(stale, PhaseError(waves, Shader.GetGlobalFloatArray(phaseId), fixedPoint, time));
+                }
+                TestContext.WriteLine($"unsubscribed: {stale:G3} cycles");
+                Assert.Greater(stale, 0.05, "an offset left at the old origin should jump at a rebase");
+            }
+            finally
+            {
+                globals.Dispose();
+                Shader.SetGlobalInteger(countId, 0);
+            }
+        }
+
+        // The pushed offsets against PhaseOffset at the current origin, to the bit, and the phase
+        // error at the point; returns the error.
+        static double CheckPhases(Sonoma.Core.Generation.OceanWave[] waves, int phaseId, double3 point, double time, int shift)
+        {
+            float[] pushed = Shader.GetGlobalFloatArray(phaseId);
+            Assert.IsNotNull(pushed, "no phases pushed");
+            Assert.AreEqual(OceanWaves.MaxWaves, pushed.Length, "the phase array is not the shader's length");
+            for (int i = 0; i < waves.Length; i++)
+                Assert.AreEqual((float)OceanWaves.PhaseOffset(waves[i], WorldOriginSystem.WorldOrigin, time), pushed[i],
+                    $"shift {shift}, wave {i}: the pushed offset is not the one at the new origin");
+            for (int i = waves.Length; i < pushed.Length; i++)
+                Assert.AreEqual(0f, pushed[i], $"unused slot {i}");
+            return PhaseError(waves, pushed, point, time);
+        }
+
+        static double PhaseError(Sonoma.Core.Generation.OceanWave[] waves, float[] pushed, double3 point, double time)
+        {
+            float3 render = (float3)(point - WorldOriginSystem.WorldOrigin);
+            double worst  = 0.0;
+            for (int i = 0; i < waves.Length; i++)
+            {
+                double d = OceanWaves.Frac(OceanWaves.ShaderPhase(waves[i], render, pushed[i]) -
+                                           OceanWaves.Phase(waves[i], point, time));
+                worst = math.max(worst, math.min(d, 1.0 - d));
+            }
+            return worst;
         }
 
         static double3 Absolute(Vector3 render) =>

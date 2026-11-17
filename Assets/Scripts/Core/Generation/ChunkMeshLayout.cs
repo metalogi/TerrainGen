@@ -1,4 +1,5 @@
 using System;
+using Unity.Mathematics;
 using Sonoma.Core.Surface;
 
 namespace Sonoma.Core.Generation
@@ -123,10 +124,46 @@ namespace Sonoma.Core.Generation
 
         // The water's skirt (A8): the same rule with no relief, since the water has none. What is
         // left is the floor and the chord sag, whole -- on a smooth surface the sag is the whole
-        // gap. No wave term until ocean-b. With skirts off every argument is zero, as for the
-        // terrain, and so is the drop.
-        public static float WaterSkirtDrop(float skirtDepth, float skirtFraction, double chordSag)
-            => SkirtDrop(skirtDepth, skirtFraction, 0.0, chordSag);
+        // gap -- and, with waves (ocean-b, C3), twice their amplitude: two edges a transient state
+        // apart can be displaced in opposite directions. With skirts off every argument is zero, as
+        // for the terrain, and so is the drop. A flat sea adds 0.0, exactly, so its drop is ocean-a's.
+        public static float WaterSkirtDrop(float skirtDepth, float skirtFraction, double chordSag,
+                                           double waveAmplitude = 0.0)
+            => SkirtDrop(skirtDepth, skirtFraction, 0.0, chordSag + 2.0 * waveAmplitude);
+
+        // The water's floor (ocean-b, B5): its depth below the sea, encoded in 16 bits so a water
+        // vertex can carry both its own floor and its morph target's in the spare COLOR and
+        // TEXCOORD0 bytes, and the floor morphs as the geometry does. The encoding is d / (d + S),
+        // with only + and /, which IEEE rounds alike in Burst and managed code, so the parent's floor
+        // and a child's morph-target floor, the same height in the same expression, are the same
+        // bytes. Monotone; about a millimetre a step at the shore, and saturating at S x 65,534, 4.2 km
+        // at the S of 64 m, past where a depth changes the colour or damps a wave. Ground at or above
+        // the sea is depth 0. Byte 0 (r) is the high byte and byte 1 (g) the low one, so the shader,
+        // which reads the bytes as UNorm8, decodes (255 r x 256 + 255 g) / 65,535.
+        public const double FloorScale = 64.0;
+        const uint FloorMax = 65534u;
+
+        public static uint EncodeFloor(float seaLevel, float height)
+        {
+            double d = math.max((double)seaLevel - height, 0.0);
+            uint   v = (uint)math.min(math.round(d / (d + FloorScale) * 65535.0), (double)FloorMax);
+            return (v >> 8) | ((v & 0xFFu) << 8);
+        }
+
+        // The inverse, as the shader computes it, for the tests: metres below the sea.
+        public static double DecodeFloor(uint packed)
+        {
+            double v = (packed & 0xFFu) * 256.0 + ((packed >> 8) & 0xFFu);
+            double e = v / 65535.0;
+            return FloorScale * e / (1.0 - e);
+        }
+
+        // Byte 2 (b) of a water vertex's COLOR is 255 on its skirt's bottom row and 0 on its grid.
+        // The shader leaves the skirt's bottom undisplaced by the waves, so each skirt slants from its
+        // displaced edge back to the undisplaced line both sides of an edge share, and covers the
+        // sideways gap Gerstner waves open between two edges a transient state apart (ocean-b,
+        // amendment 4). The terrain's COLOR is its splat and never carries it.
+        public const uint WaterSkirtFlag = 0xFFu << 16;
 
         // The sag the water's skirt adds: the whole ChordSag whenever skirts are on, whatever the
         // fraction. SkirtChordSag withholds it from a scene with no fraction so that SampleScene's

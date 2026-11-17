@@ -129,17 +129,32 @@ namespace Sonoma.Core.Generation
             {
                 int wb = ChunkMeshLayout.WaterBase(R, kind);
                 WriteWater(verts, wb, R, g, cg);
-                WriteSkirts(verts, wb, WaterSkirtDrop);
+                WriteSkirts(verts, wb, WaterSkirtDrop, ChunkMeshLayout.WaterSkirtFlag);
             }
 
             // A morphing vertex lies on the segment from its position to its target, so the box
-            // round both ends of every vertex holds every frame of the morph.
+            // round both ends of every vertex holds every frame of the morph. The water's vertices
+            // are boxed apart and padded by how far the waves can move one (ocean-b, B6), so a Land
+            // chunk's box, and a flat sea's, are what they were.
             float3 bmin = float.MaxValue, bmax = float.MinValue;
-            for (int n = 0; n < verts.Length; n++)
+            int waterFrom = kind == ChunkKind.Land ? verts.Length : ChunkMeshLayout.WaterBase(R, kind);
+            for (int n = 0; n < waterFrom; n++)
             {
                 var v = verts[n];
                 bmin = math.min(bmin, math.min(v.Position, v.MorphPosition.xyz));
                 bmax = math.max(bmax, math.max(v.Position, v.MorphPosition.xyz));
+            }
+            if (waterFrom < verts.Length)
+            {
+                float3 wmin = float.MaxValue, wmax = float.MinValue;
+                for (int n = waterFrom; n < verts.Length; n++)
+                {
+                    var v = verts[n];
+                    wmin = math.min(wmin, math.min(v.Position, v.MorphPosition.xyz));
+                    wmax = math.max(wmax, math.max(v.Position, v.MorphPosition.xyz));
+                }
+                bmin = math.min(bmin, wmin - Ocean.WaveDisplacement);
+                bmax = math.max(bmax, wmax + Ocean.WaveDisplacement);
             }
 
             HeightBounds[MinHeightSlot] = minH;
@@ -203,7 +218,11 @@ namespace Sonoma.Core.Generation
         // height replaced by the sea level, so terrain and water are the same bits wherever a
         // height equals it and the coastline sits exactly where the heights cross it. The morph
         // target is the parent's water vertex, since the coarse base points are the parent's.
-        // TEXCOORD3.w carries the fine floor height, for the ocean shader's depth colour.
+        // TEXCOORD3.w carries the fine floor height. COLOR and TEXCOORD0 carry the floor's depth
+        // below the sea, fine and at the morph target, encoded (ocean-b, B5), so the shader morphs the
+        // floor with the geometry: the coarse height at the morph target is the parent's fine height
+        // there, and the encoding is the same bits in both, so a fully morphed child's floor is its
+        // parent's.
         void WriteWater(NativeArray<TerrainVertex> verts, int wb, int R, int g, int cg)
         {
             float sea = Ocean.SeaLevelFloat;
@@ -218,8 +237,8 @@ namespace Sonoma.Core.Generation
                 {
                     Position      = (float3)(BasePoints[s] + (double3)(baseN * sea) - Anchor),
                     Normal        = baseN,
-                    Splat         = 0u,
-                    MorphSplat    = 0u,
+                    Splat         = ChunkMeshLayout.EncodeFloor(sea, Heights[s]),
+                    MorphSplat    = ChunkMeshLayout.EncodeFloor(sea, CoarseHeights[cs]),
                     TopoElevation = new float4(baseN, sea),
                     MorphPosition = new float4(
                         (float3)(CoarseBasePoints[cs] + (double3)(CoarseBaseNormals[cs] * sea) - Anchor), Depth),
@@ -230,14 +249,16 @@ namespace Sonoma.Core.Generation
 
         // Skirts: one duplicated row per edge of the grid at vertex b, pushed along the inward
         // base normal by drop. The terrain's drop is sized from its own relief, the water's from
-        // the curve alone.
-        void WriteSkirts(NativeArray<TerrainVertex> verts, int b, float drop)
+        // the curve and the waves. The water's bottom row carries the skirt flag in COLOR, which the
+        // ocean shader leaves undisplaced by the waves; the terrain passes 0 and its splat is untouched.
+        void WriteSkirts(NativeArray<TerrainVertex> verts, int b, float drop, uint bottomFlag = 0u)
         {
             int R = Resolution;
             for (int edge = 0; edge < 4; edge++)
             for (int k = 0; k < R; k++)
             {
                 var v = verts[b + ChunkMeshLayout.SkirtTopIndex(R, edge, k)];
+                v.Splat    |= bottomFlag;
                 v.Position -= v.TopoElevation.xyz * drop;
                 // The morph target moves with it, so a morphing skirt stays attached to a
                 // morphing edge instead of tearing away from it.

@@ -315,6 +315,7 @@ namespace Sonoma.Tests
         {
             int R = Resolution, n = ChunkMeshLayout.VertexCount(R), I = ChunkMeshLayout.IndexCount(R);
             int ToParent(int v) { int g = v - n; return n + ParentIndex(qv, g / R, R) * R + ParentIndex(qu, g % R, R); }
+            int floors = 0;
 
             for (int j = 0; j < R; j++)
             for (int i = 0; i < R; i++)
@@ -327,7 +328,13 @@ namespace Sonoma.Tests
                 Assert.AreEqual(pv.Normal, cv.MorphNormalElevation.xyz,
                     $"{label}, water vertex ({i},{j}): morph normal is not the parent water vertex's");
                 Assert.AreEqual(sea, cv.TopoElevation.w, $"{label}, water vertex ({i},{j}): elevation");
+                // ocean-b, B5: the floor morphs too, so the child's morph-target floor is the parent's
+                // own floor at that vertex, byte for byte.
+                Assert.AreEqual(pv.Splat, cv.MorphSplat,
+                    $"{label}, water vertex ({i},{j}): the morph target's floor is not the parent's floor");
+                if (cv.Splat != 0u) floors++;
             }
+            Assert.Greater(floors, R, $"{label}: almost every water vertex is on dry ground, so the floor is barely tested");
 
             var parentTriangles = new System.Collections.Generic.HashSet<(int, int, int)>();
             for (int t = I; t < 2 * I; t += 3)
@@ -436,8 +443,29 @@ namespace Sonoma.Tests
                         $"{shader}: pass {pass} does not read the morph attribute");
                     Assert.IsTrue(body.Contains("TEXCOORD1"),
                         $"{shader}: pass {pass} does not read the topology up and elevation the morph flattens by");
+
+                    // The waves (ocean-b): every ocean pass displaces after the morph, the morphed
+                    // position and normal, faded by the effective depth depth - k (B2). A pass that
+                    // displaced before the morph, by depth alone or not at all would draw a surface
+                    // the other passes do not: depth-test dropouts on the sea. The terrain displaces
+                    // nothing.
+                    if (shader == "SonomaOcean.shader")
+                    {
+                        int morph    = body.IndexOf("float k = SonomaMorph(positionOS, normalOS,", System.StringComparison.Ordinal);
+                        int displace = body.IndexOf("SonomaWaveDisplace(", System.StringComparison.Ordinal);
+                        Assert.Greater(morph, 0, $"{shader}: pass {pass} does not morph the position and normal and keep k");
+                        Assert.Greater(displace, morph, $"{shader}: pass {pass} does not displace the waves after the morph");
+                        StringAssert.IsMatch(@"SonomaWaveDisplace\(positionOS,\s*normalOS,\s*\w+\.morphPos\.w - k,", body,
+                            $"{shader}: pass {pass} does not displace the morphed vertex by the effective depth, depth - k");
+                    }
+                    else
+                        StringAssert.DoesNotContain("SonomaWaveDisplace", body, $"{shader}: pass {pass} displaces waves");
                 }
             }
+            StringAssert.DoesNotContain("SonomaWaves.hlsl", ShaderSource.Raw("SonomaTerrainTriplanar.shader"),
+                "the terrain includes the waves");
+            StringAssert.Contains("#include \"SonomaWaves.hlsl\"", ShaderSource.Raw("SonomaOcean.shader"),
+                "the ocean does not include the waves");
         }
 
         // C6 and C9, from the shader source: ForwardLit reads the biome weights and their morph

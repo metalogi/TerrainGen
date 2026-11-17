@@ -1,5 +1,6 @@
-// The sea (ocean-a): the water grid ChunkMeshJob writes on Coast and Ocean chunks, a flat surface
-// SeaLevel metres above the base surface along its normal (Docs/Ocean_Plan.md C1). Opaque: the
+// The sea (ocean-a, with its waves from ocean-b): the water grid ChunkMeshJob writes on Coast and
+// Ocean chunks, a surface SeaLevel metres above the base surface along its normal
+// (Docs/Ocean_Plan.md C1), displaced by the waves below. Opaque: the
 // terrain under it is not drawn on an Ocean chunk at all (Docs/Ocean_A_Plan.md, A2), and on a Coast
 // chunk it is hidden. The water's own submesh, drawn with the terrain's geomorph so it morphs by the
 // same k as the ground beside it.
@@ -10,11 +11,22 @@
 //   TEXCOORD1.xyz = the same up; TEXCOORD1.w = the sea level, as the terrain's elevation
 //   TEXCOORD2.xyz = geomorph target: the parent's water vertex; TEXCOORD2.w = the node depth
 //   TEXCOORD3.xyz = the geomorph target's normal, the parent's base normal
-//   TEXCOORD3.w   = the floor: the fine terrain height under the vertex, for the colour by depth
-//   COLOR, TEXCOORD0 are zero and unread; the vertex layout is the terrain's.
+//   TEXCOORD3.w   = the fine terrain height under the vertex, kept for the tests
+//   COLOR.rg      = the floor's depth below the sea, 16 bits, d / (d + 64 m) (ChunkMeshLayout.EncodeFloor)
+//   COLOR.b       = 1 on the skirt's bottom row, 0 on the grid (ChunkMeshLayout.WaterSkirtFlag)
+//   TEXCOORD0.rg  = the morph target's floor depth, the parent's floor there, encoded the same way
+//   The vertex layout is the terrain's; COLOR and TEXCOORD0 are its splat and morph splat there.
 //
-// The floor does not morph (the parent's floor is not in the vertex), so the depth colour pops by
-// what the parent's floor differs from the child's at every swap. ocean-b morphs it (Q6).
+// The floor morphs on the geometry's k (ocean-b, B5): a fully morphed child's floor is its
+// parent's, so the depth colour no longer pops at a swap.
+//
+// The waves (ocean-b): every pass morphs, then displaces the morphed vertex by
+// SonomaWaveDisplace with the effective depth depth - k, the morphed floor and the skirt flag, so
+// the three passes draw the same surface. Their up is the morphed normal, which at full morph is
+// the parent's, so the DepthOnly pass reads NORMAL and TEXCOORD3 too. ForwardLit's normal is
+// SonomaWaveNormal's, per fragment at the undisplaced position, and the glint widens by the slope
+// variance the normal leaves out; DepthNormals writes the drawn surface's normal. With no waves
+// (_SonomaWaveCount 0) every pass draws ocean-a's sea. See SonomaWaves.hlsl.
 //
 // No ShadowCaster pass (C5). Opaque water over an unseen floor has nothing beneath it to shadow,
 // and a flat sea casts on nothing above it. It receives shadows: ForwardLit takes the main light's
@@ -29,10 +41,11 @@
 // Shading, per fragment:
 //   colour   by water depth, shallow to deep over _DepthScale metres (A5). Material colours are
 //            sRGB, so choose them as such: a deep colour dark in linear goes to the haze's grey
-//   diffuse  Lambert on the morphed up
+//   diffuse  Lambert on the waves' normal, the morphed up where there are none
 //   glint    Blinn-Phong, its smoothness falling from _Smoothness close to _FarSmoothness at
 //            _GlintFarDistance with the log of the distance, so the sea from orbit shows a broad
-//            highlight rather than a point too small to rasterise
+//            highlight rather than a point too small to rasterise; widened further by the slope
+//            variance of the waves the normal no longer resolves
 //   Fresnel  Schlick, towards the sky's ambient at grazing angles
 //   sky      under _SONOMA_SKY, the hemisphere ambient and the haze, as the terrain has them
 Shader "Sonoma/Ocean"
@@ -82,6 +95,18 @@ Shader "Sonoma/Ocean"
 
         // The morph globals and functions, the terrain's own: see SonomaCommon.hlsl.
         #include "SonomaCommon.hlsl"
+
+        // The waves, the ocean's alone: see SonomaWaves.hlsl.
+        #include "SonomaWaves.hlsl"
+
+        // The floor's depth below the sea, from the two UNorm8 bytes ChunkMeshLayout.EncodeFloor
+        // writes, r high and g low, as d / (d + 64 m). The inverse of DecodeFloor, which the tests use.
+        float SonomaDecodeFloor(float4 packed)
+        {
+            float v = round(packed.r * 255.0) * 256.0 + round(packed.g * 255.0);
+            float e = v / 65535.0;
+            return 64.0 * e / (1.0 - e);
+        }
         ENDHLSL
 
         Pass
@@ -109,21 +134,25 @@ Shader "Sonoma/Ocean"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
+                float4 floorFine  : COLOR;     // (floor depth, encoded; skirt flag; unused)
+                float4 floorMorph : TEXCOORD0; // (the morph target's floor depth, encoded; unused)
                 float4 uv2        : TEXCOORD1; // (up.xyz, sea level)
                 float4 morphPos   : TEXCOORD2; // (geomorph target position.xyz, node depth)
-                float4 morphNrm   : TEXCOORD3; // (geomorph target normal.xyz, floor height)
+                float4 morphNrm   : TEXCOORD3; // (geomorph target normal.xyz, fine floor height)
             };
 
             struct Varyings
             {
                 float4 positionCS  : SV_POSITION;
-                float3 positionWS  : TEXCOORD0;
-                float3 normalWS    : TEXCOORD1;
+                float3 positionWS  : TEXCOORD0;   // displaced: what is drawn, lit, shadowed and hazed
+                float3 normalWS    : TEXCOORD1;   // the morphed base normal, the water's up
                 float3 topoUp      : TEXCOORD2;
                 float  depth       : TEXCOORD3;
+                float3 wavePos     : TEXCOORD4;   // undisplaced, where the normal's waves are evaluated
+                float  waveDepth   : TEXCOORD5;   // the effective depth, depth - k, for the fades
                 // ONLY interpolated when URP says it is safe to; see the terrain shader.
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
-                    float4 shadowCoord : TEXCOORD4;
+                    float4 shadowCoord : TEXCOORD6;
                 #endif
             };
 
@@ -133,7 +162,17 @@ Shader "Sonoma/Ocean"
 
                 float3 positionOS = input.positionOS.xyz;
                 float3 normalOS   = input.normalOS;
-                SonomaMorph(positionOS, normalOS, input.uv2, input.morphPos, input.morphNrm.xyz);
+                float k = SonomaMorph(positionOS, normalOS, input.uv2, input.morphPos, input.morphNrm.xyz);
+
+                // The water's depth, morphed on the geometry's k towards the parent's (B5), so it
+                // agrees with the parent at a swap and with a neighbour at a shared vertex.
+                o.depth     = lerp(SonomaDecodeFloor(input.floorFine), SonomaDecodeFloor(input.floorMorph), k);
+
+                // Then the waves, on the morphed position, faded by the effective depth (B2).
+                float3 geometricNormalWS;
+                o.waveDepth = input.morphPos.w - k;
+                o.wavePos   = SonomaWaveDisplace(positionOS, normalOS, input.morphPos.w - k, o.depth,
+                                                 input.floorFine.b, geometricNormalWS);
 
                 VertexPositionInputs vpi = GetVertexPositionInputs(positionOS);
                 VertexNormalInputs   vni = GetVertexNormalInputs(normalOS);
@@ -141,9 +180,6 @@ Shader "Sonoma/Ocean"
                 o.positionWS = vpi.positionWS;
                 o.normalWS   = vni.normalWS;
                 o.topoUp     = TransformObjectToWorldDir(input.uv2.xyz);
-                // The sea level less the floor beneath it. Neither morphs: the sea is the same at
-                // every depth, and the floor is the fine one (see the header).
-                o.depth      = input.uv2.w - input.morphNrm.w;
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
                     o.shadowCoord = GetShadowCoord(vpi);
                 #endif
@@ -154,6 +190,14 @@ Shader "Sonoma/Ocean"
             {
                 float3 N      = normalize(input.normalWS);
                 float3 topoUp = normalize(input.topoUp);
+
+                // The waves' normal (B3), and the slope variance it leaves out, which widens the
+                // glint below. With no waves the normal is left as it was, to the bit.
+                float footprint = max(length(ddx(input.wavePos)), length(ddy(input.wavePos)));
+                float slopeVariance;
+                float3 waveN = SonomaWaveNormal(input.wavePos, N, input.waveDepth, footprint,
+                                                max(input.depth, 0.0), slopeVariance);
+                if (SonomaWaveCount() > 0) N = normalize(waveN);
 
                 // Colour by depth (A5). A coast vertex whose floor stands above the sea draws water
                 // of no depth, which the terrain then covers.
@@ -183,7 +227,7 @@ Shader "Sonoma/Ocean"
                 float3 V      = toEye / max(dist, 1e-5);
                 float  far    = saturate(log2(max(dist, 1.0)) / log2(max(_GlintFarDistance, 2.0)));
                 float  smooth = lerp(_Smoothness, _FarSmoothness, far);
-                float  power  = exp2(10.0 * smooth + 1.0);
+                float  power  = SonomaWaveGlintPower(exp2(10.0 * smooth + 1.0), slopeVariance);
                 float3 H      = normalize(ml.direction + V);
                 half   spec   = pow(saturate(dot(N, H)), power) * (power + 8.0) / (8.0 * PI);
                 color += light * spec * NdotL;
@@ -225,15 +269,30 @@ Shader "Sonoma/Ocean"
             #pragma fragment DepthFrag
 
             // The depth prepass moves its vertices exactly as ForwardLit does, so it needs the
-            // morph target, TEXCOORD2, and TEXCOORD1, which the morph flattens the vertex by.
-            struct DAttr { float4 positionOS : POSITION; float4 topoElev : TEXCOORD1; float4 morphPos : TEXCOORD2; };
+            // morph target, TEXCOORD2, and TEXCOORD1, which the morph flattens the vertex by; and
+            // for the waves, the normal and its morph target (the up they displace along), the
+            // floors (the shoal damping) and the skirt flag.
+            struct DAttr
+            {
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 floorFine  : COLOR;
+                float4 floorMorph : TEXCOORD0;
+                float4 topoElev   : TEXCOORD1;
+                float4 morphPos   : TEXCOORD2;
+                float4 morphNrm   : TEXCOORD3;
+            };
             struct DVar  { float4 positionCS : SV_POSITION; };
 
             DVar DepthVert(DAttr i)
             {
                 DVar o;
                 float3 positionOS = i.positionOS.xyz;
-                SonomaMorphPosition(positionOS, i.topoElev, i.morphPos);
+                float3 normalOS   = i.normalOS;
+                float k = SonomaMorph(positionOS, normalOS, i.topoElev, i.morphPos, i.morphNrm.xyz);
+                float depth = lerp(SonomaDecodeFloor(i.floorFine), SonomaDecodeFloor(i.floorMorph), k);
+                float3 geometricNormalWS;
+                SonomaWaveDisplace(positionOS, normalOS, i.morphPos.w - k, depth, i.floorFine.b, geometricNormalWS);
                 o.positionCS = TransformObjectToHClip(positionOS);
                 return o;
             }
@@ -256,21 +315,28 @@ Shader "Sonoma/Ocean"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
+                float4 floorFine  : COLOR;       // the floor and the skirt flag, for the waves
+                float4 floorMorph : TEXCOORD0;
                 float4 topoElev   : TEXCOORD1;   // the morph flattens by it; see SonomaMorphFactor
                 float4 morphPos   : TEXCOORD2;
-                float4 morphNrm   : TEXCOORD3;   // .w, the floor, unused here
+                float4 morphNrm   : TEXCOORD3;   // .w, the fine floor height, unused here
             };
             struct DNVar  { float4 positionCS : SV_POSITION; float3 normalWS : TEXCOORD0; };
 
+            // The normal of the drawn surface, the waves the geometry displaces and no others, so
+            // screen-space effects see what is drawn.
             DNVar DNVert(DNAttr i)
             {
                 DNVar o;
                 float3 positionOS = i.positionOS.xyz;
                 float3 normalOS   = i.normalOS;
-                SonomaMorph(positionOS, normalOS, i.topoElev, i.morphPos, i.morphNrm.xyz);
+                float k = SonomaMorph(positionOS, normalOS, i.topoElev, i.morphPos, i.morphNrm.xyz);
+                float depth = lerp(SonomaDecodeFloor(i.floorFine), SonomaDecodeFloor(i.floorMorph), k);
+                float3 geometricNormalWS;
+                SonomaWaveDisplace(positionOS, normalOS, i.morphPos.w - k, depth, i.floorFine.b, geometricNormalWS);
 
                 o.positionCS = TransformObjectToHClip(positionOS);
-                o.normalWS   = TransformObjectToWorldNormal(normalOS);
+                o.normalWS   = geometricNormalWS;
                 return o;
             }
             half4 DNFrag(DNVar i) : SV_Target
