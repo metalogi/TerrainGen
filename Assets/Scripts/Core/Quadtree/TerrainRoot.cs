@@ -43,7 +43,12 @@ namespace Sonoma.Core.Quadtree
         HeightParams        _params;
         OceanParams         _ocean;
         OceanWave[]         _waves;   // null for a flat sea or no ocean
+        OceanWaveGlobals    _waveGlobals;
         LodMath             _lod;
+
+        // The time the waves are drawn at, in seconds, in place of Time.timeAsDouble: set it to
+        // freeze the sea for a frame capture or a test, clear it to let the sea run. Not serialized.
+        public double? WaveTimeOverride { get; set; }
 
         // The morph ranges the vertex shader reads, one entry per depth. A global array
         // rather than a per-chunk MaterialPropertyBlock: a property block would break SRP
@@ -207,6 +212,9 @@ namespace Sonoma.Core.Quadtree
                 Debug.Log($"[TerrainRoot] Ocean at {_ocean.SeaLevel:F1} m, overlap {_ocean.TerrainOverlap:F1} m" +
                           (_waves != null ? $", {_waves.Length} waves {_waves[0].Wavelength:G3}–{_waves[_waves.Length - 1].Wavelength:G3} m " +
                                             $"up to {_ocean.WaveAmplitude:F2} m high." : ", flat."));
+            // Pushed every frame from PushShaderGlobals, and its phases again at every rebase. A
+            // scene with no waves still pushes a count of 0, so no other scene's sea is left drawn.
+            _waveGlobals = new OceanWaveGlobals(_waves, _lod.NominalSize(0) / (Settings.ChunkResolution - 1));
 
             _pool      = new ChunkPool(transform, ChunkMaterial, Settings.ChunkResolution,
                                        _ocean.Enabled ? OceanMaterial : null);
@@ -258,6 +266,7 @@ namespace Sonoma.Core.Quadtree
             Shader.SetGlobalVector(LodVerticalId, _lod.Vertical.ShaderParams);
             Shader.SetGlobalVectorArray(BiomeColorsId, _biomeColors);
             PushSky();
+            _waveGlobals.Push(WaveTimeOverride ?? Time.timeAsDouble);
         }
 
         // Every frame rather than once, like the morph ranges, and so that the sky can be tuned
@@ -417,6 +426,9 @@ namespace Sonoma.Core.Quadtree
         {
             if (_scheduler != null && _selector != null)
                 _scheduler.ChunkReady -= _selector.OnChunkReady;
+            // The rebase event is static and outlives this component.
+            _waveGlobals?.Dispose();
+            _waveGlobals = null;
 
             _selector?.Dispose();
             _scheduler?.Dispose();

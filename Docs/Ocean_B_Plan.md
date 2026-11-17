@@ -472,3 +472,26 @@ anything the Editor said that this plan did not.
      assembly older than the last edit. `CompilationPipeline.RequestScriptCompilation` after a forced
      import of the edited file rebuilt it. Check the assembly's time against the files' before trusting
      a run. 263 EditMode tests pass, with the 12 `[Explicit]` tools skipped.
+6. **Step 3 (2026-11-17): the wave globals and the rebase.** No scene has waves yet, so every scene pushes
+   a count of 0 and nothing reads the globals until Step 4.
+   - **`OceanWaveGlobals` pushes them, and TerrainRoot owns one.** The five globals, the 16-long arrays
+     and the subscription to `WorldOriginSystem.OriginShifted` live in one small class in
+     `Core/Quadtree`, built in `Start` after the sea, pushed from `PushShaderGlobals` and disposed in
+     `OnDestroy`. A flat sea or no ocean pushes a count of 0 and does not subscribe. The phases are a
+     float array (`SetGlobalFloatArray`), the count an integer (`SetGlobalInteger`).
+   - **The shoal depth is on the wave.** `OceanWave.ShoalDepth`, `ShoalFactor × λ`, set by `Build`, so
+     the table carries everything the shader's `_SonomaWaveExtra` needs.
+   - **`OriginShifted` is raised last in `ShiftOrigin`,** after the origin, the chunks, the tracked
+     transforms and the view position have moved, and is cleared on entering play with the origin, so a
+     session with domain reload off cannot inherit a destroyed `TerrainRoot`'s handler. The handler
+     re-pushes the phases alone, from the new origin and the time the frame's push used.
+   - **`WaveTimeOverride`** is a nullable property on `TerrainRoot`, not serialized: set, it replaces
+     `Time.timeAsDouble`.
+   - **`RebaseCarriesTheWavePhase` drives the class, not a whole `TerrainRoot`,** in `WorldOriginTests`,
+     whose fixture saves and restores the origin. A `TerrainRoot` would need a scene's macro build to
+     start; the class is exactly what it runs, and it subscribes in its constructor. Over 1,000 real
+     `ShiftOrigin`s, a camera wandering within 3 km of a fixed point at Earth radius, the pushed offsets
+     are `PhaseOffset` at the new origin to the bit, unused slots are 0, the time does not move, and the
+     phase at the point stays within 1.27e-4 cycles. Unsubscribed, the mutation, it is 0.496 cycles off
+     after the next shifts.
+   - 264 EditMode tests pass in the Editor, with the 12 `[Explicit]` tools skipped.

@@ -93,6 +93,13 @@ namespace Sonoma.Core.CoordinateSpace
         public static Camera ActiveCamera =>
             _active != null && _active.ViewCamera != null ? _active.ViewCamera : Camera.main;
 
+        // Raised by ShiftOrigin after WorldOrigin has moved and every render-space position with
+        // it, for render-space state that cannot be moved by adding a float delta and has to be
+        // recomputed from the origin in double: the waves' phase offsets (OceanWaveGlobals).
+        // Static, like the origin; subscribers unsubscribe when they go away, and it is cleared on
+        // entering play, so a session with domain reload off cannot inherit the last one's.
+        public static event System.Action OriginShifted;
+
         // How often the world moved and what it cost, for the summary logged when the session
         // ends, and a marker so each rebase can be found in the Profiler. A rebase is a pass over
         // every chunk, which is the one cost here that scales with the working set; these are
@@ -153,8 +160,9 @@ namespace Sonoma.Core.CoordinateSpace
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetOnEnteringPlay()
         {
-            WorldOrigin = double3.zero;
-            _active     = null;
+            WorldOrigin   = double3.zero;
+            _active       = null;
+            OriginShifted = null;
         }
 
         void LateUpdate()
@@ -205,6 +213,10 @@ namespace Sonoma.Core.CoordinateSpace
                 new Vector4(view.x - shift.x, view.y - shift.y, view.z - shift.z, view.w));
 
             PushOriginToShader();
+
+            // Last, so a listener reads the new origin: the waves' phase offsets (ocean-b, B1) are
+            // render-space quantities that need double, and are recomputed from it.
+            OriginShifted?.Invoke();
 
             long   now = System.Diagnostics.Stopwatch.GetTimestamp();
             double ms  = Seconds(started, now) * 1000.0;

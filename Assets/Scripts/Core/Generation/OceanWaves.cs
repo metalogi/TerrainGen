@@ -25,6 +25,7 @@ namespace Sonoma.Core.Generation
         public double  Amplitude;   // metres, along the up
         public double  Choppiness;  // Q: the horizontal displacement is Q x Amplitude, along K's tangent part
         public double  Phase0;      // cycles, from the seed, so the waves do not all crest at the origin
+        public double  ShoalDepth;  // metres: ShoalFactor x Wavelength, the floor depth the wave is damped under
     }
 
     // The resolved parameters of OceanWaveSettings, validated by OceanWaves.Build.
@@ -111,6 +112,7 @@ namespace Sonoma.Core.Generation
                     Amplitude  = steep * wl / (2.0 * math.PI_DBL),
                     Choppiness = c.Choppiness,
                     Phase0     = rng.NextDouble(),
+                    ShoalDepth = c.ShoalFactor * wl,
                 };
             }
 

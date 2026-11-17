@@ -11,7 +11,7 @@ namespace Sonoma.Tests
     public class OceanWaveTests
     {
         // OceanWaveSettings' defaults, which Assets/Settings/OceanWaves.asset starts from.
-        static OceanWaveConfig Default => new OceanWaveConfig
+        internal static OceanWaveConfig Default => new OceanWaveConfig
         {
             Count = 8, ShortestWavelength = 1.5, LongestWavelength = 80.0,
             Steepness = 0.06, SpectrumExponent = 0.1, Choppiness = 0.6,
@@ -47,6 +47,7 @@ namespace Sonoma.Tests
                 double angle = math.degrees(math.acos(math.clamp(math.dot(math.normalize(w.K), c.WindDirection), -1.0, 1.0)));
                 Assert.LessOrEqual(angle, c.SpreadDegrees + 1e-4, $"wave {i} runs outside the cone");
                 Assert.That(w.Phase0, Is.InRange(0.0, 1.0));
+                Assert.AreEqual(c.ShoalFactor * w.Wavelength, w.ShoalDepth, $"wave {i}: shoal depth");
                 amplitude    += w.Amplitude;
                 displacement += w.Amplitude * math.max(1.0, w.Choppiness);
             }
