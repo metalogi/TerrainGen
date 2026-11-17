@@ -404,13 +404,14 @@ public class TopologyFlyCamera : MonoBehaviour
 
     // The camera stays above the sea (ocean-a). From below, the water is back-face culled and an
     // Ocean chunk draws no terrain, so the world vanishes into the skybox. So a camera under
-    // SeaClearance above the water is lifted back, every frame. Only the sea is a floor: the
-    // terrain never was one, and the camera can still fly through a hillside as before. _seaLevel
-    // is this frame's, set by ComputeElevation.
+    // SeaClearance above the water is lifted back, every frame. With waves the floor is that far
+    // above their highest crest (ocean-b), so the camera never sits inside one. Only the sea is a
+    // floor: the terrain never was one, and the camera can still fly through a hillside as before.
+    // _seaLevel is this frame's, set by ComputeElevation.
     void KeepAboveSea()
     {
         double3 abs    = RenderToAbsoluteWorld(transform.position);
-        double3 lifted = LiftAboveSea(abs, Terrain.Topology, Terrain.Radius, _seaLevel);
+        double3 lifted = LiftAboveSea(abs, Terrain.Topology, Terrain.Radius, _seaLevel, Terrain.WaveAmplitude);
         if (math.any(lifted != abs))
         {
             double3 render = lifted - WorldOriginSystem.WorldOrigin;
@@ -418,13 +419,14 @@ public class TopologyFlyCamera : MonoBehaviour
         }
     }
 
-    // An absolute position lifted along the base normal to SeaClearance above the sea, or the
-    // same position where it is already that high. The base normal is the direction the height is
-    // measured along: outward on a sphere, towards the axis inside a cylinder, +Y on a plane. Pure,
-    // so the direction is tested on every topology.
-    public static double3 LiftAboveSea(double3 abs, SurfaceType topology, double radius, double seaLevel)
+    // An absolute position lifted along the base normal to SeaClearance above the sea and its
+    // waves, or the same position where it is already that high. The base normal is the direction
+    // the height is measured along: outward on a sphere, towards the axis inside a cylinder, +Y on
+    // a plane. Pure, so the direction is tested on every topology.
+    public static double3 LiftAboveSea(double3 abs, SurfaceType topology, double radius, double seaLevel,
+                                       double waveAmplitude = 0.0)
     {
-        double lift = SeaLift(AboveBase(abs, topology, radius, out double3 basePoint), seaLevel);
+        double lift = SeaLift(AboveBase(abs, topology, radius, out double3 basePoint), seaLevel, waveAmplitude);
         if (lift <= 0.0) return abs;
         double3 up = topology switch
         {
@@ -435,11 +437,13 @@ public class TopologyFlyCamera : MonoBehaviour
         return abs + lift * up;
     }
 
-    // How far a camera this far above the base surface must rise to be SeaClearance above the sea:
-    // zero at or above it. Five times the near plane's floor, so the water is never clipped.
+    // How far a camera this far above the base surface must rise to be SeaClearance above the
+    // highest crest the waves can raise, waveAmplitude over the sea (ocean-b, B6): zero at or above
+    // it. Five times the near plane's floor, so the water is never clipped, crest or trough. The
+    // clearance, the speed and the clip planes still measure from the sea level itself.
     public const float SeaClearance = 1f;
-    public static double SeaLift(double aboveBase, double seaLevel) =>
-        math.max(0.0, seaLevel + SeaClearance - aboveBase);
+    public static double SeaLift(double aboveBase, double seaLevel, double waveAmplitude = 0.0) =>
+        math.max(0.0, seaLevel + waveAmplitude + SeaClearance - aboveBase);
 
     // What the camera flies above (ocean-a, C10): the terrain, or over the sea the water, which
     // in a scene with an ocean is drawn wherever the terrain is below it. Clearance, speed, the

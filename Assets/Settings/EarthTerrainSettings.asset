@@ -44,4 +44,5 @@ MonoBehaviour:
   HazeScaleHeight: 3000
   Ocean: 1
   SeaLevel: 0
-  OceanTerrainOverlap: 0
+  OceanTerrainOverlap: 1.3
+  Waves: {fileID: 11400000, guid: 5610023b468b5e3469c3d36183b6318a, type: 2}

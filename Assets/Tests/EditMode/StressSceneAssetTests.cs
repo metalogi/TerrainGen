@@ -50,7 +50,8 @@ namespace Sonoma.Tests
 
         // ocean-a, the parent plan's test 11: every stress scene has an ocean, at its erosion's base
         // level (A3) -- one number in two homes, so a retune of one fails here before TerrainRoot
-        // refuses the scene -- with no overlap, and its TerrainRoot draws it with Ocean.mat.
+        // refuses the scene -- with the shared waves and the overlap they need (ocean-b), and its
+        // TerrainRoot draws it with Ocean.mat.
         // SampleScene has no ocean, no erosion and no ocean material. The scenes are read as text
         // through SceneConfig, as the other scene checks are.
         [Test]
@@ -61,6 +62,10 @@ namespace Sonoma.Tests
             foreach (var sc in All) scenes.Add((sc.Name, sc.Asset));
             string ocean = AssetDatabase.AssetPathToGUID(OceanMaterial);
             Assert.IsNotEmpty(ocean, $"{OceanMaterial} is missing");
+            var waves = AssetDatabase.LoadAssetAtPath<OceanWaveSettings>(OceanWavesAsset);
+            Assert.IsNotNull(waves, $"{OceanWavesAsset} is missing");
+            double amplitude = Sonoma.Core.Generation.OceanWaves.MaxAmplitude(
+                Sonoma.Core.Generation.OceanWaves.Build(waves.ToConfig()));
 
             foreach (var (name, path) in scenes)
             {
@@ -69,7 +74,12 @@ namespace Sonoma.Tests
                 Assert.IsTrue(s.Ocean, $"{path}: Ocean");
                 Assert.IsNotNull(s.Macro != null ? s.Macro.Erosion : null, $"{path}: every stress scene erodes");
                 Assert.AreEqual((double)s.Macro.Erosion.BaseLevel, s.SeaLevel, $"{path}: SeaLevel against BaseLevel");
-                Assert.AreEqual(0f, s.OceanTerrainOverlap, $"{path}: OceanTerrainOverlap");
+                // ocean-b (B6): every stress scene's sea has the shared waves, and an overlap of their
+                // amplitude rounded up to the next tenth of a metre. Less, and TerrainRoot refuses
+                // the scene; much more buys Coast chunks, two grids each, for nothing.
+                Assert.AreEqual(waves, s.Waves, $"{path}: Waves");
+                Assert.GreaterOrEqual((double)s.OceanTerrainOverlap, amplitude, $"{path}: an overlap under the waves");
+                Assert.Less((double)s.OceanTerrainOverlap, amplitude + 0.1, $"{path}: an overlap past the waves rounded up");
                 Assert.AreEqual(ocean, SceneConfig.Field(SceneConfig.TerrainRoot(name), "OceanMaterial",
                                                          @"\{fileID: 2100000, guid: ([0-9a-f]{32}), type: 2\}"),
                                 $"{name}'s TerrainRoot does not draw the sea with {OceanMaterial}");
@@ -80,12 +90,14 @@ namespace Sonoma.Tests
             var sample = AssetDatabase.LoadAssetAtPath<TerrainSettings>("Assets/Settings/TerrainSettings.asset");
             Assert.IsFalse(sample.Ocean, "SampleScene has no ocean");
             Assert.AreEqual(0.0, sample.SeaLevel, "SampleScene's sea level");
+            Assert.IsNull(sample.Waves, "SampleScene has no waves");
             Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(SceneConfig.TerrainRoot("SampleScene"),
                                @"OceanMaterial: \{fileID: [1-9]"),
                            "SampleScene's TerrainRoot has an ocean material");
         }
 
-        const string OceanMaterial = "Assets/Materials/Ocean.mat";
+        const string OceanMaterial   = "Assets/Materials/Ocean.mat";
+        const string OceanWavesAsset = "Assets/Settings/OceanWaves.asset";
 
         // Each scene runs its own asset, on the surface the constants describe.
         [Test]

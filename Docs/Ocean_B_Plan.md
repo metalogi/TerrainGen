@@ -533,3 +533,74 @@ anything the Editor said that this plan did not.
      and runs the suite, and the bridge still refuses `TestRunnerApi`. It also refused a command that
      only deleted a file, and a menu item queued with `delayCall` never ran; a direct `ExecuteMenuItem`
      does.
+8. **Step 5 (2026-11-17): the waves are on in all five stress scenes, and they cost almost nothing.**
+   - **The assets.** Each stress scene's `TerrainSettings` names `OceanWaves.asset`, with an
+     `OceanTerrainOverlap` of 1.3 m: the 1.261 m amplitude rounded up to the next tenth. The amplitude
+     sets that floor, and every metre over it buys Coast chunks, two grids each. `ContinentSandbox`'s
+     settings got the same, so it stays a copy of `EarthStress`. `StressScenesHaveTheirOcean` holds
+     the waves, an overlap within a tenth above the amplitude, and `SampleScene` without waves.
+   - **The fly camera's floor** is `SeaClearance` above the highest crest:
+     `SeaLift(aboveBase, seaLevel, waveAmplitude)`, with the amplitude from `TerrainRoot.WaveAmplitude`.
+     Clearance, speed and clip planes still measure from the sea level. `FlyCameraIsLiftedAboveTheSea`
+     checks the crest floor on every topology, and that a camera at a flat sea's floor sits inside a
+     crest. 266 EditMode tests pass in the Editor, with the 12 `[Explicit]` tools skipped.
+   - **How it measured.** A temporary driver, `OceanBFlightDriver` (untracked), flew every scene four
+     times in one Editor session, Burst on, at a frozen wave time:
+     - the descent and the coast session of `ocean-a` amendment 10, each with waves off and then on;
+     - "off" put `Waves` to null and the overlap to 0 in memory, which is `ocean-a`'s sea, and restored
+       them afterwards;
+     - the coast session settles 50 m over a coast found by walking from the start pose's nadir (20 m in
+       the terrarium), flies 30 s along it at 200 m/s (30 m/s), then settles views at 50 m, 3 km and
+       100 km (20 m, 1.2 km, 4 km).
+
+     Job times are each Burst marker's total over the chunks landed. No warning or error from the terrain
+     in any of the 20 sessions.
+   - **The descents: selection is unchanged.** Peaks, chunks landed and the kinds at the peak are the same
+     with waves as without, but for a handful of chunks a wave can now reach. Peak working set (Land /
+     Coast / Ocean):
+
+     | scene | off | on | vertex memory |
+     |---|---|---|---|
+     | `EarthStress` | 6,746 (5,145 / 972 / 629) | 6,746 (5,145 / 972 / 629) | 719.0 MB both |
+     | `SmallPlanetStress` | 6,022 (4,625 / 891 / 506) | 6,022 (4,624 / 892 / 506) | 644.0 → 644.1 |
+     | `RingworldStress` | 4,304 (3,184 / 462 / 658) | 4,304 (3,182 / 464 / 658) | 444.0 → 444.2 |
+     | `NarrowRingStress` | 3,812 (3,586 / 191 / 35) | 3,812 (3,586 / 191 / 35) | 372.9 both |
+     | `TerrariumStress` | 2,752 (2,089 / 342 / 321) | 2,752 (2,082 / 352 / 318) | 288.2 → 289.2 |
+
+     The narrow ring now descends over land, not open sea, since its retune to 48% land.
+   - **The coasts: a few percent more Coast, as B6 meant.** Chunks within the amplitude of the sea become
+     Coast, and the overlap turns some Ocean into Coast. Peak (Land / Coast / Ocean) and vertex memory:
+
+     | scene | off | on | memory |
+     |---|---|---|---|
+     | `EarthStress` | 7,078 (2,625 / 1,952 / 2,461) | 7,074 (2,608 / 1,999 / 2,419) | 837.5 → 840.7 MB (+0.4%) |
+     | `SmallPlanetStress` | 6,334 (2,804 / 2,041 / 1,449) | 6,334 (2,784 / 2,181 / 1,313) | 776.4 → 788.0 (+1.5%) |
+     | `RingworldStress` | 4,612 (1,878 / 900 / 1,798) | 4,612 (1,872 / 971 / 1,741) | 510.1 → 517.5 (+1.5%) |
+     | `NarrowRingStress` | 4,040 (1,874 / 600 / 1,514) | 4,048 (1,876 / 631 / 1,517) | 427.4 → 433.6 (+1.5%) |
+     | `TerrariumStress` | 3,224 (1,442 / 706 / 1,076) | 3,224 (1,335 / 847 / 1,042) | 366.1 → 379.2 (+3.6%) |
+
+     The terrarium's rise is the largest because its shallow sea puts more of its floor within 1.3 m.
+     Every peak stays 17–27% under budget.
+   - **Frame rate and the jobs: no change beyond what the machine varies by.** The frame rates with waves
+     off and on:
+     - descents: 62 / 60, 63 / 63, 77 / 79, 83 / 87 and 93 / 95 fps;
+     - coast flights: 37 / 37, 39 / 39, 51 / 51, 53 / 58 and 75 / 75.
+
+     So B3's eight `sincos` a fragment do not show at these frame rates; M6 can profile them on a GPU
+     bound frame. Upload per chunk is 0.13–0.15 ms in the descents and 0.05–0.06 in flight, either way;
+     the terrarium's descent read 0.130 then 0.194 on 512 chunks, and its coast sessions 0.087 and 0.090,
+     so that is noise. The mesh job is unchanged in the descents (0.23–0.26 ms a chunk) and 0.003–0.018 ms
+     dearer in the coast flights (0.131–0.155 → 0.149–0.166), from the extra Coast chunks' second grid. The
+     floor encode itself does not show. The fine and coarse samples are unchanged, as they should be.
+   - **Rebases** were 1–7 a session, the slowest 8.05 ms over 6,726 chunks (Earth's coast, waves off),
+     the same either way.
+   - **By eye, still frames.**
+     - At 50 m over a coast the shallows are calm and lighter, and the open water is rippled.
+     - The shoreline does not swim, since water of no depth does not move.
+     - From 3 km the ripples fade to shading, and from 100 km the sea is as `ocean-a` drew it.
+     - The waves-off and waves-on views are not pixel-comparable: the coast flight is stepped by real
+       time and ends a little differently each run.
+
+     Frames are in `Logs/OceanB/flight_<scene>_waves-<off|on>_<bottom|near|mid|far>.png` (gitignored).
+     Motion, a rebase seen while low over the sea, and the tuning of `OceanWaves.asset` and
+     `Ocean.mat` are the human-side checks in Verification, and no value was retuned here.
