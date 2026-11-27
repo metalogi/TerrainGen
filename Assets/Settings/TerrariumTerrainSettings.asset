@@ -46,3 +46,5 @@ MonoBehaviour:
   SeaLevel: 68
   OceanTerrainOverlap: 14.8
   Waves: {fileID: 11400000, guid: 5610023b468b5e3469c3d36183b6318a, type: 2}
+  ShoreLead: 2
+  ShoreReferenceSize: 20000

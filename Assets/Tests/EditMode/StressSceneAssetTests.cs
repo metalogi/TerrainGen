@@ -85,6 +85,10 @@ namespace Sonoma.Tests
                 Assert.Less((double)s.OceanTerrainOverlap, amplitude + 0.1, $"{path}: an overlap past the waves rounded up");
                 Assert.LessOrEqual(shoreFade, s.OceanTerrainOverlap,
                     $"{path}: {OceanMaterial}'s _ShoreFadeDepth reaches past the overlap, into Ocean chunks with no terrain");
+                // The shore rule (Docs/Shore_Stability_Plan.md, amendment 3): two depths finer, and at
+                // least the depth of 20 km nodes.
+                Assert.AreEqual(2, s.ShoreLead, $"{path}: ShoreLead");
+                Assert.AreEqual(20000.0, s.ShoreReferenceSize, $"{path}: ShoreReferenceSize");
                 Assert.AreEqual(ocean, SceneConfig.Field(SceneConfig.TerrainRoot(name), "OceanMaterial",
                                                          @"\{fileID: 2100000, guid: ([0-9a-f]{32}), type: 2\}"),
                                 $"{name}'s TerrainRoot does not draw the sea with {OceanMaterial}");
@@ -96,6 +100,7 @@ namespace Sonoma.Tests
             Assert.IsFalse(sample.Ocean, "SampleScene has no ocean");
             Assert.AreEqual(0.0, sample.SeaLevel, "SampleScene's sea level");
             Assert.IsNull(sample.Waves, "SampleScene has no waves");
+            Assert.AreEqual(0, sample.ShoreLead, "SampleScene has no shore rule");
             Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(SceneConfig.TerrainRoot("SampleScene"),
                                @"OceanMaterial: \{fileID: [1-9]"),
                            "SampleScene's TerrainRoot has an ocean material");

@@ -175,6 +175,10 @@ namespace Sonoma.Core.Quadtree
             if (Settings.GullyDamping > 0f)
                 _params = _params.WithGullies(Settings.GullyDamping, Settings.GullyStartWavelength,
                                               Settings.WetFloorDamping);
+            // The shore rule, with an ocean: coarse vertices take the finer terrain's side of the sea
+            // (Docs/Shore_Stability_Plan.md). Only the sample jobs read it.
+            if (Settings.Ocean && Settings.ShoreLead > 0)
+                _params = _params.WithShore(Settings.SeaLevel, Settings.ShoreLead, Settings.ShoreReferenceSize);
             _lod    = LodMath.Create(Surface, Settings, _params);
             FillBiomeColors();
 
