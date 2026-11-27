@@ -1,9 +1,12 @@
 // The sea (ocean-a, with its waves from ocean-b): the water grid ChunkMeshJob writes on Coast and
 // Ocean chunks, a surface SeaLevel metres above the base surface along its normal
-// (Docs/Ocean_Plan.md C1), displaced by the waves below. Opaque: the
+// (Docs/Ocean_Plan.md C1), displaced by the waves below. Opaque except in its shallows: the
 // terrain under it is not drawn on an Ocean chunk at all (Docs/Ocean_A_Plan.md, A2), and on a Coast
-// chunk it is hidden. The water's own submesh, drawn with the terrain's geomorph so it morphs by the
-// same k as the ground beside it.
+// chunk it shows through only where the water is shallower than _ShoreFadeDepth, which must stay
+// under the scene's OceanTerrainOverlap so that every chunk with shallows draws its terrain. Drawn
+// in the Transparent queue, after the terrain, for that blend; so URP's depth prepass and depth
+// texture do not include the sea. The water's own submesh, drawn with the terrain's geomorph so it
+// morphs by the same k as the ground beside it.
 //
 // Per-vertex inputs from ChunkMeshJob (A8):
 //   POSITION      = the base surface point offset by the sea level, chunk-local
@@ -53,6 +56,8 @@
 //            reflected ray's height above the local horizon, the lit haze at the horizon rising to
 //            the sky's ambient by _SkyGradientHeight (the sine of that height), so a wave's slope
 //            reads as light and dark; without it, the spherical harmonics in that direction
+//   shallows the floor shows through by T = 1 - smoothstep(0, _ShoreFadeDepth, depth), behind
+//            the reflection: opacity 1 - (1 - F) T, so the coast is a gradient, not a line
 //   foam     whitecaps where the Gerstner sum pinches the surface, 1 - dot(wave normal, up), from
 //            _FoamStart to _FoamFull, by _FoamStrength: diffuse, lit by the sun and the ambient,
 //            and replacing the reflected colour (Docs/Ocean_B_Shading_Plan.md, S3)
@@ -65,6 +70,7 @@ Shader "Sonoma/Ocean"
         _ShallowColor ("Shallow Color", Color) = (0.05, 0.35, 0.38, 1)
         _DeepColor    ("Deep Color",    Color) = (0.03, 0.16, 0.33, 1)
         _DepthScale   ("Depth Scale (m)", Float) = 20
+        _ShoreFadeDepth ("Shore Fade Depth (m), under the overlap", Float) = 3
 
         [Header(Glint)]
         _Smoothness       ("Smoothness, Near",   Range(0, 1)) = 0.9
@@ -94,9 +100,9 @@ Shader "Sonoma/Ocean"
     {
         Tags
         {
-            "RenderType"      = "Opaque"
+            "RenderType"      = "Transparent"
             "RenderPipeline"  = "UniversalPipeline"
-            "Queue"           = "Geometry"
+            "Queue"           = "Transparent"
             "IgnoreProjector" = "True"
         }
 
@@ -108,6 +114,7 @@ Shader "Sonoma/Ocean"
             float4 _ShallowColor;
             float4 _DeepColor;
             float  _DepthScale;
+            float  _ShoreFadeDepth;
             float  _Smoothness;
             float  _FarSmoothness;
             float  _GlintFarDistance;
@@ -142,6 +149,10 @@ Shader "Sonoma/Ocean"
         {
             Name "ForwardLit"
             Tags { "LightMode" = "UniversalForward" }
+            // Blended over the terrain in the shallows, opaque elsewhere; see Frag. Depth is still
+            // written, so overlapping crests sort against each other.
+            Blend SrcAlpha OneMinusSrcAlpha
+            ZWrite On
 
             HLSLPROGRAM
             #pragma vertex   Vert
@@ -179,6 +190,7 @@ Shader "Sonoma/Ocean"
                 float  depth       : TEXCOORD3;
                 float3 wavePos     : TEXCOORD4;   // undisplaced, where the normal's waves are evaluated
                 float  waveDepth   : TEXCOORD5;   // the effective depth, depth - k, for the fades
+                float  skirt       : TEXCOORD7;   // 0 on the grid, above 0 inside a skirt quad (COLOR.b)
                 // ONLY interpolated when URP says it is safe to; see the terrain shader.
                 #if defined(REQUIRES_VERTEX_SHADOW_COORD_INTERPOLATOR)
                     float4 shadowCoord : TEXCOORD6;
@@ -200,6 +212,7 @@ Shader "Sonoma/Ocean"
                 // Then the waves, on the morphed position, faded by the effective depth (B2).
                 float3 geometricNormalWS;
                 o.waveDepth = input.morphPos.w - k;
+                o.skirt     = input.floorFine.b;
                 o.wavePos   = SonomaWaveDisplace(positionOS, normalOS, input.morphPos.w - k, o.depth,
                                                  input.floorFine.b, geometricNormalWS);
 
@@ -294,21 +307,47 @@ Shader "Sonoma/Ocean"
                     half3 foamAmbient = SampleSH(N) * 0.5;
                 #endif
                 half fresnel = _FresnelStrength * pow(1.0 - saturate(dot(N, V)), 5.0);
+                half3 body = color;
                 color = lerp(color, sky, fresnel);
+
+                // The shallows (Docs/Ocean_B_Shading_Plan.md, amendment 8): the floor shows through
+                // where the water is shallow, so the coast is a gradient rather than a line. T is
+                // the share of the light that reaches the floor and back, 1 at the waterline and 0
+                // from _ShoreFadeDepth down. What the surface reflects, F, is not transmitted, so
+                // the sea keeps its reflection over the shallows: the opacity is 1 - (1 - F) T, and
+                // the colour is the reflection plus the water body that remains, over that
+                // opacity. In water at least _ShoreFadeDepth deep T is 0 and the colour is the one
+                // above to the bit. The depth is the morphed floor, the terrain's own heights at the
+                // water's vertices, so T reaches 1 exactly where the water meets the drawn ground.
+                // _ShoreFadeDepth must stay under every scene's OceanTerrainOverlap: an Ocean chunk
+                // draws no terrain to show through (StressSceneAssetTests holds it).
+                half T     = 1.0 - smoothstep(0.0, max(_ShoreFadeDepth, 1e-3), depth);
+                // A water skirt hangs from the chunk's edge to hide a crack, and an opaque surface
+                // hid the skirt in turn. Where the floor shows through, the strip of skirt between
+                // the surface and the floor would draw a second layer of water along every chunk
+                // edge, and there the terrain is drawn under the water anyway, so a crack shows the
+                // ground: the skirt is dropped. Grid vertices carry a flag of 0, so only skirt quads,
+                // whose bottom row carries 1, are ever discarded.
+                if (input.skirt > 0.0 && T > 0.0) discard;
+                half alpha = 1.0 - (1.0 - fresnel) * T;
+                color = (color - (1.0 - fresnel) * T * body) / max(alpha, 1e-4);
 
                 // Whitecaps where the crests pinch (S3): foam is diffuse and does not reflect, so
                 // it replaces the water's colour, lit by the sun and the ambient as the ground is,
-                // and darkens at night. It reads the pinch of the waves the normal carries.
+                // and darkens at night. It reads the pinch of the waves the normal carries. It is
+                // opaque, so it also covers the floor.
                 half foam = _FoamStrength * smoothstep(_FoamStart, max(_FoamFull, _FoamStart + 1e-3), pinch);
                 color = lerp(color, _FoamColor.rgb * (light * NdotL + foamAmbient), foam);
+                alpha = lerp(alpha, 1.0, foam);
 
                 #if defined(_SONOMA_SKY)
                     // Aerial perspective, the same composite as the terrain's, so the sea and the
-                    // coast behind it fade alike; see SonomaSky.hlsl.
+                    // coast behind it fade alike; see SonomaSky.hlsl. The floor showing through is
+                    // hazed by the terrain's own pass along nearly the same path.
                     color = SonomaApplyHaze(color, input.positionWS, topoUp, ml);
                 #endif
 
-                return half4(color, 1);
+                return half4(color, alpha);
             }
             ENDHLSL
         }

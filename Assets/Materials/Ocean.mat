@@ -35,6 +35,7 @@ Material:
     - _FoamStrength: 0.6
     - _FresnelStrength: 0.6
     - _GlintFarDistance: 1000000
+    - _ShoreFadeDepth: 3
     - _Smoothness: 0.9
     - _SonomaSky: 1
     m_Colors:
