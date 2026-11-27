@@ -332,3 +332,30 @@ Record here what building it changed.
    `_FarSmoothness` 1, `_FresnelStrength` 0.734, `_Smoothness` 0.889) stays uncommitted. Each commit
    staged the committed material plus only its own new lines. All the frames above were rendered with the
    user's tuning, which is what the Editor loads.
+8. **The shallows (2026-11-26), added after the plan at the user's request.** The user found the
+   coastline sharp and unnatural, where the opaque sea meets the beach in a hard line.
+   - **The sea moves to the Transparent queue.** It is drawn after the terrain and blends over it where
+     the water is shallow. `T = 1 − smoothstep(0, _ShoreFadeDepth, depth)` is the share of light that
+     reaches the floor and back. The opacity is `1 − (1 − F) T`, so what the surface reflects is not
+     transmitted, and the sea keeps its sky reflection over the shallows rather than turning into a
+     window.
+   - **Deep water keeps its colour to the bit.** The colour is written as the lit colour minus the
+     transmitted share of the water body, over the opacity, so where `T` is 0 it is the old colour. Foam
+     stays opaque.
+   - **The floor shows through exactly at the waterline.** The depth is the morphed floor, so `T` reaches
+     1 where the water meets the drawn ground.
+   - **`_ShoreFadeDepth` is 3 m in `Ocean.mat`.** It must stay under every scene's overlap, because an
+     Ocean chunk draws no terrain; `StressScenesHaveTheirOcean` holds it.
+   - **The first frames showed dark lines along every chunk edge in the shallows.** They were the water
+     skirts. The opaque surface had hidden them, and seen through it, the strip of skirt between the
+     surface and the floor was a second layer of water. Skirt fragments are now discarded wherever `T > 0`.
+     The grid carries a skirt flag of 0, and the terrain under the shallows covers any crack.
+   - **The result.** Looking at Earth's shore from 60 m out, the beach shows through a few metres of
+     water, and the coast reads as a gradient from sand to sea. The frames are
+     `Logs/OceanB/shade_shallows*_EarthStress_*_shore_t0.0.png`.
+   - **The frame rate** at that view was 64.2 fps opaque against 62.9 with the fade, and 54.4 after the
+     skirt fix. The user was working in the Editor during that last run, so the drop is not attributed.
+   - **The user's unsaved edit.** During this run the user had an unsaved `ShoalFactor` of 0.025 in the
+     Inspector, and the shore frames used it. It was left as it was.
+   - **A new test.** `OceanFadesInTheShallows` holds the queue, the blend, the opacity, the colour, the
+     foam and the skirt discard.

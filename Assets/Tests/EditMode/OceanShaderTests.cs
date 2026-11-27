@@ -176,6 +176,37 @@ namespace Sonoma.Tests
             Assert.Greater(material.GetFloat("_CrestStrength"), 0f, $"{Material}: the crests are off");
         }
 
+        // The shallows (Docs/Ocean_B_Shading_Plan.md, amendment 8): the sea is drawn in the
+        // Transparent queue and blended over the terrain where it is shallow, so the coast is a
+        // gradient. The opacity is 1 - (1 - F) T, with T falling to 0 at _ShoreFadeDepth, and the
+        // colour subtracts the transmitted share of the water body from the lit colour, so deep water
+        // keeps its colour to the bit. Foam stays opaque. StressSceneAssetTests holds _ShoreFadeDepth
+        // under every scene's overlap.
+        [Test]
+        public void OceanFadesInTheShallows()
+        {
+            string source = ShaderSource.Load(Shader);
+            StringAssert.IsMatch(@"""Queue""\s*=\s*""Transparent""", source, "the sea is not drawn after the terrain");
+            int start = source.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
+            string lit = source.Substring(start, source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal) - start);
+            StringAssert.Contains("Blend SrcAlpha OneMinusSrcAlpha", lit, "ForwardLit does not blend");
+            StringAssert.Contains("half T     = 1.0 - smoothstep(0.0, max(_ShoreFadeDepth, 1e-3), depth);", lit,
+                "the transmittance does not fall to 0 at _ShoreFadeDepth");
+            StringAssert.Contains("half alpha = 1.0 - (1.0 - fresnel) * T;", lit, "the reflection is not kept over the shallows");
+            StringAssert.Contains("color = (color - (1.0 - fresnel) * T * body) / max(alpha, 1e-4);", lit,
+                "the colour is not the reflection and the remaining body over the opacity");
+            StringAssert.Contains("alpha = lerp(alpha, 1.0, foam);", lit, "the foam lets the floor through");
+            StringAssert.Contains("o.skirt     = input.floorFine.b;", lit, "the fragment does not know a skirt from the grid");
+            StringAssert.Contains("if (input.skirt > 0.0 && T > 0.0) discard;", lit,
+                "the skirts draw a second layer of water along the chunk edges in the shallows");
+            StringAssert.Contains("return half4(color, alpha);", lit, "ForwardLit does not return its opacity");
+
+            var material = AssetDatabase.LoadAssetAtPath<Material>(Material);
+            Assert.Greater(material.GetFloat("_ShoreFadeDepth"), 0f, $"{Material}: _ShoreFadeDepth");
+            Assert.AreEqual((int)UnityEngine.Rendering.RenderQueue.Transparent, material.renderQueue,
+                $"{Material}: the render queue is not Transparent");
+        }
+
         // Every ocean pass compiles, on D3D for Windows, with the sky on and off and under every main
         // light shadow keyword, soft shadows on and off: no error, and no warning from Sonoma's own
         // files. A shader that fails to compile draws the pink error shader with nothing in the test

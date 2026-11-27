@@ -66,6 +66,9 @@ namespace Sonoma.Tests
             Assert.IsNotNull(waves, $"{OceanWavesAsset} is missing");
             double amplitude = Sonoma.Core.Generation.OceanWaves.MaxAmplitude(
                 Sonoma.Core.Generation.OceanWaves.Build(waves.ToConfig()));
+            // The shallows show the terrain through the water down to _ShoreFadeDepth, and an Ocean
+            // chunk, everything deeper than the overlap, draws no terrain to show.
+            float shoreFade = AssetDatabase.LoadAssetAtPath<UnityEngine.Material>(OceanMaterial).GetFloat("_ShoreFadeDepth");
 
             foreach (var (name, path) in scenes)
             {
@@ -80,6 +83,8 @@ namespace Sonoma.Tests
                 Assert.AreEqual(waves, s.Waves, $"{path}: Waves");
                 Assert.GreaterOrEqual((double)s.OceanTerrainOverlap, amplitude, $"{path}: an overlap under the waves");
                 Assert.Less((double)s.OceanTerrainOverlap, amplitude + 0.1, $"{path}: an overlap past the waves rounded up");
+                Assert.LessOrEqual(shoreFade, s.OceanTerrainOverlap,
+                    $"{path}: {OceanMaterial}'s _ShoreFadeDepth reaches past the overlap, into Ocean chunks with no terrain");
                 Assert.AreEqual(ocean, SceneConfig.Field(SceneConfig.TerrainRoot(name), "OceanMaterial",
                                                          @"\{fileID: 2100000, guid: ([0-9a-f]{32}), type: 2\}"),
                                 $"{name}'s TerrainRoot does not draw the sea with {OceanMaterial}");
