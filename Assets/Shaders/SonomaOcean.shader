@@ -46,7 +46,10 @@
 //            _GlintFarDistance with the log of the distance, so the sea from orbit shows a broad
 //            highlight rather than a point too small to rasterise; widened further by the slope
 //            variance of the waves the normal no longer resolves
-//   Fresnel  Schlick, towards the sky's ambient at grazing angles
+//   Fresnel  Schlick, towards the sky the wave reflects: under _SONOMA_SKY a gradient by the
+//            reflected ray's height above the local horizon, the lit haze at the horizon rising to
+//            the sky's ambient by _SkyGradientHeight (the sine of that height), so a wave's slope
+//            reads as light and dark; without it, the spherical harmonics in that direction
 //   sky      under _SONOMA_SKY, the hemisphere ambient and the haze, as the terrain has them
 Shader "Sonoma/Ocean"
 {
@@ -64,6 +67,7 @@ Shader "Sonoma/Ocean"
 
         [Header(Fresnel)]
         _FresnelStrength ("Fresnel Strength", Range(0, 1)) = 0.6
+        _SkyGradientHeight ("Sky Gradient Height (sine of the elevation)", Range(0.01, 1)) = 0.35
 
         [Header(Sky)]
         [Toggle(_SONOMA_SKY)] _SonomaSky ("Sky Light and Haze", Float) = 0
@@ -91,6 +95,7 @@ Shader "Sonoma/Ocean"
             float  _FarSmoothness;
             float  _GlintFarDistance;
             float  _FresnelStrength;
+            float  _SkyGradientHeight;
         CBUFFER_END
 
         // The morph globals and functions, the terrain's own: see SonomaCommon.hlsl.
@@ -237,7 +242,15 @@ Shader "Sonoma/Ocean"
                 #if defined(_SONOMA_SKY)
                     half  skyView = 0.5 + 0.5 * dot(N, topoUp);
                     color += albedo * lerp(_SonomaGroundAmbient.rgb, _SonomaSkyAmbient.rgb, skyView);
-                    half3 sky = _SonomaSkyAmbient.rgb;
+                    // The sky the wave reflects, by how high above the local horizon the reflected
+                    // ray climbs: the lit haze at the horizon, which the haze below also fades the
+                    // far sea to, so there is no seam there, rising to the sky's ambient. A slope
+                    // of a few degrees swings the reflected ray across most of that range, which is
+                    // what makes waves read in a still frame (Ocean_B_Shading_Plan.md, S1). A ray
+                    // reflected below the horizon, off a wave's back, takes the horizon's colour.
+                    float3 R    = reflect(-V, N);
+                    half   rise = smoothstep(0.0, max(_SkyGradientHeight, 1e-3), dot(R, topoUp));
+                    half3  sky  = lerp(SonomaHazeLight(topoUp, ml), _SonomaSkyAmbient.rgb, rise);
                 #else
                     color += albedo * SampleSH(N) * 0.5;
                     half3 sky = SampleSH(reflect(-V, N));

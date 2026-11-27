@@ -122,6 +122,34 @@ namespace Sonoma.Tests
             StringAssert.Contains("SonomaWaveGlintPower(", lit, "the glint does not widen by the slope variance (B3)");
         }
 
+        // Docs/Ocean_B_Shading_Plan.md: the shading that makes the waves read. S1: under the sky
+        // path the Fresnel term reflects a gradient by the reflected ray's height above the local
+        // horizon, from the lit haze the far sea already fades to, up to the sky's ambient, rather
+        // than one constant colour that a tilted normal cannot change.
+        [Test]
+        public void OceanShadingReadsTheWaves()
+        {
+            string source = ShaderSource.Load(Shader);
+            int start = source.IndexOf("Name \"ForwardLit\"", System.StringComparison.Ordinal);
+            string lit = source.Substring(start, source.IndexOf("ENDHLSL", start, System.StringComparison.Ordinal) - start);
+            // From the fragment function: ShaderSource.Load splices SonomaSky.hlsl in above it, and
+            // that include has an #if defined(_SONOMA_SKY) of its own.
+            int frag = lit.IndexOf("half4 Frag(", System.StringComparison.Ordinal);
+            int sky = lit.IndexOf("#if defined(_SONOMA_SKY)", frag, System.StringComparison.Ordinal);
+            string skyPath = lit.Substring(sky, lit.IndexOf("#else", sky, System.StringComparison.Ordinal) - sky);
+
+            StringAssert.Contains("float3 R    = reflect(-V, N);", skyPath, "S1: the sky path does not reflect the view off the wave normal");
+            StringAssert.IsMatch(@"smoothstep\(0\.0,\s*max\(_SkyGradientHeight,[^)]*\),\s*dot\(R,\s*topoUp\)\)", skyPath,
+                "S1: the reflected sky is not a gradient by the reflected ray's height above the horizon");
+            StringAssert.IsMatch(@"lerp\(SonomaHazeLight\(topoUp,\s*ml\),\s*_SonomaSkyAmbient\.rgb,\s*rise\)", skyPath,
+                "S1: the gradient does not run from the lit haze at the horizon to the sky's ambient");
+            StringAssert.DoesNotContain("half3 sky = _SonomaSkyAmbient.rgb;", skyPath, "S1: the reflected sky is still a constant");
+
+            var material = AssetDatabase.LoadAssetAtPath<Material>(Material);
+            Assert.IsTrue(material.HasProperty("_SkyGradientHeight"), $"{Material}: no _SkyGradientHeight");
+            Assert.Greater(material.GetFloat("_SkyGradientHeight"), 0f, $"{Material}: _SkyGradientHeight");
+        }
+
         // Every ocean pass compiles, on D3D for Windows, with the sky on and off and under every main
         // light shadow keyword, soft shadows on and off: no error, and no warning from Sonoma's own
         // files. A shader that fails to compile draws the pink error shader with nothing in the test
