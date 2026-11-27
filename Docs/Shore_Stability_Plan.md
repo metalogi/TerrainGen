@@ -166,3 +166,45 @@ test counts and the scenes' table; this plan gets its amendments.
 ## Amendments
 
 Record here what building it changed.
+
+1. **Step 0, measured (2026-11-27): in a settled tree the coast moves about a pixel per depth.**
+   - **The probe.** A temporary, untracked Editor tool, `ShoreProbe`, opened each ocean scene in edit
+     mode and built the macro maps as `TerrainRoot` does, erosion included. It found 300 shoreline
+     points at `MaxDepth`. At each depth `d` it then found the crossing of depth `d`'s terrain along the
+     local gradient, and the crossings of three variants:
+     - depth `d − 1`'s terrain (the total shift);
+     - only the detail's band limit lowered (the detail's share);
+     - only the macro level lowered (the continent map's share).
+   - **How the shift was turned into pixels.** At 1080p and 60°, at the middle of depth `d`'s morph
+     range: about the share of the screen the coast slides over while that depth blends, with the
+     shoreline square to the view.
+
+   | scene | coarse depths seen from far (px, p50 / p90) | depths seen from tens of km down (px, p50 / p90) |
+   |---|---|---|
+   | `EarthStress` | depths 3–6: 1.0–1.2 / 4–47 | depths 9–19: 0.26–0.48 / 0.9–2.5 |
+   | `SmallPlanetStress` | depths 3–5: 1.1–1.3 / 5–56 | depths 8–17: 0.25–0.44 / 0.9–1.8 |
+   | `RingworldStress` | depths 3–4: 1.3–1.6 / 6–7 | depths 7–16: 0.21–0.41 / 0.7–1.8 |
+   | `NarrowRingStress` | — | depths 3–14: 0.27–0.58 / 0.8–2.2 |
+   | `TerrariumStress` | — | depths 3–9: 0.57–0.89 / 1.9–4.9 |
+
+   - **In metres.** On Earth the shift's median is 30 m at depth 10 (morph range 77 km), 1.4 m at depth
+     14 (4.8 km) and 4 cm at depth 19 (150 m). At the 90th percentile it is about three to four times
+     that.
+   - **The coast's slope.** The median slope at the coast is 0.17–0.33 from depth 10 down, steeper than
+     a sandy beach. The fine detail and the gullies roughen it.
+   - **The detail octaves cause all of it below depth 3.** The macro map changes only up to its top level
+     (levels 0–3 on the planets and the wide ring, 0–2 elsewhere). Its own shift is 0.4–2.9 km at depth
+     3, on the scenes with continents.
+   - **Coasts that vanish between depths** are 0–2% of the points, and only at depths 4–5.
+   - **What this says about the premise.** The plan assumed the blend's sliding was what the user saw.
+     Near the ground it is about a pixel per depth, so the visible change is more likely one of two
+     other things:
+     - **The view from altitude**, where the coarse depths move the coast by tens of pixels at the 90th
+       percentile.
+     - **Late subdivision while the camera moves.** The tree then runs short of depth (`CLAUDE.md`,
+       Performance Targets: 3,264 chunks against 7,202 in a fast low flight). A swap made nearer than
+       the child's morph range shows the octave's full shift at a fraction of the planned distance, as
+       a jump, not a slide.
+
+     R1 would scale both down, by `1 − ShoreDamping`. But the second's cause is chunk throughput, which
+     is M6's. This leaves R1–R3 open until the user says under which conditions the change shows.
