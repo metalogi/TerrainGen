@@ -135,6 +135,10 @@ Shader "Sonoma/Ocean"
         // The waves, the ocean's alone: see SonomaWaves.hlsl.
         #include "SonomaWaves.hlsl"
 
+        // The scene's OceanTerrainOverlap, pushed by TerrainRoot every frame; 0 when unset, which
+        // keeps every water skirt. Global, outside UnityPerMaterial, like the other Sonoma globals.
+        float _SonomaOceanOverlap;
+
         // The floor's depth below the sea, from the two UNorm8 bytes ChunkMeshLayout.EncodeFloor
         // writes, r high and g low, as d / (d + 64 m). The inverse of DecodeFloor, which the tests use.
         float SonomaDecodeFloor(float4 packed)
@@ -323,12 +327,15 @@ Shader "Sonoma/Ocean"
                 // draws no terrain to show through (StressSceneAssetTests holds it).
                 half T     = 1.0 - smoothstep(0.0, max(_ShoreFadeDepth, 1e-3), depth);
                 // A water skirt hangs from the chunk's edge to hide a crack, and an opaque surface
-                // hid the skirt in turn. Where the floor shows through, the strip of skirt between
-                // the surface and the floor would draw a second layer of water along every chunk
-                // edge, and there the terrain is drawn under the water anyway, so a crack shows the
-                // ground: the skirt is dropped. Grid vertices carry a flag of 0, so only skirt quads,
-                // whose bottom row carries 1, are ever discarded.
-                if (input.skirt > 0.0 && T > 0.0) discard;
+                // hid the skirt in turn. Seen through the shallows' transparent surface, the strip of
+                // skirt between the surface and the floor is a wall of water under it, and it is
+                // seen wherever the edge it hangs from is deeper than the fade: its depth is the
+                // edge's, top to bottom. So a skirt is kept only where nothing else would fill a
+                // crack, in water deeper than the overlap, where an Ocean chunk draws no terrain.
+                // Shallower, every chunk draws its terrain, and a crack shows the floor. Grid
+                // vertices carry a flag of 0, so only skirt quads, whose bottom row carries 1, are
+                // ever discarded.
+                if (input.skirt > 0.0 && depth < _SonomaOceanOverlap) discard;
                 half alpha = 1.0 - (1.0 - fresnel) * T;
                 color = (color - (1.0 - fresnel) * T * body) / max(alpha, 1e-4);
 

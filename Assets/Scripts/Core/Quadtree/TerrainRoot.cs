@@ -81,6 +81,13 @@ namespace Sonoma.Core.Quadtree
         static readonly int     HazeId          = Shader.PropertyToID("_SonomaHaze");
         static readonly int     SurfaceId       = Shader.PropertyToID("_SonomaSurface");
 
+        // The ocean shader drops the water's skirts wherever the water is shallower than this: only
+        // an Ocean chunk, everything deeper than the overlap, draws no terrain for a crack to show,
+        // and seen through the shallows' transparent surface a skirt is a wall of water under it.
+        // 0 with no ocean, which keeps every skirt.
+        public const string OceanOverlapGlobal = "_SonomaOceanOverlap";
+        static readonly int     OceanOverlapId  = Shader.PropertyToID(OceanOverlapGlobal);
+
         // Koschmieder's constant, ln 50: the optical depth at which haze has taken all but 2% of
         // a dark object's contrast against the sky, which is what "visibility" means. So a
         // visibility of V metres is a density of 3.912 / V per metre.
@@ -271,6 +278,7 @@ namespace Sonoma.Core.Quadtree
             Shader.SetGlobalVectorArray(BiomeColorsId, _biomeColors);
             PushSky();
             _waveGlobals.Push(WaveTimeOverride ?? Time.timeAsDouble);
+            Shader.SetGlobalFloat(OceanOverlapId, _ocean.Enabled ? _ocean.TerrainOverlap : 0f);
         }
 
         // Every frame rather than once, like the morph ranges, and so that the sky can be tuned

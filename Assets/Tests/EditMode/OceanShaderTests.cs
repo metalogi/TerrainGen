@@ -197,8 +197,13 @@ namespace Sonoma.Tests
                 "the colour is not the reflection and the remaining body over the opacity");
             StringAssert.Contains("alpha = lerp(alpha, 1.0, foam);", lit, "the foam lets the floor through");
             StringAssert.Contains("o.skirt     = input.floorFine.b;", lit, "the fragment does not know a skirt from the grid");
-            StringAssert.Contains("if (input.skirt > 0.0 && T > 0.0) discard;", lit,
-                "the skirts draw a second layer of water along the chunk edges in the shallows");
+            // A skirt's depth is its edge's from top to bottom, so dropping it by the fade left walls
+            // of water wherever the edge was deeper than the fade, seen through the shallows. It is
+            // kept only in water deeper than the overlap, where an Ocean chunk draws no terrain.
+            StringAssert.Contains($"if (input.skirt > 0.0 && depth < {TerrainRoot.OceanOverlapGlobal}) discard;", lit,
+                "the skirts draw walls of water under the shallows' surface");
+            StringAssert.Contains($"float {TerrainRoot.OceanOverlapGlobal};", source,
+                "the overlap the shader reads is not the global TerrainRoot pushes");
             StringAssert.Contains("return half4(color, alpha);", lit, "ForwardLit does not return its opacity");
 
             var material = AssetDatabase.LoadAssetAtPath<Material>(Material);
