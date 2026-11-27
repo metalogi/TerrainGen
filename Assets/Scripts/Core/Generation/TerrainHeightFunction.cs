@@ -179,6 +179,55 @@ namespace Sonoma.Core.Generation
             return DetailBound(p, macro) + maxAbsBaseHeight * MacroSampler.MaxOvershoot;
         }
 
+        // The height a vertex at this depth draws: its own, unless the shore rule is on and the
+        // reference depth's height lies on the other side of the sea, when it is that one
+        // (Docs/Shore_Stability_Plan.md, amendment 2). Both sample jobs call it after Height, with
+        // the depth whose band limit they evaluated -- the coarse job its parent's -- so a fully
+        // morphed child is still its parent, and a vertex shared by two chunks of one depth draws
+        // the same bits in both.
+        //
+        // A level set magnifies a height change sideways by the ground's slope, so the octaves a
+        // coarse chunk leaves out move its coast far more than its hills. With the rule, the side of
+        // the sea every coarse vertex is on is the finer terrain's, and the coast drawn is the finer
+        // one to within a vertex spacing.
+        //
+        // The reference is evaluated only where it can change the side: where it reads the same macro
+        // level, the finer height differs by the added octaves alone, so a vertex further from the
+        // sea than their largest amplitude keeps its height without it, exactly.
+        public static float ShoreHeight<T>(T texels, in MacroParams macro, in HeightParams p, int quad, double u, double v,
+                                           in double3 surfacePos, int depth, int maxOctave, float height)
+            where T : struct, IMacroTexels
+            => ShoreHeight(texels, macro, p, quad, u, v, surfacePos, depth, maxOctave, height, true);
+
+        // With the skip switchable, so a test can hold the skip to the evaluation it saves.
+        public static float ShoreHeight<T>(T texels, in MacroParams macro, in HeightParams p, int quad, double u, double v,
+                                             in double3 surfacePos, int depth, int maxOctave, float height, bool skip)
+            where T : struct, IMacroTexels
+        {
+            if (!p.HasShore) return height;
+            int refDepth  = p.ShoreReferenceDepth(depth);
+            int refOctave = p.MaxOctave(refDepth);
+            bool sameLevel = !macro.Enabled || macro.Layout.MacroLevel(refDepth) == macro.Layout.MacroLevel(depth);
+            if (refOctave <= maxOctave && sameLevel) return height;
+
+            double above = height - p.ShoreSea;
+            if (skip && sameLevel)
+            {
+                // The added octaves at their largest, and the two narrowings to float, with room.
+                float3 band = macro.Enabled ? macro.MaxBandAmplitude : new float3(1f);
+                double added = 0.0;
+                for (int k = maxOctave + 1; k <= refOctave; k++) added += OctaveBound(p, band, k);
+                added = math.abs(p.HeightScale) * added;
+                if (math.abs(above) > added * (1.0 + 1e-6) + 1e-6 * math.abs((double)height) + 1e-3) return height;
+            }
+
+            var sample = MacroSample.Zero;
+            if (macro.Enabled)
+                sample = Macro(texels, macro, p, quad, macro.Layout.MacroLevel(refDepth), u, v, refOctave, out _);
+            float reference = Height(surfacePos, refOctave, sample, p);
+            return (above > 0.0) == (reference - p.ShoreSea > 0.0) ? height : reference;
+        }
+
         // The detail noise's share of the bound: every octave at the largest amplitude its band can
         // take anywhere, the noise at its bound of 1.
         static double DetailBound(in HeightParams p, in MacroParams macro)
@@ -186,17 +235,19 @@ namespace Sonoma.Core.Generation
             float3 band = macro.Enabled ? macro.MaxBandAmplitude : new float3(1f);
 
             double detail = 0.0;
-            for (int k = 0; k < p.OctaveCount; k++)
-            {
-                // The band as LatticeNoise.Fbm applies it, and the fall-off as it does too. The
-                // continental band at its own amplitude, which is none when it is dropped.
-                float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
-                if (k >= p.FirstOctave)
-                    detail += p.OctaveAmplitude(k) * math.abs(gain);
-                else
-                    detail += p.OctaveAmplitude(k) * math.abs(gain) * math.abs(1.0 + p.CoarseGain);
-            }
+            for (int k = 0; k < p.OctaveCount; k++) detail += OctaveBound(p, band, k);
             return math.abs(p.HeightScale) * detail;
+        }
+
+        // Octave k's largest amplitude relative to HeightScale: the band as LatticeNoise.Fbm applies
+        // it, and the fall-off as it does too. The continental band at its own amplitude, which is
+        // none when it is dropped. The gully term only damps, so it is not in it.
+        static double OctaveBound(in HeightParams p, float3 band, int k)
+        {
+            float gain = k < p.LowBandEnd ? band.x : k < p.MidBandEnd ? band.y : band.z;
+            if (k >= p.FirstOctave)
+                return p.OctaveAmplitude(k) * math.abs(gain);
+            return p.OctaveAmplitude(k) * math.abs(gain) * math.abs(1.0 + p.CoarseGain);
         }
     }
 }

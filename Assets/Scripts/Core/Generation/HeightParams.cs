@@ -141,6 +141,47 @@ namespace Sonoma.Core.Generation
             return p;
         }
 
+        // The shore rule (Docs/Shore_Stability_Plan.md, amendment 2): a vertex drawn at depth d on the
+        // other side of ShoreSea from the height at ShoreReferenceDepth(d) takes that height, so a
+        // coarse chunk draws its coast where the finer terrain has it
+        // (TerrainHeightFunction.ShoreHeight). ShoreLead 0, as Create leaves it, is off.
+        public int    ShoreLead;
+        public int    ShoreFloorDepth;
+        public double ShoreSea;
+
+        public bool HasShore => ShoreLead > 0;
+
+        // The depth whose side of the sea a vertex at this depth draws: lead depths finer, and at least
+        // the floor. A function of the depth alone, so the coarse job's depth - 1 is the parent's rule.
+        public int ShoreReferenceDepth(int depth) => math.max(depth + ShoreLead, ShoreFloorDepth);
+
+        // The lead in depths, and the floor as a node size in metres: the reference is at least the
+        // first depth whose nominal node size is at most referenceSize. 0 is no floor.
+        public HeightParams WithShore(double seaLevel, int lead, double referenceSize)
+        {
+            if (!(S0 > 0.0))
+                throw new InvalidOperationException(
+                    "HeightParams: the shore rule needs parameters made by Create, which records the node size.");
+            if (lead < 0 || lead > NodeId.MaxAddressableDepth)
+                throw new ArgumentOutOfRangeException(nameof(lead),
+                    "HeightParams: the shore lead must be between 0 and the deepest addressable depth.");
+            if (double.IsNaN(seaLevel) || double.IsInfinity(seaLevel))
+                throw new ArgumentOutOfRangeException(nameof(seaLevel), "HeightParams: the sea level must be finite.");
+            if (!(referenceSize >= 0.0) || double.IsInfinity(referenceSize))
+                throw new ArgumentOutOfRangeException(nameof(referenceSize),
+                    "HeightParams: the shore reference size must be finite and non-negative.");
+
+            var p = this;
+            p.ShoreLead       = lead;
+            p.ShoreSea        = lead > 0 ? seaLevel : 0.0;
+            p.ShoreFloorDepth = 0;
+            if (lead > 0 && referenceSize > 0.0)
+                while (p.ShoreFloorDepth < NodeId.MaxAddressableDepth &&
+                       S0 / (double)(1L << p.ShoreFloorDepth) > referenceSize)
+                    p.ShoreFloorDepth++;
+            return p;
+        }
+
         // The number of octaves strictly longer than the wavelength: BandEnd counts those at least
         // as long, so where the ratio is an exact power of two the octave at the edge is dropped.
         // Read off the exponent and mantissa, never a log, for K0's reason.

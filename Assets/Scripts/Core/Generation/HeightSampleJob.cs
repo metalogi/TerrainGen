@@ -66,9 +66,12 @@ namespace Sonoma.Core.Generation
             int level = Macro.Layout.MacroLevel(Node.Depth);
             // Wetness included, at this job's level, so the coarse job's morph target is still the
             // parent's (M5c, E6).
-            var macro = TerrainHeightFunction.Macro(new MacroMapReader(MacroTexels, MacroDrainage), Macro, Params,
-                                                    Node.Quad, level, u, v, MaxOctave, out float4 weights);
-            Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
+            var reader = new MacroMapReader(MacroTexels, MacroDrainage);
+            var macro  = TerrainHeightFunction.Macro(reader, Macro, Params, Node.Quad, level, u, v, MaxOctave,
+                                                     out float4 weights);
+            // The side of the sea from a finer depth, with the shore rule on (ShoreHeight).
+            Heights[index] = TerrainHeightFunction.ShoreHeight(reader, Macro, Params, Node.Quad, u, v, p, Node.Depth,
+                                                               MaxOctave, TerrainHeightFunction.Height(p, MaxOctave, macro, Params));
             Splats[index]  = Biomes.Pack(weights);
         }
     }
@@ -123,9 +126,12 @@ namespace Sonoma.Core.Generation
             int level = Macro.Layout.MacroLevel(Node.Depth - 1);
             // Wetness included, at this job's level, so the coarse job's morph target is still the
             // parent's (M5c, E6).
-            var macro = TerrainHeightFunction.Macro(new MacroMapReader(MacroTexels, MacroDrainage), Macro, Params,
-                                                    Node.Quad, level, u, v, MaxOctave, out float4 weights);
-            Heights[index] = TerrainHeightFunction.Height(p, MaxOctave, macro, Params);
+            var reader = new MacroMapReader(MacroTexels, MacroDrainage);
+            var macro  = TerrainHeightFunction.Macro(reader, Macro, Params, Node.Quad, level, u, v, MaxOctave,
+                                                     out float4 weights);
+            // The parent's shore rule, depth - 1's, so the morph target is the parent's vertex.
+            Heights[index] = TerrainHeightFunction.ShoreHeight(reader, Macro, Params, Node.Quad, u, v, p, Node.Depth - 1,
+                                                               MaxOctave, TerrainHeightFunction.Height(p, MaxOctave, macro, Params));
             Splats[index]  = Biomes.Pack(weights);
         }
     }

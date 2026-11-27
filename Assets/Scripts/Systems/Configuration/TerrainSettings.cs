@@ -188,5 +188,14 @@ namespace Sonoma.Systems.Configuration
         public float OceanTerrainOverlap = 0f;
         [Tooltip("The sea's waves (Docs/Ocean_B_Plan.md). None is a flat sea. Read only with Ocean on.")]
         public OceanWaveSettings Waves;
+        [Tooltip("The shore rule (Docs/Shore_Stability_Plan.md): a vertex on the other side of the sea from " +
+                 "the terrain this many depths finer takes that terrain's height, so coarse chunks draw the " +
+                 "finer coast and it holds still across LOD. 0 is off. Read only with Ocean on.")]
+        [Min(0)]
+        public int ShoreLead = 0;
+        [Tooltip("Metres. The shore rule's reference is at least the first depth whose nominal node size " +
+                 "is at most this, so every coarse depth draws the same coast. 0 is no floor.")]
+        [Min(0f)]
+        public double ShoreReferenceSize = 0.0;
     }
 }

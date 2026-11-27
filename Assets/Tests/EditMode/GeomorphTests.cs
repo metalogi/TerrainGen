@@ -158,6 +158,22 @@ namespace Sonoma.Tests
 
             CheckChildAtFullMorphEqualsParent(macro, "a macro layer with biomes and slope damping");
 
+            // And with the shore rule (Docs/Shore_Stability_Plan.md): the coarse job applies the
+            // parent's rule, so the morph target is still the parent's vertex. The sea at the chunk's
+            // median height puts half its vertices on either side, and the rule really moves some.
+            var heights = new float[Resolution * Resolution];
+            for (int k = 0; k < heights.Length; k++) heights[k] = hilly.Verts[k].TopoElevation.w;
+            System.Array.Sort(heights);
+            _params = withBands.WithShore(heights[heights.Length / 2], 2, 0.0);
+            var shored = Build(new NodeId(0, Depth, 1, 2), macro);
+            int flipped = 0;
+            for (int k = 0; k < Resolution * Resolution; k++)
+                if (shored.Verts[k].TopoElevation.w != hilly.Verts[k].TopoElevation.w) flipped++;
+            TestContext.WriteLine($"the shore rule moves {flipped} of {Resolution * Resolution} vertices");
+            Assert.Greater(flipped, 0, "the shore rule moves nothing");
+
+            CheckChildAtFullMorphEqualsParent(macro, "a macro layer with biomes and the shore rule");
+
             // And over eroded maps with the wet-floor damping, so the coarse job's morph target
             // carries the parent's wetness. Erosion carries octaves 0 .. 3 at three levels, so the
             // gully term starts at octave 4, the parent's band limit, which it damps.

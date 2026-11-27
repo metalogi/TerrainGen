@@ -4,7 +4,7 @@
 (`ocean-b` and its shading) has merged.
 **Context:** `CLAUDE.md`, "The gully term" and "The one number that says whether the terrain cracks"; the
 gully plan in `Docs/M5_MacroLayer_Plan.md` (M5c-2, G1), whose machinery this reuses.
-**Status:** not started. Written 2026-11-26 at the user's request, after they reported that the shoreline
+**Status:** option B built (amendments 2–4); the play check is the user's. Written 2026-11-26 at the user's request, after they reported that the shoreline
 visibly changes shape with LOD, more than the terrain's own LOD switching does.
 
 ---
@@ -208,3 +208,67 @@ Record here what building it changed.
 
      R1 would scale both down, by `1 − ShoreDamping`. But the second's cause is chunk throughput, which
      is M6's. This leaves R1–R3 open until the user says under which conditions the change shows.
+
+2. **The decision (2026-11-27): the user sees the change from high up, and chose option B, a vertex's side
+   of the sea taken from a finer depth. R1–R3 are superseded.**
+   - **Why not R1.** The octaves that move the coast from altitude are Earth's 7–10 (81–10 km), past the
+     eroded octave 6, so a shore term could reach them. But damping them near sea level would take every
+     bay and peninsula 2.5–80 km across out of the coast. That changes the world; B changes only how
+     coarse chunks draw it.
+   - **The rule.** A vertex at depth `d` has the height `h_d`, as now. Where it lies on the other side of
+     `SeaLevel` from `h_r`, the height at the reference depth `r(d) = max(d + ShoreLead, F)`, it takes
+     `h_r` instead. `F` is the first depth whose nominal node size is at most `ShoreReferenceSize`.
+   - **What it keeps.**
+     - **The geomorph.** The correction is a pure function of the point and the depth. The coarse job
+       applies depth `d − 1`'s rule, which is the parent's own, so a fully morphed child is still its
+       parent.
+     - **The bound.** `h_r` is a value of `Height`, so `MaxAbsHeight` still bounds every vertex.
+     - **Every scene without an ocean.** With `ShoreLead` 0 the jobs write the bits they wrote.
+   - **What it costs.** Only vertices near enough to the sea for the extra octaves to flip them evaluate
+     `h_r`: a vertex further from the sea than those octaves' largest amplitude is skipped, exactly. Where
+     the reference reads another macro level, at depths under the pyramid's top, every vertex evaluates it.
+   - **The normals** follow the corrected heights. The correction adds octaves the vertex spacing cannot
+     carry, at single vertices along the coast, and the slope that adds is at most the octaves' own.
+
+3. **Option B measured, on the drawn mesh (2026-11-27).** The probe now builds the mesh each depth draws,
+   both triangles of every cell, and finds where it crosses the sea along the gradient. It compares that
+   crossing with the parent mesh's, which is what the morph slides between. Four rules were measured:
+   now, lead 2, lead 2 with the reference at least the depth of 20 km nodes, and lead 3 with that floor.
+
+   | scene, depth | now, px p50 / p90 | lead 2 | lead 2, floor | lead 3, floor |
+   |---|---|---|---|---|
+   | Earth 3 | 1.43 / 106 | 1.21 / 27.3 | 1.09 / 23.1 | the same |
+   | Earth 4 | 1.09 / 57.7 | 0.99 / 20.6 | 0.97 / 18.6 | the same |
+   | Earth 5 | 1.20 / 26.2 | 1.16 / 11.1 | 1.14 / 10.5 | the same |
+   | Earth 6 | 1.10 / 5.36 | 0.98 / 4.26 | 0.98 / 4.77 | the same |
+   | Small planet 3 | 1.44 / 161 | 1.31 / 128 | 1.31 / 48.3 | the same |
+   | Small planet 4 | 1.20 / 89.7 | 1.02 / 17.5 | 1.02 / 10.1 | the same |
+   | Small planet 5 | 1.04 / 14.5 | 0.96 / 6.76 | 0.95 / 6.76 | the same |
+   | Ring 2 | 2.11 / 54.9 | 1.54 / 12.9 | 1.50 / 7.44 | the same |
+   | Ring 3 | 1.69 / 16.9 | 1.36 / 7.05 | 1.33 / 4.88 | the same |
+
+   - **The tail falls 2 to 9 times at the coarse depths,** and the medians a little. From tens of km down
+     every scene's 90th percentile falls by 0–25%, from about 1–2 px. The narrow ring and the terrarium
+     have no coarse tail to cut.
+   - **What remains is what a mesh cannot draw.** A vertex is one sample of the coast. Islands, straits and
+     peninsulas narrower than the parent's spacing appear in a child and vanish in its parent: 4–7% of the
+     points at Earth's depths 2–5. No rule per vertex can keep them; finer coastal chunks could, at a cost
+     in chunks.
+   - **Depth 2 got worse on Earth,** 52 px to 74, from features the size of its 81 km spacing. It is seen
+     only from far out in orbit.
+   - **The choice:** lead 2, with the reference at least the depth of 20 km nodes (`ShoreReferenceSize`
+     20,000 m): Earth's depth 10, the small planet's 8, the ring's 7, the narrow ring's 4 and the
+     terrarium's 0. Lead 3 measured the same and costs more.
+
+4. **Built (2026-11-27).** Steps 1–2 became one change, since B touches no pinned figure:
+   - **The code.** `HeightParams.WithShore` and `ShoreReferenceDepth`; `TerrainHeightFunction.ShoreHeight`,
+     called by both sample jobs after `Height`; `TerrainSettings.ShoreLead` and `ShoreReferenceSize`, read by
+     `TerrainRoot` only with `Ocean` on. The six ocean scenes' settings run 2 and 20,000 m.
+   - **The skip** shares `OctaveBound` with `MaxAbsHeight`'s detail term, so the two cannot drift apart.
+   - **Nothing pinned moves.** `HeightAtPoint`, the erosion's T, the continents' land share and every
+     relief and skirt measurement evaluate `Height` without the rule. The rule changes only coastal vertices
+     of chunks short of `MaxDepth`; at Earth's `MaxDepth` the reference adds no octave, since the octaves
+     run out there.
+   - **Tests.** `ShoreTests` (four, pure) and a shore case in `GeomorphTests.ChildAtFullMorphEqualsParent`;
+     `StressScenesHaveTheirOcean` pins the settings. 272 green in the Editor.
+   - **Not yet checked:** the cost in the sample jobs, and the look from orbit in play (Step 3, 2).
