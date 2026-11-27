@@ -28,15 +28,15 @@ Material:
     m_Floats:
     - _CrestBacklight: 0
     - _CrestStrength: 0.5
-    - _DepthScale: 20
-    - _FarSmoothness: 0.5
+    - _DepthScale: 50
+    - _FarSmoothness: 1
     - _FoamFull: 0.3
     - _FoamStart: 0.15
     - _FoamStrength: 0.6
-    - _FresnelStrength: 0.6
+    - _FresnelStrength: 0.734
     - _GlintFarDistance: 1000000
     - _ShoreFadeDepth: 3
-    - _Smoothness: 0.9
+    - _Smoothness: 0.889
     - _SonomaSky: 1
     m_Colors:
     - _CrestColor: {r: 0.22, g: 0.58, b: 0.56, a: 1}
