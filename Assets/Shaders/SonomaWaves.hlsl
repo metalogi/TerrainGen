@@ -57,6 +57,9 @@ float4 _SonomaWaveLod;
 #define SONOMA_WAVE_FADE_FULL   8.0
 #define SONOMA_WAVE_PIXEL_START 2.0
 #define SONOMA_WAVE_PIXEL_FULL  4.0
+// The crest colour's pair, in pixels (Docs/Ocean_B_Shading_Plan.md, S2).
+#define SONOMA_CREST_PIXEL_START 4.0
+#define SONOMA_CREST_PIXEL_FULL  8.0
 
 int SonomaWaveCount() { return clamp(_SonomaWaveCount, 0, SONOMA_MAX_WAVES); }
 
@@ -137,24 +140,35 @@ float3 SonomaWaveDisplace(inout float3 positionOS, float3 normalOS, float effect
 // The water's normal at a fragment (B3), from its undisplaced position: every wave at the larger of
 // its geometric fade and its fade by the pixel footprint, with the shoal damping. slopeVariance is
 // what that leaves out, for the glint. With no waves, up exactly and a variance of 0.
+//
+// crest (Docs/Ocean_B_Shading_Plan.md, S2) is where the fragment sits on the waves: their cosines
+// weighted by each wave's damped steepness, a w, and a weight of its own, over the sum of the
+// undamped steepnesses, so 1 on a crest of every wave, -1 in a trough of every one, and towards 0
+// where the waves fade by distance or are damped in shallow water. Weighted by steepness rather
+// than height, so the short, steep waves a thin crest belongs to count, not the long swell. Its
+// weight is the geometric fade or a fade by twice the pixels the normal's takes, since a colour
+// aliases at two to four pixels a wavelength where shading only shimmers. 0 with no waves.
 float3 SonomaWaveNormal(float3 positionWS, float3 up, float effectiveDepth, float footprint,
-                        float floorDepth, out float slopeVariance)
+                        float floorDepth, out float slopeVariance, out float crest)
 {
-    float3 slope   = float3(0, 0, 0);
-    float  stretch = 0.0;
-    slopeVariance  = 0.0;
-    int    count   = SonomaWaveCount();
+    float3 slope    = float3(0, 0, 0);
+    float  stretch  = 0.0;
+    float  crestSum = 0.0;
+    float  steepSum = 0.0;
+    slopeVariance   = 0.0;
+    int    count    = SonomaWaveCount();
 
     [loop]
     for (int i = 0; i < count; i++)
     {
         float lambda = _SonomaWaveExtra[i].x;
+        float w      = TWO_PI / lambda;
+        steepSum    += _SonomaWaves[i].w * w;
         float a      = _SonomaWaves[i].w * SonomaWaveShoal(i, floorDepth);
         if (a <= 0.0) continue;
 
         float weight = max(SonomaWaveGeometricFade(i, effectiveDepth),
                            smoothstep(SONOMA_WAVE_PIXEL_START, SONOMA_WAVE_PIXEL_FULL, lambda / max(footprint, 1e-6)));
-        float w      = TWO_PI / lambda;
         float steep  = a * w;
         slopeVariance += (1.0 - weight) * steep * steep * 0.5;
 
@@ -162,9 +176,15 @@ float3 SonomaWaveNormal(float3 positionWS, float3 up, float effectiveDepth, floa
         if (aw <= 0.0) continue;
         float s, c;
         sincos(TWO_PI * SonomaWavePhase(i, positionWS), s, c);
-        slope   += SonomaWaveTangent(i, up) * (aw * s);
-        stretch += _SonomaWaveExtra[i].y * aw * c;
+        slope    += SonomaWaveTangent(i, up) * (aw * s);
+        stretch  += _SonomaWaveExtra[i].y * aw * c;
+        // The crest takes a wave from twice the pixels the normal does: a colour at two to four
+        // pixels a wavelength aliases into dots where a normal's shading only shimmers.
+        float crestWeight = max(SonomaWaveGeometricFade(i, effectiveDepth),
+                                smoothstep(SONOMA_CREST_PIXEL_START, SONOMA_CREST_PIXEL_FULL, lambda / max(footprint, 1e-6)));
+        crestSum += steep * crestWeight * c;
     }
+    crest = steepSum > 0.0 ? crestSum / steepSum : 0.0;
     return up * (1.0 - stretch) + slope;
 }
 

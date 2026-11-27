@@ -145,9 +145,22 @@ namespace Sonoma.Tests
                 "S1: the gradient does not run from the lit haze at the horizon to the sky's ambient");
             StringAssert.DoesNotContain("half3 sky = _SonomaSkyAmbient.rgb;", skyPath, "S1: the reflected sky is still a constant");
 
+            // S2: the crest measure is the normal's own sum, the steepness-weighted cosines of the
+            // waves it carries over the undamped steepnesses, and the albedo lightens by it. A zero
+            // strength adds nothing.
+            string waves = ShaderSource.Load("SonomaWaves.hlsl");
+            StringAssert.Contains("crestSum += steep * crestWeight * c;", waves, "S2: the crest is not the waves' weighted cosines");
+            StringAssert.Contains("smoothstep(SONOMA_CREST_PIXEL_START, SONOMA_CREST_PIXEL_FULL,", waves,
+                "S2: the crest does not take its waves from more pixels than the normal");
+            StringAssert.Contains("steepSum    += _SonomaWaves[i].w * w;", waves, "S2: the crest is not over the undamped steepnesses");
+            StringAssert.Contains("crest = steepSum > 0.0 ? crestSum / steepSum : 0.0;", waves, "S2: the crest is not normalised, or not 0 with no waves");
+            StringAssert.Contains("albedo = lerp(albedo, _CrestColor.rgb, _CrestStrength * crestUp);", lit,
+                "S2: the albedo does not lighten on the crests by _CrestStrength");
+
             var material = AssetDatabase.LoadAssetAtPath<Material>(Material);
             Assert.IsTrue(material.HasProperty("_SkyGradientHeight"), $"{Material}: no _SkyGradientHeight");
             Assert.Greater(material.GetFloat("_SkyGradientHeight"), 0f, $"{Material}: _SkyGradientHeight");
+            Assert.Greater(material.GetFloat("_CrestStrength"), 0f, $"{Material}: the crests are off");
         }
 
         // Every ocean pass compiles, on D3D for Windows, with the sky on and off and under every main
