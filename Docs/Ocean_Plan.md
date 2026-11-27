@@ -656,6 +656,16 @@ rather than editing them into the tasks, so the plan still reads as what was dec
    - **Measured,** waves off against on in one Editor session: selection, frame rate, upload and the
      sample jobs unchanged; on a coast, a few percent more Coast chunks and 0.4–3.6% more vertex memory.
      The record is that plan's amendment 8.
+5. **The waves are readable, and 14.8 m high (2026-11-26).** In play the user saw no waves move. They
+   moved, but the shading hid them. `Docs/Ocean_B_Shading_Plan.md` added the following, which take C9's
+   shading further:
+   - a reflected sky gradient;
+   - crests lightened by a crest measure;
+   - whitecaps where the sum pinches the surface.
+
+   It also took up the user's retune of `OceanWaves.asset`: sixteen waves to 1,200 m, 14.788 m at most.
+   Every stress scene's overlap is now 14.8 m, which costs 3–19% more vertex memory at a coast than the
+   1.26 m waves did. The foam on crests is in, but shore foam and breaking stay M7's (Q6).
 
 ---
 

@@ -611,3 +611,10 @@ anything the Editor said that this plan did not.
    Q6. The three temporary Editor scripts, `OceanBTestRun`, `OceanBFrameDriver` and
    `OceanBFlightDriver`, were deleted without being committed; the frames and logs they wrote stay in
    the gitignored `Logs/OceanB`.
+10. **The tuning by eye needed shader work first (2026-11-26).** In play the user saw no waves move. A
+    check found the waves animated and displaced, but the shading hid them: frames 2 s apart differed by
+    about 2 levels in 255. `Docs/Ocean_B_Shading_Plan.md` planned and built the fix in PR #24:
+    - a reflected sky gradient, lighter crests and whitecaps;
+    - the user's retune of the waves to 14.8 m, with `ShoalFactor` back to 0.25 and a 14.8 m overlap.
+
+    Its amendments hold the measurements.
