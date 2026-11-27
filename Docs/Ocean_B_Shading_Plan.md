@@ -359,3 +359,18 @@ Record here what building it changed.
      Inspector, and the shore frames used it. It was left as it was.
    - **A new test.** `OceanFadesInTheShallows` holds the queue, the blend, the opacity, the colour, the
      foam and the skirt discard.
+9. **The skirts are dropped by the overlap, not by the fade (2026-11-27).**
+   - **What the user saw.** Close to a shore, sharp opaque walls and triangles of water stood under the
+     surface along chunk edges.
+   - **Why.** A water skirt's bottom row copies its top vertex's floor, so a skirt's depth is its edge's
+     from top to bottom. The discard by `T > 0` therefore kept the skirt wherever its edge was deeper than
+     the 3 m fade, and the surface in front was clear enough to show it. Where the edge's depth crossed
+     3 m inside a skirt triangle, the kept part was a triangle.
+   - **The fix.** A skirt is needed only where nothing else fills a crack: in an Ocean chunk, everything
+     deeper than the overlap, which draws no terrain. So skirt fragments are now discarded wherever the
+     water is shallower than the overlap. `TerrainRoot` pushes it each frame as `_SonomaOceanOverlap`; with
+     no ocean it pushes 0, and an unset global reads 0, both keeping every skirt.
+   - **What remains.** A Coast chunk's skirt in water deeper than the overlap is still drawn. It could
+     still be seen through the shallows where the floor drops more than about 12 m between the clear
+     water and the edge. A crack in a Coast chunk shows the floor through the water, in transient LOD
+     states only.
