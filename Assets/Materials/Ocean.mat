@@ -26,6 +26,8 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _CrestBacklight: 0
+    - _CrestStrength: 0.5
     - _DepthScale: 20
     - _FarSmoothness: 0.5
     - _FresnelStrength: 0.6
@@ -33,6 +35,7 @@ Material:
     - _Smoothness: 0.9
     - _SonomaSky: 1
     m_Colors:
+    - _CrestColor: {r: 0.22, g: 0.58, b: 0.56, a: 1}
     - _DeepColor: {r: 0.03, g: 0.16, b: 0.33, a: 1}
     - _ShallowColor: {r: 0.05, g: 0.35, b: 0.38, a: 1}
   m_BuildTextureStacks: []

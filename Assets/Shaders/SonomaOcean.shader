@@ -40,7 +40,10 @@
 //
 // Shading, per fragment:
 //   colour   by water depth, shallow to deep over _DepthScale metres (A5). Material colours are
-//            sRGB, so choose them as such: a deep colour dark in linear goes to the haze's grey
+//            sRGB, so choose them as such: a deep colour dark in linear goes to the haze's grey.
+//            Lightened towards _CrestColor on the crests by _CrestStrength, from the crest measure
+//            SonomaWaveNormal returns (Docs/Ocean_B_Shading_Plan.md, S2); and, by
+//            _CrestBacklight, crests seen against the sun glow with the light through them
 //   diffuse  Lambert on the waves' normal, the morphed up where there are none
 //   glint    Blinn-Phong, its smoothness falling from _Smoothness close to _FarSmoothness at
 //            _GlintFarDistance with the log of the distance, so the sea from orbit shows a broad
@@ -69,6 +72,11 @@ Shader "Sonoma/Ocean"
         _FresnelStrength ("Fresnel Strength", Range(0, 1)) = 0.6
         _SkyGradientHeight ("Sky Gradient Height (sine of the elevation)", Range(0.01, 1)) = 0.35
 
+        [Header(Crests)]
+        _CrestColor     ("Crest Color",     Color)       = (0.22, 0.58, 0.56, 1)
+        _CrestStrength  ("Crest Strength",  Range(0, 1)) = 0
+        _CrestBacklight ("Crest Backlight", Range(0, 4)) = 0
+
         [Header(Sky)]
         [Toggle(_SONOMA_SKY)] _SonomaSky ("Sky Light and Haze", Float) = 0
     }
@@ -96,6 +104,9 @@ Shader "Sonoma/Ocean"
             float  _GlintFarDistance;
             float  _FresnelStrength;
             float  _SkyGradientHeight;
+            float4 _CrestColor;
+            float  _CrestStrength;
+            float  _CrestBacklight;
         CBUFFER_END
 
         // The morph globals and functions, the terrain's own: see SonomaCommon.hlsl.
@@ -199,15 +210,21 @@ Shader "Sonoma/Ocean"
                 // The waves' normal (B3), and the slope variance it leaves out, which widens the
                 // glint below. With no waves the normal is left as it was, to the bit.
                 float footprint = max(length(ddx(input.wavePos)), length(ddy(input.wavePos)));
-                float slopeVariance;
+                float slopeVariance, crest;
                 float3 waveN = SonomaWaveNormal(input.wavePos, N, input.waveDepth, footprint,
-                                                max(input.depth, 0.0), slopeVariance);
+                                                max(input.depth, 0.0), slopeVariance, crest);
                 if (SonomaWaveCount() > 0) N = normalize(waveN);
 
                 // Colour by depth (A5). A coast vertex whose floor stands above the sea draws water
                 // of no depth, which the terrain then covers.
                 float  depth  = max(input.depth, 0.0);
                 half3  albedo = lerp(_ShallowColor.rgb, _DeepColor.rgb, 1.0 - exp(-depth / max(_DepthScale, 1e-3)));
+
+                // Light through a thin crest (Ocean_B_Shading_Plan.md, S2): the water lightens
+                // towards _CrestColor on the waves' crests, by the crest measure the normal's own
+                // sum gives, so it reaches as far as the normals do and fades with them.
+                half crestUp = saturate(crest);
+                albedo = lerp(albedo, _CrestColor.rgb, _CrestStrength * crestUp);
 
                 // The shadow coordinate per fragment under cascades, and the fade overload, exactly
                 // as the terrain resolves them and for the same reasons.
@@ -236,6 +253,9 @@ Shader "Sonoma/Ocean"
                 float3 H      = normalize(ml.direction + V);
                 half   spec   = pow(saturate(dot(N, H)), power) * (power + 8.0) / (8.0 * PI);
                 color += light * spec * NdotL;
+
+                // A crest seen against the sun glows with the light through it (S2, optional).
+                color += _CrestColor.rgb * light * (_CrestBacklight * crestUp * pow(saturate(dot(V, -ml.direction)), 4.0));
 
                 // The sky: the hemisphere ambient by the local up, which a flat sea faces, and the
                 // sky's colour the Fresnel term reflects at grazing angles.
