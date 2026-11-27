@@ -157,6 +157,19 @@ namespace Sonoma.Tests
             StringAssert.Contains("albedo = lerp(albedo, _CrestColor.rgb, _CrestStrength * crestUp);", lit,
                 "S2: the albedo does not lighten on the crests by _CrestStrength");
 
+            // S3: whitecaps where the sum pinches the surface, read off the wave normal against the
+            // unit up before it is renormalised, and diffuse: they replace the reflected colour.
+            StringAssert.Contains("float pinch = SonomaWaveCount() > 0 ? 1.0 - dot(waveN, N) : 0.0;", lit,
+                "S3: the pinch is not the wave normal's compression of the up");
+            Assert.Less(lit.IndexOf("float pinch", System.StringComparison.Ordinal),
+                        lit.IndexOf("N = normalize(waveN);", System.StringComparison.Ordinal),
+                        "S3: the pinch is read after N has become the wave normal");
+            StringAssert.IsMatch(@"half foam = _FoamStrength \* smoothstep\(_FoamStart,[^;]*pinch\);", lit,
+                "S3: the foam is not the pinch from _FoamStart to _FoamFull by _FoamStrength");
+            Assert.Greater(lit.IndexOf("_FoamColor.rgb", System.StringComparison.Ordinal),
+                           lit.IndexOf("color = lerp(color, sky, fresnel);", System.StringComparison.Ordinal),
+                           "S3: the foam is blended before the reflection, which would then cover it");
+
             var material = AssetDatabase.LoadAssetAtPath<Material>(Material);
             Assert.IsTrue(material.HasProperty("_SkyGradientHeight"), $"{Material}: no _SkyGradientHeight");
             Assert.Greater(material.GetFloat("_SkyGradientHeight"), 0f, $"{Material}: _SkyGradientHeight");

@@ -53,6 +53,9 @@
 //            reflected ray's height above the local horizon, the lit haze at the horizon rising to
 //            the sky's ambient by _SkyGradientHeight (the sine of that height), so a wave's slope
 //            reads as light and dark; without it, the spherical harmonics in that direction
+//   foam     whitecaps where the Gerstner sum pinches the surface, 1 - dot(wave normal, up), from
+//            _FoamStart to _FoamFull, by _FoamStrength: diffuse, lit by the sun and the ambient,
+//            and replacing the reflected colour (Docs/Ocean_B_Shading_Plan.md, S3)
 //   sky      under _SONOMA_SKY, the hemisphere ambient and the haze, as the terrain has them
 Shader "Sonoma/Ocean"
 {
@@ -76,6 +79,12 @@ Shader "Sonoma/Ocean"
         _CrestColor     ("Crest Color",     Color)       = (0.22, 0.58, 0.56, 1)
         _CrestStrength  ("Crest Strength",  Range(0, 1)) = 0
         _CrestBacklight ("Crest Backlight", Range(0, 4)) = 0
+
+        [Header(Whitecaps)]
+        _FoamColor    ("Foam Color",    Color)       = (0.9, 0.93, 0.93, 1)
+        _FoamStrength ("Foam Strength", Range(0, 1)) = 0
+        _FoamStart    ("Foam Start (pinch)", Range(0, 1)) = 0.15
+        _FoamFull     ("Foam Full (pinch)",  Range(0, 1)) = 0.3
 
         [Header(Sky)]
         [Toggle(_SONOMA_SKY)] _SonomaSky ("Sky Light and Haze", Float) = 0
@@ -107,6 +116,10 @@ Shader "Sonoma/Ocean"
             float4 _CrestColor;
             float  _CrestStrength;
             float  _CrestBacklight;
+            float4 _FoamColor;
+            float  _FoamStrength;
+            float  _FoamStart;
+            float  _FoamFull;
         CBUFFER_END
 
         // The morph globals and functions, the terrain's own: see SonomaCommon.hlsl.
@@ -213,6 +226,9 @@ Shader "Sonoma/Ocean"
                 float slopeVariance, crest;
                 float3 waveN = SonomaWaveNormal(input.wavePos, N, input.waveDepth, footprint,
                                                 max(input.depth, 0.0), slopeVariance, crest);
+                // How far the Gerstner sum pinches the surface together here, sum Q a w cos: the
+                // normal is up (1 - that) plus a tangent slope, and N is still the unit up (S3).
+                float pinch = SonomaWaveCount() > 0 ? 1.0 - dot(waveN, N) : 0.0;
                 if (SonomaWaveCount() > 0) N = normalize(waveN);
 
                 // Colour by depth (A5). A coast vertex whose floor stands above the sea draws water
@@ -221,8 +237,8 @@ Shader "Sonoma/Ocean"
                 half3  albedo = lerp(_ShallowColor.rgb, _DeepColor.rgb, 1.0 - exp(-depth / max(_DepthScale, 1e-3)));
 
                 // Light through a thin crest (Ocean_B_Shading_Plan.md, S2): the water lightens
-                // towards _CrestColor on the waves' crests, by the crest measure the normal's own
-                // sum gives, so it reaches as far as the normals do and fades with them.
+                // towards _CrestColor on the waves' crests, by the crest measure SonomaWaveNormal
+                // returns, which fades with distance as the normal's waves do, a little sooner.
                 half crestUp = saturate(crest);
                 albedo = lerp(albedo, _CrestColor.rgb, _CrestStrength * crestUp);
 
@@ -271,12 +287,20 @@ Shader "Sonoma/Ocean"
                     float3 R    = reflect(-V, N);
                     half   rise = smoothstep(0.0, max(_SkyGradientHeight, 1e-3), dot(R, topoUp));
                     half3  sky  = lerp(SonomaHazeLight(topoUp, ml), _SonomaSkyAmbient.rgb, rise);
+                    half3  foamAmbient = lerp(_SonomaGroundAmbient.rgb, _SonomaSkyAmbient.rgb, skyView);
                 #else
                     color += albedo * SampleSH(N) * 0.5;
                     half3 sky = SampleSH(reflect(-V, N));
+                    half3 foamAmbient = SampleSH(N) * 0.5;
                 #endif
                 half fresnel = _FresnelStrength * pow(1.0 - saturate(dot(N, V)), 5.0);
                 color = lerp(color, sky, fresnel);
+
+                // Whitecaps where the crests pinch (S3): foam is diffuse and does not reflect, so
+                // it replaces the water's colour, lit by the sun and the ambient as the ground is,
+                // and darkens at night. It reads the pinch of the waves the normal carries.
+                half foam = _FoamStrength * smoothstep(_FoamStart, max(_FoamFull, _FoamStart + 1e-3), pinch);
+                color = lerp(color, _FoamColor.rgb * (light * NdotL + foamAmbient), foam);
 
                 #if defined(_SONOMA_SKY)
                     // Aerial perspective, the same composite as the terrain's, so the sea and the
