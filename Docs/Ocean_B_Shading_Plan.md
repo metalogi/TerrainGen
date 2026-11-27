@@ -232,3 +232,103 @@ after it.
 ## Amendments
 
 Record here what building it changed.
+
+1. **S1–S5 answered (2026-11-26): all as recommended.**
+   - The waves are the user's retune with `ShoalFactor` 0.25.
+   - Every stress scene's overlap is 14.8 m.
+   - The work lands in PR #24.
+2. **Step 0: the check, and its baselines.** A temporary Editor script, `OceanShadingCheck` (untracked,
+   deleted at Step 5), applied each wave tuning in memory and restored it afterwards. It ran each stress
+   scene at two poses:
+   - **Open sea:** over the deepest point found.
+   - **Coast:** 60 m off a coast, found by walking from that point until the ground broke the sea.
+
+   The camera sat 3 m over the fly camera's floor, looking 15° down. Each pose was rendered at frozen
+   times 0, 0.5 and 2 s, and with no waves.
+   - **What it measured.** Over the sea part of the frame, in three bands from the camera out (near,
+     mid, far):
+     - **Spread:** the luminance standard deviation within a frame, after removing each row's mean, so
+       the gradient towards the horizon does not count.
+     - **Motion:** the mean luminance change between frames 0.5 s and 2 s apart.
+     - It also recorded the resident kinds, the vertex memory and the fps over 5 s.
+   - **The tunings.** "Final" was the user's waves with `ShoalFactor` 0.25 and a 14.8 m overlap.
+     "Committed" was `ocean-b`'s 1.26 m waves with a 1.3 m overlap.
+   - **A first pass posed the narrow ring and the terrarium over land.** The search covered a fifth of
+     the cylinder round the start, which there is all land. It now searches the whole cylinder. That also
+     moved Ringworld's pose, so Ringworld has no old-shading baseline at its final pose.
+3. **Step 1: the sky gradient.**
+   - **The horizon colour is computed where it is used.** `SonomaHazeLight` is called in the reflection
+     and again inside `SonomaApplyHaze`, not passed in. The compiler shares the arithmetic, and the
+     terrain's include is untouched.
+   - **By day it works.** The far sea's spread on Earth went from 2.0 to 20.1 and its 2 s motion from 2.3
+     to 23.4; the small planet's went the same way.
+   - **The near field barely moved:** 1.0 to 3.3. Looking 15° down, the Fresnel weight there is small.
+   - **At night contrast falls.** The deep-sea poses of the ring and the narrow ring are on the night
+     side. There the horizon colour is the haze lit by the sky alone, darker than the ambient the old
+     shader reflected, so the narrow ring's far spread fell from 6.3 to 2.6. A night sea should be dark,
+     so this stands.
+4. **Step 2: the crests, weighted by steepness, not height.**
+   - **The plan's `Σ a·weight·cos / Σ a`** is dominated by the 1,200 m swell, whose amplitude is 4.9 m
+     against 1.2 cm for the shortest wave. The tint would then follow the swell over hundreds of metres
+     and say nothing about the waves near the camera.
+   - **`crest = Σ a·w·weight·cos / Σ a·w`** weights each wave by its steepness, and the short waves count.
+     The denominator is undamped, so shallow water reads calmer.
+   - **The crest's own pixel fade.** It takes a wave from 4–8 pixels a wavelength, twice the normal's 2–4,
+     because a colour aliases sooner than shading does. That changed no figure on Earth. The dots in the
+     near field are real interference between sixteen waves spread over 106°, not aliasing.
+   - **The colour.** `_CrestColor` started at (0.12, 0.45, 0.45), nearly the shallow colour, so the tint
+     vanished near a shore. It is (0.22, 0.58, 0.56) at strength 0.5. The backlight is in the shader and
+     off in `Ocean.mat`.
+   - **The result.** On Earth's open sea the near spread rose from 3.3 to 11.7, and the 2 s motion there
+     from 1.9 to 13.9.
+5. **Step 3: whitecaps.**
+   - **The pinch is read off the normal.** It is `1 − dot(waveN, up)` before the normal is renormalised,
+     which is the Jacobian sum `Σ Q·a·w·cos` the normal already holds.
+   - **The plan's 0.25–0.45 drew no foam.** With the retuned waves the pinch's standard deviation is
+     about 0.08, estimated from the table, so 0.25 is three of them. The range is 0.15–0.30, at strength
+     0.6. That foam covers what share of the surface was not measured.
+   - **It reads as whitecaps.** Small white flecks on the sharpest crests, not drawn lines, so it ships
+     on. Earth's open-sea near spread went from 11.7 to 18.2.
+6. **Step 4: the tuning, measured at the two poses, not in flights.** The memory cost of the overlap
+   is at the coast, which the coast pose holds still, so the flight driver was not rebuilt. A fast flight
+   with these waves has not been flown.
+   - **Memory.** Every chunk count is the same with both tunings. Vertex memory at the coast pose (Coast
+     chunks):
+
+     | scene | 1.26 m waves, 1.3 m overlap | 14.8 m waves, 14.8 m overlap |
+     |---|---|---|
+     | `EarthStress` | 782.4 MB (1,596) | 856.8 MB (2,358), +9.5% |
+     | `SmallPlanetStress` | 691.1 (1,245) | 736.3 (1,708), +6.5% |
+     | `RingworldStress` | 506.3 (947) | 522.4 (1,112), +3.2% |
+     | `NarrowRingStress` | 428.1 (627) | 481.7 (1,175), +12.5% |
+     | `TerrariumStress` | 374.3 (860) | 445.5 (1,589), +19.0% |
+
+     Over open sea it moves by 0.1% at most. Every pose stays under its budget in chunks.
+   - **Readability.** Spread and 2 s motion by band, near / mid / far, with old shading against new, at
+     the final tuning:
+
+     | pose | spread before | spread after | motion before | motion after |
+     |---|---|---|---|---|
+     | Earth, open sea | 1.0 / 1.6 / 2.0 | 18.2 / 17.5 / 19.6 | 1.1 / 1.4 / 2.3 | 17.1 / 15.1 / 23.1 |
+     | Small planet, open sea | 1.0 / 1.5 / 2.1 | 19.5 / 22.0 / 20.0 | 1.5 / 1.7 / 2.7 | 22.9 / 25.0 / 27.4 |
+     | Terrarium, open sea | 3.3 / 4.1 / 3.6 | 4.7 / 6.5 / 8.8 | 3.7 / 3.4 / 3.8 | 5.9 / 6.4 / 9.6 |
+     | Earth, coast | 2.0 / 2.3 / 2.1 | 4.6 / 8.9 / 15.1 | 1.3 / 1.2 / 1.0 | 5.1 / 8.7 / 18.3 |
+     | Small planet, coast | 1.5 / 2.0 / 2.1 | 7.5 / 10.3 / 16.8 | 1.1 / 1.2 / 1.0 | 6.2 / 10.1 / 19.8 |
+
+     The terrarium's sea is lit low and its gains are smaller. The narrow ring's poses are on the night
+     side, where the sea is dark either way.
+   - **Frame rate.** Old shading against new, Editor play mode:
+     - small planet 90.5 → 82.3 fps over open sea and 66.2 → 63.1 at the coast;
+     - narrow ring 129.7 → 124.1 and 96.9 → 92.0;
+     - terrarium 120.8 → 120.2 and 107.2 → 101.7;
+     - Earth 66.2 → 63.0 at the coast. Over open sea it read 95.8 → 68.1, but 87.5 in an earlier run with
+       the same new shading, so that pair is the Editor's noise.
+
+     The new terms cost a few percent at most, within that noise, and M6 can profile them on a GPU-bound
+     build.
+   - **The tests.** All 267 EditMode tests pass, with the twelve `[Explicit]` tools skipped.
+     `StressScenesHaveTheirOcean` passes again.
+7. **The commits keep the user's earlier `Ocean.mat` tuning out.** That tuning (`_DepthScale` 50,
+   `_FarSmoothness` 1, `_FresnelStrength` 0.734, `_Smoothness` 0.889) stays uncommitted. Each commit
+   staged the committed material plus only its own new lines. All the frames above were rendered with the
+   user's tuning, which is what the Editor loads.
