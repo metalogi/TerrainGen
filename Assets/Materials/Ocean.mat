@@ -30,6 +30,9 @@ Material:
     - _CrestStrength: 0.5
     - _DepthScale: 20
     - _FarSmoothness: 0.5
+    - _FoamFull: 0.3
+    - _FoamStart: 0.15
+    - _FoamStrength: 0.6
     - _FresnelStrength: 0.6
     - _GlintFarDistance: 1000000
     - _Smoothness: 0.9
@@ -37,6 +40,7 @@ Material:
     m_Colors:
     - _CrestColor: {r: 0.22, g: 0.58, b: 0.56, a: 1}
     - _DeepColor: {r: 0.03, g: 0.16, b: 0.33, a: 1}
+    - _FoamColor: {r: 0.9, g: 0.93, b: 0.93, a: 1}
     - _ShallowColor: {r: 0.05, g: 0.35, b: 0.38, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
