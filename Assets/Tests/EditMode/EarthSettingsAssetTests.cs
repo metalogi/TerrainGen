@@ -142,7 +142,7 @@ namespace Sonoma.Tests
 
             // With waves (ocean-b, B6) the floor is the clearance above the highest crest: a camera
             // held at the flat sea's floor would sit inside a crest, and is lifted by the amplitude.
-            const double crest = 1.261;   // OceanWaves.asset's amplitude
+            const double crest = 1.261;   // a wave amplitude: OceanWaves.asset's as ocean-b first shipped it
             Assert.AreEqual(0.0, TopologyFlyCamera.SeaLift(sea + crest + TopologyFlyCamera.SeaClearance, sea, crest),
                 "at the clearance above the crest");
             Assert.AreEqual(crest, TopologyFlyCamera.SeaLift(sea + TopologyFlyCamera.SeaClearance, sea, crest), 1e-12,

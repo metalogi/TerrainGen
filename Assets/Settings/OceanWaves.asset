@@ -12,13 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00189f023996cdb4cb55326cf1b71587, type: 3}
   m_Name: OceanWaves
   m_EditorClassIdentifier: Sonoma.Core::Sonoma.Systems.Configuration.OceanWaveSettings
-  Count: 8
+  Count: 16
   ShortestWavelength: 1.5
-  LongestWavelength: 80
-  Steepness: 0.06
+  LongestWavelength: 1200
+  Steepness: 0.05
   SpectrumExponent: 0.1
-  Choppiness: 0.6
+  Choppiness: 0.8
   WindDirection: {x: 0, y: 0, z: 1}
-  SpreadDegrees: 50
+  SpreadDegrees: 106.2
   Seed: 1
   ShoalFactor: 0.25
