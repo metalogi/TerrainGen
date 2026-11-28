@@ -139,9 +139,14 @@ namespace Sonoma.Tests
             string skyPath = lit.Substring(sky, lit.IndexOf("#else", sky, System.StringComparison.Ordinal) - sky);
 
             StringAssert.Contains("float3 R    = reflect(-V, N);", skyPath, "S1: the sky path does not reflect the view off the wave normal");
-            StringAssert.IsMatch(@"smoothstep\(0\.0,\s*max\(_SkyGradientHeight,[^)]*\),\s*dot\(R,\s*topoUp\)\)", skyPath,
-                "S1: the reflected sky is not a gradient by the reflected ray's height above the horizon");
-            StringAssert.IsMatch(@"lerp\(SonomaHazeLight\(topoUp,\s*ml\),\s*_SonomaSkyAmbient\.rgb,\s*rise\)", skyPath,
+            // The gradient is SonomaSkyLight's, which the skybox draws too, so the sea reflects the
+            // sky the camera sees (AtmosphereSkyTests holds the skybox to it).
+            StringAssert.IsMatch(@"half3\s+sky\s*=\s*SonomaSkyLight\(R,\s*topoUp,\s*ml\);", skyPath,
+                "S1: the sea does not reflect the shared sky along the reflected ray");
+            string skyLight = SkyLightBody(source);
+            StringAssert.IsMatch(@"smoothstep\(0\.0,\s*max\(_SonomaAtmosphere\.z,[^)]*\),\s*dot\(dir,\s*up\)\)", skyLight,
+                "S1: the reflected sky is not a gradient by the ray's height above the horizon");
+            StringAssert.IsMatch(@"lerp\(SonomaHazeLight\(up,\s*ml\),\s*_SonomaSkyAmbient\.rgb,\s*rise\)", skyLight,
                 "S1: the gradient does not run from the lit haze at the horizon to the sky's ambient");
             StringAssert.DoesNotContain("half3 sky = _SonomaSkyAmbient.rgb;", skyPath, "S1: the reflected sky is still a constant");
 
@@ -170,10 +175,19 @@ namespace Sonoma.Tests
                            lit.IndexOf("color = lerp(color, sky, fresnel);", System.StringComparison.Ordinal),
                            "S3: the foam is blended before the reflection, which would then cover it");
 
+            // The gradient's height is the atmosphere's, one number for the sky and its reflection;
+            // a material property of the sea's own would be a second home for it.
             var material = AssetDatabase.LoadAssetAtPath<Material>(Material);
-            Assert.IsTrue(material.HasProperty("_SkyGradientHeight"), $"{Material}: no _SkyGradientHeight");
-            Assert.Greater(material.GetFloat("_SkyGradientHeight"), 0f, $"{Material}: _SkyGradientHeight");
+            Assert.IsFalse(material.HasProperty("_SkyGradientHeight"), $"{Material}: a sky gradient of the sea's own");
             Assert.Greater(material.GetFloat("_CrestStrength"), 0f, $"{Material}: the crests are off");
+        }
+
+        // SonomaSkyLight's body, from SonomaSky.hlsl as spliced into a shader's source.
+        internal static string SkyLightBody(string source)
+        {
+            int start = source.IndexOf("half3 SonomaSkyLight(", System.StringComparison.Ordinal);
+            Assert.GreaterOrEqual(start, 0, "SonomaSkyLight is not in the source");
+            return source.Substring(start, source.IndexOf("\n    }", start, System.StringComparison.Ordinal) - start);
         }
 
         // The shallows (Docs/Ocean_B_Shading_Plan.md, amendment 8): the sea is drawn in the

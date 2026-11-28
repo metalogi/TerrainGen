@@ -39,9 +39,9 @@ MonoBehaviour:
   Macro: {fileID: 11400000, guid: e436851ccd53404a9aa03e5c6df717e1, type: 2}
   SkyAmbient: {r: 0.26, g: 0.28, b: 0.32, a: 1}
   GroundAmbient: {r: 0.09, g: 0.08, b: 0.07, a: 1}
-  HazeColor: {r: 0.5, g: 0.6, b: 0.75, a: 1}
   HazeVisibility: 200000
   HazeScaleHeight: 3000
+  Atmosphere: {fileID: 11400000, guid: 8b012c1f7b704a8b98c80d86b38b7583, type: 2}
   Ocean: 1
   SeaLevel: 0
   OceanTerrainOverlap: 14.8

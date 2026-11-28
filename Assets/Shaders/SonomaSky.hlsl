@@ -17,6 +17,9 @@
     float4 _SonomaHaze;          // rgb: haze colour; a: density at the base surface, per metre
     float4 _SonomaSurface;       // x: SurfaceType (0 plane grid, 1 cube sphere, 2 cylinder);
                                  // y: radius; z: 1 / haze scale height, per metre
+    float4 _SonomaAtmosphere;    // x: thickness, metres; y: 1 / fade distance, per metre;
+                                 // z: sky gradient height, the sine of an elevation;
+                                 // w: 1 with an atmosphere, 0 without (AtmosphereParams.ShaderParams)
 
     // Altitude above the base surface of a point in absolute coordinates. SurfaceMath's
     // sphere is centred on the absolute origin, its cylinder runs along the Z axis and
@@ -28,6 +31,27 @@
         if (_SonomaSurface.x > 1.5) return _SonomaSurface.y - length(p.xy);
         if (_SonomaSurface.x > 0.5) return length(p) - _SonomaSurface.y;
         return p.y;
+    }
+
+    // The base surface's up at a point in absolute coordinates, as LodVertical.Altitude gives it:
+    // radial on a sphere, towards the axis from a cylinder's wall, +Y on a plane. The skybox's up
+    // at the camera; the terrain and sea have theirs as an attribute.
+    float3 SonomaUp(float3 p)
+    {
+        if (_SonomaSurface.x > 1.5) return normalize(float3(-p.x, -p.y, 0.0) + float3(1e-30, 0.0, 0.0));
+        if (_SonomaSurface.x > 0.5) return normalize(p + float3(0.0, 1e-30, 0.0));
+        return float3(0.0, 1.0, 0.0);
+    }
+
+    // The sky's brightness for a camera at p, absolute: 1 inside the atmosphere, 0 above it, by a
+    // smoothstep of the distance into the fade. AtmosphereParams.SkyFactor in float: on a sphere
+    // or plane, and inside a cylinder, the fade starts at the thickness; outside a cylinder, at the
+    // wall, since the air is held inside. 0 without an atmosphere, and with the global unset.
+    half SonomaSkyFactor(float3 p)
+    {
+        float a    = SonomaAltitude(p);
+        float into = _SonomaSurface.x > 1.5 && a < 0.0 ? -a : a - _SonomaAtmosphere.x;
+        return _SonomaAtmosphere.w * (1.0 - smoothstep(0.0, 1.0, into * _SonomaAtmosphere.y));
     }
 
     // Optical depth along the straight path from eye to p, both in render space, in
@@ -69,6 +93,18 @@
     {
         half day = smoothstep(-0.1, 0.3, dot(topoUp, ml.direction));
         return _SonomaHaze.rgb * (ml.color * day + _SonomaSkyAmbient.rgb);
+    }
+
+    // The sky seen along dir from a point whose local up is up, inside the air: the lit haze at the
+    // horizon, the colour the haze fades distant ground and sea to, so they meet the sky with no
+    // seam, rising to the sky's ambient by _SonomaAtmosphere.z, the sine of the elevation. At and
+    // below the horizon it is the haze. The skybox draws it along the view ray, the sea reflects it
+    // along the reflected one (Ocean_B_Shading_Plan.md, S1), so the sea reflects the sky the camera
+    // sees. A copy in either would drift.
+    half3 SonomaSkyLight(float3 dir, float3 up, Light ml)
+    {
+        half rise = smoothstep(0.0, max(_SonomaAtmosphere.z, 1e-3), dot(dir, up));
+        return lerp(SonomaHazeLight(up, ml), _SonomaSkyAmbient.rgb, rise);
     }
 
     // A lit colour seen through the haze between the camera and positionWS (render space),
