@@ -58,9 +58,11 @@
 //
 //   _SonomaSkyAmbient, _SonomaGroundAmbient, _SonomaHaze and _SonomaSurface (float4 each),
 //   from TerrainRoot.PushShaderGlobals out of the scene's TerrainSettings: the ambient from
-//   straight up and straight down, the haze colour and its density at the base surface, and
-//   the surface's type, radius and the haze's inverse scale height. Read only under
-//   _SONOMA_SKY. Globals because they are per scene and the material is shared by four.
+//   straight up and straight down, the haze colour (its Atmosphere's) and its density at the
+//   base surface, and the surface's type, radius and the haze's inverse scale height. Read only
+//   under _SONOMA_SKY. Globals because they are per scene and the material is shared by four.
+//   _SonomaAtmosphere (float4), the atmosphere's thickness, inverse fade distance and sky
+//   gradient, is read by the sea's reflection and the skybox (SonomaSkybox.shader), not here.
 //
 //   _SonomaViewPosition (float3), from TerrainRoot.PushShaderGlobals — the position the
 //   morph measures distance from, in render space, and the same one LodSelector selected

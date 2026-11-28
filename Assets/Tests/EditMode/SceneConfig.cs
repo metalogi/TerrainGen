@@ -39,6 +39,15 @@ namespace Sonoma.Tests
             return null;
         }
 
+        // The scene's RenderSettings (class ID 104): its skybox and ambient.
+        public static string RenderSettings(string scene)
+        {
+            foreach (string doc in Documents(scene))
+                if (doc.StartsWith("!u!104 ", StringComparison.Ordinal)) return doc;
+            Assert.Fail($"{scene} has no RenderSettings");
+            return null;
+        }
+
         static string[] Documents(string scene) =>
             File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Scenes", scene + ".unity"))
                 .Split(new[] { "\n--- " }, StringSplitOptions.None);

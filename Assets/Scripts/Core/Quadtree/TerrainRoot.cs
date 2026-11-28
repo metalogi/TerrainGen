@@ -80,6 +80,11 @@ namespace Sonoma.Core.Quadtree
         static readonly int     GroundAmbientId = Shader.PropertyToID("_SonomaGroundAmbient");
         static readonly int     HazeId          = Shader.PropertyToID("_SonomaHaze");
         static readonly int     SurfaceId       = Shader.PropertyToID("_SonomaSurface");
+        // The atmosphere the skybox fades by and the sky gradient it and the sea's reflection rise
+        // by (AtmosphereParams.ShaderParams); pushed in every scene, so none inherits another's sky.
+        public const string AtmosphereGlobal = "_SonomaAtmosphere";
+        static readonly int     AtmosphereId    = Shader.PropertyToID(AtmosphereGlobal);
+        AtmosphereParams        _atmosphere;
 
         // The ocean shader drops the water's skirts wherever the water is shallower than this: only
         // an Ocean chunk, everything deeper than the overlap, draws no terrain for a crack to show,
@@ -181,6 +186,13 @@ namespace Sonoma.Core.Quadtree
                 _params = _params.WithShore(Settings.SeaLevel, Settings.ShoreLead, Settings.ShoreReferenceSize);
             _lod    = LodMath.Create(Surface, Settings, _params);
             FillBiomeColors();
+            // The atmosphere the skybox draws, validated once. Without one the sky is black, and so
+            // is the colour any haze fades to.
+            _atmosphere = ResolveAtmosphere(Settings);
+            if (Settings.Atmosphere == null && Settings.HazeVisibility > 0f)
+                Debug.LogWarning("[TerrainRoot] The TerrainSettings have haze and no Atmosphere, which holds " +
+                                 "the haze's colour: the terrain fades to black with distance. Assign an " +
+                                 "AtmosphereSettings.");
 
             if (_params.IsOctaveStarved(Settings.MaxDepth))
                 Debug.LogWarning(
@@ -287,18 +299,42 @@ namespace Sonoma.Core.Quadtree
 
         // Every frame rather than once, like the morph ranges, and so that the sky can be tuned
         // in the inspector during play. A handful of multiplies; nothing allocates.
-        void PushSky()
+        //
+        // The atmosphere's extent is the one validated in Start; its colour is read live, as the
+        // other colours are, so it can be tuned in play.
+        void PushSky() => PushSky(Settings, Surface, _atmosphere);
+
+        static void PushSky(TerrainSettings settings, in SurfaceDef surface, in AtmosphereParams atmosphere)
         {
             bool  linear  = QualitySettings.activeColorSpace == ColorSpace.Linear;
-            Color sky     = linear ? Settings.SkyAmbient.linear    : Settings.SkyAmbient;
-            Color ground  = linear ? Settings.GroundAmbient.linear : Settings.GroundAmbient;
-            Color haze    = linear ? Settings.HazeColor.linear     : Settings.HazeColor;
-            float density = Settings.HazeVisibility > 0f ? VisibilityOpticalDepth / Settings.HazeVisibility : 0f;
+            Color sky     = linear ? settings.SkyAmbient.linear    : settings.SkyAmbient;
+            Color ground  = linear ? settings.GroundAmbient.linear : settings.GroundAmbient;
+            Color air     = settings.Atmosphere != null ? settings.Atmosphere.HazeColor : Color.black;
+            Color haze    = linear ? air.linear : air;
+            float density = settings.HazeVisibility > 0f ? VisibilityOpticalDepth / settings.HazeVisibility : 0f;
             Shader.SetGlobalVector(SkyAmbientId,    new Vector4(sky.r, sky.g, sky.b, 0f));
             Shader.SetGlobalVector(GroundAmbientId, new Vector4(ground.r, ground.g, ground.b, 0f));
             Shader.SetGlobalVector(HazeId,          new Vector4(haze.r, haze.g, haze.b, density));
-            Shader.SetGlobalVector(SurfaceId,       new Vector4((float)Surface.Type, (float)Surface.Radius,
-                                                                1f / Mathf.Max(Settings.HazeScaleHeight, 1f), 0f));
+            Shader.SetGlobalVector(SurfaceId,       new Vector4((float)surface.Type, (float)surface.Radius,
+                                                                1f / Mathf.Max(settings.HazeScaleHeight, 1f), 0f));
+            float4 a = atmosphere.ShaderParams;
+            Shader.SetGlobalVector(AtmosphereId,    new Vector4(a.x, a.y, a.z, a.w));
+        }
+
+        // The scene's atmosphere, or none: a black sky.
+        static AtmosphereParams ResolveAtmosphere(TerrainSettings settings) =>
+            settings.Atmosphere != null ? settings.Atmosphere.ToParams() : default;
+
+        // The skybox reads the sky's globals in edit mode too, where nothing else pushes them, so the
+        // Scene and Game views would show a black sky until play. OnValidate runs when the scene
+        // loads in the Editor and whenever this component or its inspector changes; the origin is 0
+        // there, so the camera's position is absolute. Settings mid-edit may not validate yet, and
+        // the push then waits for the next change.
+        void OnValidate()
+        {
+            if (Application.isPlaying || Settings == null) return;
+            try { PushSky(Settings, BuildSurface(), ResolveAtmosphere(Settings)); }
+            catch (System.ArgumentException) { }
         }
 
         // Unused slots are black, which the shader never weights: a vertex's weights are zero

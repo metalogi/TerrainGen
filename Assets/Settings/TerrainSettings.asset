@@ -30,3 +30,4 @@ MonoBehaviour:
   Persistence: 0.5
   Lacunarity: 2
   Seed: 42
+  Atmosphere: {fileID: 11400000, guid: c10b1ff4cb3c41a79002626ae81429a7, type: 2}

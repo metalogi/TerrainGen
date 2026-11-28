@@ -54,7 +54,8 @@
 //            variance of the waves the normal no longer resolves
 //   Fresnel  Schlick, towards the sky the wave reflects: under _SONOMA_SKY a gradient by the
 //            reflected ray's height above the local horizon, the lit haze at the horizon rising to
-//            the sky's ambient by _SkyGradientHeight (the sine of that height), so a wave's slope
+//            the sky's ambient by the atmosphere's sky gradient (SonomaSkyLight, shared with the
+//            skybox, so the sea reflects the sky the camera sees), so a wave's slope
 //            reads as light and dark; without it, the spherical harmonics in that direction
 //   shallows the floor shows through by T = 1 - smoothstep(0, _ShoreFadeDepth, depth), behind
 //            the reflection: opacity 1 - (1 - F) T, so the coast is a gradient, not a line
@@ -79,7 +80,6 @@ Shader "Sonoma/Ocean"
 
         [Header(Fresnel)]
         _FresnelStrength ("Fresnel Strength", Range(0, 1)) = 0.6
-        _SkyGradientHeight ("Sky Gradient Height (sine of the elevation)", Range(0.01, 1)) = 0.35
 
         [Header(Crests)]
         _CrestColor     ("Crest Color",     Color)       = (0.22, 0.58, 0.56, 1)
@@ -119,7 +119,6 @@ Shader "Sonoma/Ocean"
             float  _FarSmoothness;
             float  _GlintFarDistance;
             float  _FresnelStrength;
-            float  _SkyGradientHeight;
             float4 _CrestColor;
             float  _CrestStrength;
             float  _CrestBacklight;
@@ -301,9 +300,9 @@ Shader "Sonoma/Ocean"
                     // of a few degrees swings the reflected ray across most of that range, which is
                     // what makes waves read in a still frame (Ocean_B_Shading_Plan.md, S1). A ray
                     // reflected below the horizon, off a wave's back, takes the horizon's colour.
+                    // The skybox draws the same function along the view ray.
                     float3 R    = reflect(-V, N);
-                    half   rise = smoothstep(0.0, max(_SkyGradientHeight, 1e-3), dot(R, topoUp));
-                    half3  sky  = lerp(SonomaHazeLight(topoUp, ml), _SonomaSkyAmbient.rgb, rise);
+                    half3  sky  = SonomaSkyLight(R, topoUp, ml);
                     half3  foamAmbient = lerp(_SonomaGroundAmbient.rgb, _SonomaSkyAmbient.rgb, skyView);
                 #else
                     color += albedo * SampleSH(N) * 0.5;

@@ -161,16 +161,18 @@ namespace Sonoma.Systems.Configuration
         public Color SkyAmbient = new Color(0.26f, 0.28f, 0.32f, 1f);
         [Tooltip("Ambient light from straight down: the light the ground bounces back.")]
         public Color GroundAmbient = new Color(0.09f, 0.08f, 0.07f, 1f);
-        [Tooltip("The colour of the haze, lit by the sun on the day side and by SkyAmbient alone " +
-                 "on the night side.")]
-        public Color HazeColor = new Color(0.5f, 0.6f, 0.75f, 1f);
         [Tooltip("How far you can see through the haze at the base surface, in metres: the " +
-                 "distance at which it has taken 98% of the contrast. 0 turns haze off.")]
+                 "distance at which it has taken 98% of the contrast. 0 turns haze off. The haze's " +
+                 "colour is the Atmosphere's.")]
         [Min(0f)]
         public float HazeVisibility = 0f;
         [Tooltip("Altitude over which the haze thins by a factor of e, in metres.")]
         [Min(1f)]
         public float HazeScaleHeight = 3000f;
+        [Tooltip("The world's atmosphere: the colour of its air, which the haze fades to and the skybox " +
+                 "draws, and how far it reaches before the sky goes black. None is no air: a black sky, " +
+                 "and haze, if any, fading to black.")]
+        public AtmosphereSettings Atmosphere;
 
         [Header("Ocean")]
         [Tooltip("A flat sea at SeaLevel, drawn on the terrain's own chunks and morphed with them " +
